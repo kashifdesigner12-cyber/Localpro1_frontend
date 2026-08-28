@@ -1,0 +1,143 @@
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  "http://localhost:5000/api";
+
+// ==========================================
+// Parse Backend Response
+// ==========================================
+
+const parseResponse = async (response) => {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+};
+
+// ==========================================
+// Handle API Errors
+// ==========================================
+
+const handleResponse = async (response) => {
+  const data = await parseResponse(response);
+
+  if (response.status === 401) {
+    throw new Error("UNAUTHORIZED");
+  }
+
+  if (response.status === 403) {
+    throw new Error("FORBIDDEN");
+  }
+
+  if (!response.ok || data?.success === false) {
+    throw new Error(
+      data?.message ||
+        data?.error ||
+        "Dashboard request failed."
+    );
+  }
+
+  return data;
+};
+
+// ==========================================
+// Dashboard Service
+// ==========================================
+
+export const dashboardService = {
+  // ========================================
+  // GET /api/dashboard/stats
+  // Admin / Manager
+  // ========================================
+
+  async getStats() {
+    const response = await fetch(
+      `${API_URL}/dashboard/stats`,
+      {
+        method: "GET",
+
+        headers: {
+          Accept: "application/json",
+        },
+
+        credentials: "include",
+
+        cache: "no-store",
+      }
+    );
+
+    return handleResponse(response);
+  },
+
+  // ========================================
+  // GET /api/dashboard/summary
+  // Authenticated User
+  // ========================================
+
+  async getSummary() {
+    const response = await fetch(
+      `${API_URL}/dashboard/summary`,
+      {
+        method: "GET",
+
+        headers: {
+          Accept: "application/json",
+        },
+
+        credentials: "include",
+
+        cache: "no-store",
+      }
+    );
+
+    return handleResponse(response);
+  },
+
+  // ========================================
+  // GET /api/dashboard/activity
+  // Admin / Manager
+  // ========================================
+
+  async getActivity() {
+    const response = await fetch(
+      `${API_URL}/dashboard/activity`,
+      {
+        method: "GET",
+
+        headers: {
+          Accept: "application/json",
+        },
+
+        credentials: "include",
+
+        cache: "no-store",
+      }
+    );
+
+    return handleResponse(response);
+  },
+
+  // ========================================
+  // GET /api/dashboard/chart-data
+  // Admin / Manager
+  // ========================================
+
+  async getChartData() {
+    const response = await fetch(
+      `${API_URL}/dashboard/chart-data`,
+      {
+        method: "GET",
+
+        headers: {
+          Accept: "application/json",
+        },
+
+        credentials: "include",
+
+        cache: "no-store",
+      }
+    );
+
+    return handleResponse(response);
+  },
+};
