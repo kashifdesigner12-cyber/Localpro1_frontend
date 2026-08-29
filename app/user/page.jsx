@@ -84,6 +84,11 @@ const navigation = [
     href: "/user/settings",
     icon: Settings,
   },
+  {
+  label: "Policies",
+  href: "user/policies",
+  icon: ShieldCheck,
+},
 ];
 
 /* =========================================================
