@@ -4,10 +4,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
+  Activity,
   ArrowLeft,
+  Bell,
   CalendarDays,
   CheckCircle2,
   ClipboardList,
+  Clock3,
   FileText,
   LayoutDashboard,
   LogOut,
@@ -15,7 +18,7 @@ import {
   MessageSquare,
   Settings,
   ShieldCheck,
-  User,
+  UserRound,
   X,
 } from "lucide-react";
 
@@ -45,19 +48,39 @@ export default function PoliciesPage() {
       icon: ClipboardList,
     },
     {
-      label: "Attendance",
-      href: "/user/attendance",
+      label: "Calendar",
+      href: "/user/calendar",
       icon: CalendarDays,
     },
     {
-      label: "Conversations",
-      href: "/user/conversations",
+      label: "Attendance",
+      href: "/user/attendance",
+      icon: Clock3,
+    },
+    {
+      label: "Messages",
+      href: "/user/messages",
       icon: MessageSquare,
+    },
+    {
+      label: "Notifications",
+      href: "/user/notifications",
+      icon: Bell,
+    },
+    {
+      label: "Leave Requests",
+      href: "/user/leave-requests",
+      icon: FileText,
+    },
+    {
+      label: "Activity",
+      href: "/user/activity",
+      icon: Activity,
     },
     {
       label: "Profile",
       href: "/user/profile",
-      icon: User,
+      icon: UserRound,
     },
     {
       label: "Settings",
@@ -67,7 +90,7 @@ export default function PoliciesPage() {
     {
       label: "Policies",
       href: "/user/policies",
-      icon: FileText,
+      icon: ShieldCheck,
     },
   ];
 
@@ -130,7 +153,7 @@ export default function PoliciesPage() {
           <button
             type="button"
             onClick={closeSidebar}
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-white transition hover:bg-white/10 lg:hidden"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-white transition hover:bg-white/15 lg:hidden"
             aria-label="Close sidebar"
           >
             <X size={20} />
@@ -379,4 +402,3 @@ export default function PoliciesPage() {
     </div>
   );
 }
-

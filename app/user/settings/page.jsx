@@ -9,6 +9,7 @@ import {
   CalendarDays,
   Check,
   ClipboardList,
+  FileText,
   LayoutDashboard,
   Loader2,
   LogOut,
@@ -18,6 +19,7 @@ import {
   Save,
   Settings,
   ShieldCheck,
+  Clock3,
   UserRound,
   X,
 } from "lucide-react";
@@ -39,7 +41,7 @@ const navigation = [
     icon: LayoutDashboard,
   },
   {
-    label: "Tasks",
+    label: "My Tasks",
     href: "/user/tasks",
     icon: ClipboardList,
   },
@@ -47,6 +49,11 @@ const navigation = [
     label: "Calendar",
     href: "/user/calendar",
     icon: CalendarDays,
+  },
+  {
+    label: "Attendance",
+    href: "/user/attendance",
+    icon: Clock3,
   },
   {
     label: "Messages",
@@ -61,7 +68,7 @@ const navigation = [
   {
     label: "Leave Requests",
     href: "/user/leave-requests",
-    icon: Mail,
+    icon: FileText,
   },
   {
     label: "Activity",
@@ -77,6 +84,11 @@ const navigation = [
     label: "Settings",
     href: "/user/settings",
     icon: Settings,
+  },
+  {
+    label: "Policies",
+    href: "/user/policies",
+    icon: ShieldCheck,
   },
 ];
 
@@ -1014,7 +1026,7 @@ function UserNavItem({
       className={`group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold transition ${
         isActive
           ? "bg-[#2563EB] text-white shadow-sm"
-          : "text-white hover:bg-white/10"
+          : "bg-transparent text-white hover:bg-white/10 hover:text-white"
       }`}
     >
       <Icon

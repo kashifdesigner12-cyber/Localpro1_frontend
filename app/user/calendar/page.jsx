@@ -5,19 +5,23 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
+  Bell,
   CalendarDays,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
   Clock3,
+  FileText,
   LayoutDashboard,
   Loader2,
   LogOut,
-  Menu,
   MapPin,
+  Menu,
+  MessageSquare,
   Settings,
   ShieldCheck,
+  UserRound,
   X,
   XCircle,
 } from "lucide-react";
@@ -32,7 +36,7 @@ const navigation = [
     icon: LayoutDashboard,
   },
   {
-    label: "Tasks",
+    label: "My Tasks",
     href: "/user/tasks",
     icon: ClipboardList,
   },
@@ -42,14 +46,44 @@ const navigation = [
     icon: CalendarDays,
   },
   {
+    label: "Attendance",
+    href: "/user/attendance",
+    icon: Clock3,
+  },
+  {
+    label: "Messages",
+    href: "/user/messages",
+    icon: MessageSquare,
+  },
+  {
+    label: "Notifications",
+    href: "/user/notifications",
+    icon: Bell,
+  },
+  {
+    label: "Leave Requests",
+    href: "/user/leave-requests",
+    icon: FileText,
+  },
+  {
     label: "Activity",
     href: "/user/activity",
     icon: Activity,
   },
   {
+    label: "Profile",
+    href: "/user/profile",
+    icon: UserRound,
+  },
+  {
     label: "Settings",
     href: "/user/settings",
     icon: Settings,
+  },
+  {
+    label: "Policies",
+    href: "/user/policies",
+    icon: ShieldCheck,
   },
 ];
 
@@ -206,10 +240,6 @@ export default function UserCalendarPage() {
       console.error("loadCurrentUser error:", err);
 
       setUser(null);
-
-      // Do not redirect immediately on every API problem.
-      // Backend authentication middleware remains the source
-      // of truth for protected API requests.
     } finally {
       setUserLoading(false);
     }
@@ -223,12 +253,6 @@ export default function UserCalendarPage() {
     try {
       setLoading(true);
       setError("");
-
-      const year =
-        currentDate.getFullYear();
-
-      const month =
-        currentDate.getMonth() + 1;
 
       const startDate =
         formatApiDate(monthStart);
@@ -290,7 +314,6 @@ export default function UserCalendarPage() {
     }
   }, [
     apiRequest,
-    currentDate,
     formatApiDate,
     monthStart,
     monthEnd,
@@ -342,13 +365,6 @@ export default function UserCalendarPage() {
           : Array.isArray(tasksResponse?.data)
           ? tasksResponse.data
           : [];
-
-      /*
-       * The selected-day request is only used for validating/
-       * refreshing the selected date's backend data.
-       *
-       * The main month data remains in `events` and `tasks`.
-       */
 
       if (
         receivedEvents.length > 0 ||
@@ -691,8 +707,6 @@ export default function UserCalendarPage() {
   function handleDateClick(day) {
     setSelectedDate(day.fullDate);
 
-    // If user clicks a previous/next month date,
-    // move calendar to that month.
     if (!day.currentMonth) {
       setCurrentDate(
         new Date(
@@ -764,6 +778,9 @@ export default function UserCalendarPage() {
 
   const userName =
     user?.name ||
+    user?.fullName ||
+    user?.displayName ||
+    user?.email ||
     "User";
 
   const userRole =
@@ -1002,7 +1019,7 @@ export default function UserCalendarPage() {
 
             {/* ==================================================
                 CALENDAR
-            =================================================== */}
+            ================================================== */}
 
             <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
               {/* Toolbar */}
@@ -1303,7 +1320,7 @@ export default function UserCalendarPage() {
                           className="mx-auto text-slate-300"
                         />
 
-                        <p className="mt-3 text-sm font-semibold text-[#171B3A]">
+                        <p className="mt-3 text-sm font-bold text-[#171B3A]">
                           No events or tasks
                         </p>
 
@@ -1448,11 +1465,6 @@ function CalendarEventBadge({
 }) {
   const color =
     event?.color || "#2563EB";
-
-  const type =
-    event?.type ||
-    event?.eventType ||
-    "meeting";
 
   return (
     <div

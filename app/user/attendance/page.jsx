@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
   CalendarDays,
   Clock3,
@@ -11,20 +12,81 @@ import {
   CheckCircle2,
   AlertCircle,
   LayoutDashboard,
-  User,
+  UserRound,
   ClipboardList,
   Bell,
   Settings,
   Menu,
   X,
-  History,
   MessageSquare,
   MapPin,
+  FileText,
+  Activity,
+  ShieldCheck,
 } from "lucide-react";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ||
   "http://localhost:5000/api";
+
+const navigation = [
+  {
+    name: "Dashboard",
+    href: "/user",
+    icon: LayoutDashboard,
+  },
+  {
+    name: "My Tasks",
+    href: "/user/tasks",
+    icon: ClipboardList,
+  },
+  {
+    name: "Calendar",
+    href: "/user/calendar",
+    icon: CalendarDays,
+  },
+  {
+    name: "Attendance",
+    href: "/user/attendance",
+    icon: Clock3,
+    active: true,
+  },
+  {
+    name: "Messages",
+    href: "/user/messages",
+    icon: MessageSquare,
+  },
+  {
+    name: "Notifications",
+    href: "/user/notifications",
+    icon: Bell,
+  },
+  {
+    name: "Leave Requests",
+    href: "/user/leave-requests",
+    icon: FileText,
+  },
+  {
+    name: "Activity",
+    href: "/user/activity",
+    icon: Activity,
+  },
+  {
+    name: "Profile",
+    href: "/user/profile",
+    icon: UserRound,
+  },
+  {
+    name: "Settings",
+    href: "/user/settings",
+    icon: Settings,
+  },
+  {
+    name: "Policies",
+    href: "/user/policies",
+    icon: ShieldCheck,
+  },
+];
 
 export default function UserAttendancePage() {
   const [user, setUser] = useState(null);
@@ -41,7 +103,7 @@ export default function UserAttendancePage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   /* =========================================================
-      LOAD PAGE (PARALLEL FRESH FETCH & AUTO SYNC)
+     LOAD PAGE (PARALLEL FRESH FETCH & AUTO SYNC)
   ========================================================= */
 
   const loadPage = useCallback(async (isSilent = false) => {
@@ -170,7 +232,7 @@ export default function UserAttendancePage() {
   }, []);
 
   /* =========================================================
-      AUTO SYNC & EVENT LISTENERS
+     AUTO SYNC & EVENT LISTENERS
   ========================================================= */
 
   useEffect(() => {
@@ -201,7 +263,7 @@ export default function UserAttendancePage() {
   }, [loadPage]);
 
   /* =========================================================
-      GPS HELPER (GET CURRENT POSITION)
+     GPS HELPER (GET CURRENT POSITION)
   ========================================================= */
 
   function getCurrentGPSPosition() {
@@ -250,7 +312,7 @@ export default function UserAttendancePage() {
   }
 
   /* =========================================================
-      CHECK IN (WITH GPS VERIFICATION)
+     CHECK IN (WITH GPS VERIFICATION)
   ========================================================= */
 
   async function handleCheckIn() {
@@ -307,7 +369,7 @@ export default function UserAttendancePage() {
   }
 
   /* =========================================================
-      CHECK OUT
+     CHECK OUT
   ========================================================= */
 
   async function handleCheckOut() {
@@ -362,7 +424,7 @@ export default function UserAttendancePage() {
   }
 
   /* =========================================================
-      REFRESH
+     REFRESH
   ========================================================= */
 
   async function handleRefresh() {
@@ -372,7 +434,7 @@ export default function UserAttendancePage() {
   }
 
   /* =========================================================
-      ROBUST SCHEDULE RESOLVER (HANDLES ALL ADMIN FORMATS)
+     ROBUST SCHEDULE RESOLVER (HANDLES ALL ADMIN FORMATS)
   ========================================================= */
 
   const resolveActiveSchedule = () => {
@@ -565,56 +627,7 @@ export default function UserAttendancePage() {
   const hasSchedule = Boolean(scheduledTime || windowStart);
 
   /* =========================================================
-      NAVIGATION
-  ========================================================= */
-
-  const navigation = [
-    {
-      name: "Dashboard",
-      href: "/user",
-      icon: LayoutDashboard,
-    },
-    {
-      name: "My Tasks",
-      href: "/user/tasks",
-      icon: ClipboardList,
-    },
-    {
-      name: "Calendar",
-      href: "/user/calendar",
-      icon: CalendarDays,
-    },
-    {
-      name: "Attendance",
-      href: "/user/attendance",
-      icon: Clock3,
-      active: true,
-    },
-  
-    {
-      name: "Messages",
-      href: "/user/messages",
-      icon: MessageSquare,
-    },
-    {
-      name: "Notifications",
-      href: "/user/notifications",
-      icon: Bell,
-    },
-    {
-      name: "Profile",
-      href: "/user/profile",
-      icon: User,
-    },
-    {
-      name: "Settings",
-      href: "/user/settings",
-      icon: Settings,
-    },
-  ];
-
-  /* =========================================================
-      PAGE
+     PAGE
   ========================================================= */
 
   return (
@@ -1144,12 +1157,10 @@ function formatTime(value) {
 
   const str = String(value).trim();
 
-  // If already formatted like "9:00 AM" or "09:00 PM"
   if (/(am|pm)/i.test(str)) {
     return str;
   }
 
-  // Matches "09:00", "9:00", "09:00:00", "9:00:00"
   if (/^([01]?\d|2[0-3]):([0-5]\d)(:[0-5]\d)?$/.test(str)) {
     const parts = str.split(":");
     const h = Number(parts[0]);

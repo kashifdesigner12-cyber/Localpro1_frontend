@@ -23,6 +23,7 @@ import {
   AlertCircle,
   RefreshCw,
   XCircle,
+  UserRound,
 } from "lucide-react";
 
 const navigation = [
@@ -62,27 +63,21 @@ const navigation = [
     icon: Activity,
   },
   {
+    label: "Profile",
+    href: "/user/profile",
+    icon: UserRound,
+  },
+  {
     label: "Settings",
     href: "/user/settings",
     icon: Settings,
   },
+  {
+    label: "Policies",
+    href: "/user/policies",
+    icon: ShieldCheck,
+  },
 ];
-
-/*
-  IMPORTANT:
-  These values MUST exactly match the backend
-  VALID_LEAVE_TYPES array.
-
-  Backend accepts:
-  Annual
-  Sick
-  Casual
-  Emergency
-  Maternity
-  Paternity
-  Unpaid
-  Other
-*/
 
 const LEAVE_TYPES = [
   {
@@ -242,22 +237,12 @@ export default function UserLeaveRequestsPage() {
       setSubmitError("");
       setSubmitted(false);
 
-      /*
-        IMPORTANT:
-        form.leaveType already contains backend-compatible
-        values such as "Annual", "Sick", "Casual", etc.
-      */
-
       const payload = {
         leaveType: form.leaveType,
         startDate: form.startDate,
         endDate: form.endDate,
         reason: form.reason.trim(),
       };
-
-      /*
-        Extra frontend validation
-      */
 
       const validLeaveType = LEAVE_TYPES.some(
         (type) => type.value === payload.leaveType
@@ -316,15 +301,7 @@ export default function UserLeaveRequestsPage() {
 
       setForm(initialForm);
 
-      /*
-        Refresh actual backend data
-      */
-
       await fetchLeaveRequests();
-
-      /*
-        Close modal shortly after success
-      */
 
       setTimeout(() => {
         setShowForm(false);
@@ -1134,11 +1111,6 @@ function LeaveRequestRow({
   );
 
   const leaveType = request.leaveType || request.type || "—";
-
-  /*
-    Convert backend values to friendly labels
-    when displaying them in the table.
-  */
 
   const leaveTypeLabel =
     LEAVE_TYPES.find(

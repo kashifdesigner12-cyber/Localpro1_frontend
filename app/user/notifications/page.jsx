@@ -10,6 +10,7 @@ import {
   Check,
   CheckCheck,
   ClipboardList,
+  Clock3,
   FileText,
   LayoutDashboard,
   Loader2,
@@ -20,6 +21,7 @@ import {
   Settings,
   ShieldCheck,
   Trash2,
+  UserRound,
   X,
 } from "lucide-react";
 
@@ -43,6 +45,11 @@ const navigation = [
     icon: CalendarDays,
   },
   {
+    label: "Attendance",
+    href: "/user/attendance",
+    icon: Clock3,
+  },
+  {
     label: "Messages",
     href: "/user/messages",
     icon: MessageSquare,
@@ -63,9 +70,19 @@ const navigation = [
     icon: Activity,
   },
   {
+    label: "Profile",
+    href: "/user/profile",
+    icon: UserRound,
+  },
+  {
     label: "Settings",
     href: "/user/settings",
     icon: Settings,
+  },
+  {
+    label: "Policies",
+    href: "/user/policies",
+    icon: ShieldCheck,
   },
 ];
 
@@ -381,13 +398,6 @@ export default function UserNotificationsPage() {
    * =========================================================
    * DELETE READ NOTIFICATIONS
    * =========================================================
-   *
-   * Backend endpoint:
-   * DELETE /api/notifications/read
-   *
-   * Important:
-   * This deletes READ notifications only.
-   * Unread notifications remain untouched.
    */
 
   async function handleClearAll() {
@@ -542,21 +552,6 @@ export default function UserNotificationsPage() {
       timeStyle: "short",
     }).format(parsedDate);
   }
-
-  /*
-   * =========================================================
-   * VIEW NOTIFICATION
-   * =========================================================
-   *
-   * FIX:
-   * Task notification -> always opens My Tasks page.
-   *
-   * This prevents an invalid notification.actionUrl
-   * from sending the user to a 404 page.
-   *
-   * Other notification types continue using their
-   * existing actionUrl exactly as before.
-   */
 
   function getNotificationActionUrl(notification) {
     if (!notification) {
@@ -748,7 +743,7 @@ export default function UserNotificationsPage() {
 
         {/* ===================================================
             PAGE CONTENT
-        =================================================== */}
+        ================================================   */}
 
         <main className="min-h-[calc(100vh-4rem)] p-5 sm:p-6 lg:p-8">
           <div className="mx-auto w-full max-w-none space-y-6">

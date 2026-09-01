@@ -7,7 +7,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AlertTriangle,
-  ArrowLeft,
   Bell,
   CalendarDays,
   CheckCheck,
@@ -15,7 +14,6 @@ import {
   Clock3,
   File,
   FileText,
-  History,
   Image as ImageIcon,
   LayoutDashboard,
   Loader2,
@@ -103,7 +101,7 @@ const navigation = [
     icon: LayoutDashboard,
   },
   {
-    label: "Tasks",
+    label: "My Tasks",
     href: "/user/tasks",
     icon: ClipboardList,
   },
@@ -113,25 +111,29 @@ const navigation = [
     icon: CalendarDays,
   },
   {
+    label: "Attendance",
+    href: "/user/attendance",
+    icon: Clock3,
+  },
+  {
     label: "Messages",
     href: "/user/messages",
     icon: MessageSquare,
   },
   {
-    label: "Activity",
-    href: "/user/activity",
-    icon: Activity,
-  },
-  {
-    label: "Attendance",
-    href: "/user/attendance",
-    icon: Clock3,
-  },
-
-  {
     label: "Notifications",
     href: "/user/notifications",
     icon: Bell,
+  },
+  {
+    label: "Leave Requests",
+    href: "/user/leave-requests",
+    icon: FileText,
+  },
+  {
+    label: "Activity",
+    href: "/user/activity",
+    icon: Activity,
   },
   {
     label: "Profile",
@@ -142,6 +144,11 @@ const navigation = [
     label: "Settings",
     href: "/user/settings",
     icon: Settings,
+  },
+  {
+    label: "Policies",
+    href: "/user/policies",
+    icon: ShieldCheck,
   },
 ];
 

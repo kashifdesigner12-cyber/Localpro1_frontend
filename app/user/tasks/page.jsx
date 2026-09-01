@@ -25,6 +25,9 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   User,
+  Bell,
+  MessageSquare,
+  UserRound,
   X,
 } from "lucide-react";
 
@@ -38,7 +41,6 @@ const API_URL =
   process.env.NEXT_PUBLIC_API_URL ||
   "http://localhost:5000/api";
 
-// Backend base URL for static uploads (removes trailing /api)
 const BACKEND_BASE_URL = API_URL.replace(/\/api\/?$/, "");
 
 /* =========================================================
@@ -52,7 +54,7 @@ const navigation = [
     icon: LayoutDashboard,
   },
   {
-    label: "Tasks",
+    label: "My Tasks",
     href: "/user/tasks",
     icon: ClipboardList,
   },
@@ -62,14 +64,44 @@ const navigation = [
     icon: CalendarDays,
   },
   {
+    label: "Attendance",
+    href: "/user/attendance",
+    icon: Clock3,
+  },
+  {
+    label: "Messages",
+    href: "/user/messages",
+    icon: MessageSquare,
+  },
+  {
+    label: "Notifications",
+    href: "/user/notifications",
+    icon: Bell,
+  },
+  {
+    label: "Leave Requests",
+    href: "/user/leave-requests",
+    icon: FileText,
+  },
+  {
     label: "Activity",
     href: "/user/activity",
     icon: Activity,
   },
   {
+    label: "Profile",
+    href: "/user/profile",
+    icon: UserRound,
+  },
+  {
     label: "Settings",
     href: "/user/settings",
     icon: Settings,
+  },
+  {
+    label: "Policies",
+    href: "/user/policies",
+    icon: ShieldCheck,
   },
 ];
 
@@ -110,10 +142,6 @@ export default function UserTasksPage() {
       setError("");
       setUpdateError("");
 
-      /* -----------------------------------------------
-         GET LOGGED-IN USER
-      ------------------------------------------------ */
-
       const me = await authService.me();
 
       if (!me) {
@@ -138,10 +166,6 @@ export default function UserTasksPage() {
 
       setCurrentUser(user);
 
-      /* -----------------------------------------------
-         ROLE CHECK
-      ------------------------------------------------ */
-
       if (
         role !== "user" &&
         role !== "admin" &&
@@ -150,13 +174,6 @@ export default function UserTasksPage() {
         router.replace("/login");
         return;
       }
-
-      /* -----------------------------------------------
-         GET ASSIGNED TASKS
-         
-         Backend:
-         GET /api/tasks/my
-      ------------------------------------------------ */
 
       const response = await apiRequest(
         "/tasks/my",
@@ -169,10 +186,6 @@ export default function UserTasksPage() {
         normalizeTasks(response);
 
       setTasks(normalizedTasks);
-
-      /* -----------------------------------------------
-         UPDATE SELECTED TASK IF MODAL IS OPEN
-      ------------------------------------------------ */
 
       setSelectedTask((previous) => {
         if (!previous) return null;
@@ -346,14 +359,6 @@ export default function UserTasksPage() {
 
   /* =======================================================
      UPDATE TASK STATUS
-     
-     Backend:
-     PATCH /api/tasks/:id/status
-
-     Body:
-     {
-       "status": "Completed"
-     }
   ======================================================= */
 
   async function handleStatusChange(
@@ -484,10 +489,8 @@ export default function UserTasksPage() {
   ======================================================= */
 
   return (
-    <div className="flex min-h-screen w-full bg-[#F8FAFC]">
-
+    <div className="min-h-screen bg-[#F8FAFC]">
       {/* MOBILE OVERLAY */}
-
       {sidebarOpen && (
         <button
           type="button"
@@ -499,17 +502,15 @@ export default function UserTasksPage() {
         />
       )}
 
-      {/* SIDEBAR */}
-
+      {/* SIDEBAR - FIXED POSITION */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-[#171B3A] shadow-xl transition-transform duration-300 lg:static lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-[#171B3A] shadow-xl transition-transform duration-300 lg:translate-x-0 ${
           sidebarOpen
             ? "translate-x-0"
             : "-translate-x-full"
         }`}
       >
         {/* HEADER */}
-
         <div className="flex h-20 shrink-0 items-center justify-between border-b border-white/10 px-5">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#2563EB] text-white">
@@ -539,8 +540,7 @@ export default function UserTasksPage() {
         </div>
 
         {/* NAVIGATION */}
-
-        <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-5">
+        <nav className="flex-1 overflow-y-auto px-3 py-5">
           <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-300">
             Workspace
           </p>
@@ -561,7 +561,6 @@ export default function UserTasksPage() {
         </nav>
 
         {/* ACCOUNT */}
-
         <div className="shrink-0 border-t border-white/10 p-3">
           <div className="mb-2 flex items-center gap-3 rounded-xl px-3 py-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#2563EB] text-xs font-bold text-white">
@@ -611,13 +610,10 @@ export default function UserTasksPage() {
         </div>
       </aside>
 
-      {/* MAIN */}
-
-      <div className="flex min-w-0 flex-1 flex-col">
-
-        {/* TOP HEADER */}
-
-        <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between border-b border-slate-200 bg-white/95 px-5 backdrop-blur sm:px-6 lg:px-8">
+      {/* MAIN CONTAINER */}
+      <div className="lg:pl-64">
+        {/* TOP HEADER - FIXED POSITION */}
+        <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200 bg-white/95 px-5 backdrop-blur sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -640,23 +636,32 @@ export default function UserTasksPage() {
             </div>
           </div>
 
-          <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-[#EEF4FF] text-xs font-bold text-[#2563EB]">
-            {currentUser?.avatar ? (
-              <img
-                src={currentUser.avatar}
-                alt={userName}
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              userInitial
-            )}
+          <div className="flex items-center gap-3">
+            <Link
+              href="/user/notifications"
+              className="relative flex h-9 w-9 items-center justify-center rounded-full bg-[#EEF4FF] text-[#2563EB] transition hover:bg-blue-100"
+              aria-label="Notifications"
+            >
+              <Bell size={17} />
+            </Link>
+
+            <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-[#EEF4FF] text-xs font-bold text-[#2563EB]">
+              {currentUser?.avatar ? (
+                <img
+                  src={currentUser.avatar}
+                  alt={userName}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                userInitial
+              )}
+            </div>
           </div>
         </header>
 
-        {/* CONTENT */}
-
-        <main className="w-full flex-1 p-4 sm:p-6 lg:p-8">
-          <div className="w-full space-y-6">
+        {/* CONTENT - SCROLLABLE */}
+        <main className="h-[calc(100vh-4rem)] overflow-y-auto bg-[#F8FAFC] p-5 sm:p-6 lg:p-8">
+          <div className="mx-auto w-full max-w-7xl space-y-6">
 
             {/* HEADING */}
 
@@ -1050,7 +1055,7 @@ export default function UserTasksPage() {
                 </div>
               </div>
 
-              {/* ATTACHMENT / FILE SECTION (NEW) */}
+              {/* ATTACHMENT / FILE SECTION */}
 
               {getTaskAttachments(selectedTask).length > 0 && (
                 <div>
@@ -1822,7 +1827,6 @@ function getTaskAttachments(task) {
   if (Array.isArray(task?.attachments)) {
     return task.attachments.filter((att) => att && (att.url || att.filename));
   }
-  // Single attachment backward compatibility
   if (task?.attachment && typeof task.attachment === "string") {
     return [{ url: task.attachment, filename: "Attachment" }];
   }

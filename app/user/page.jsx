@@ -85,10 +85,10 @@ const navigation = [
     icon: Settings,
   },
   {
-  label: "Policies",
-  href: "user/policies",
-  icon: ShieldCheck,
-},
+    label: "Policies",
+    href: "/user/policies",
+    icon: ShieldCheck,
+  },
 ];
 
 /* =========================================================
@@ -988,18 +988,6 @@ function UserNavItem({
   const pathname = usePathname();
 
   const Icon = item.icon;
-
-  /*
-   * Exact active matching:
-   *
-   * /user                -> Dashboard
-   * /user/tasks          -> My Tasks
-   * /user/attendance     -> Attendance
-   * /user/attendance/... -> Attendance
-   *
-   * Dashboard is kept separate so /user/tasks
-   * does NOT make Dashboard active.
-   */
 
   const isActive =
     pathname === item.href ||

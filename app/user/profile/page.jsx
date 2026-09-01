@@ -9,6 +9,7 @@ import {
   CalendarDays,
   Camera,
   ClipboardList,
+  FileText,
   LayoutDashboard,
   LogOut,
   Mail,
@@ -18,6 +19,7 @@ import {
   Save,
   Settings,
   ShieldCheck,
+  Clock3,
   UserRound,
   X,
 } from "lucide-react";
@@ -31,7 +33,7 @@ const navigation = [
     icon: LayoutDashboard,
   },
   {
-    label: "Tasks",
+    label: "My Tasks",
     href: "/user/tasks",
     icon: ClipboardList,
   },
@@ -41,9 +43,24 @@ const navigation = [
     icon: CalendarDays,
   },
   {
+    label: "Attendance",
+    href: "/user/attendance",
+    icon: Clock3,
+  },
+  {
     label: "Messages",
     href: "/user/messages",
     icon: MessageSquare,
+  },
+  {
+    label: "Notifications",
+    href: "/user/notifications",
+    icon: Bell,
+  },
+  {
+    label: "Leave Requests",
+    href: "/user/leave-requests",
+    icon: FileText,
   },
   {
     label: "Activity",
@@ -51,9 +68,19 @@ const navigation = [
     icon: Activity,
   },
   {
+    label: "Profile",
+    href: "/user/profile",
+    icon: UserRound,
+  },
+  {
     label: "Settings",
     href: "/user/settings",
     icon: Settings,
+  },
+  {
+    label: "Policies",
+    href: "/user/policies",
+    icon: ShieldCheck,
   },
 ];
 
@@ -208,13 +235,6 @@ export default function UserProfilePage() {
 
   // =====================================================
   // CONVERT IMAGE TO DATA URL
-  //
-  // Current backend has no upload endpoint.
-  // avatar is a String field.
-  //
-  // Therefore this temporarily converts the selected
-  // image into a data URL so the existing avatar field
-  // can persist it.
   // =====================================================
 
   function fileToDataUrl(file) {
@@ -254,8 +274,6 @@ export default function UserProfilePage() {
     try {
       let avatar = user?.avatar || null;
 
-      // Convert newly selected image into a string
-      // because backend currently accepts avatar as String.
       if (profileImage) {
         avatar = await fileToDataUrl(profileImage);
       }
@@ -275,7 +293,6 @@ export default function UserProfilePage() {
 
       const updatedUser = response.user;
 
-      // Update local React state with actual backend response.
       setUser(updatedUser);
 
       setForm({
@@ -289,7 +306,6 @@ export default function UserProfilePage() {
 
       setSaved(true);
 
-      // Remove temporary blob preview if needed.
       if (
         imagePreview &&
         imagePreview.startsWith("blob:")
@@ -504,13 +520,13 @@ export default function UserProfilePage() {
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              type="button"
+            <Link
+              href="/user/notifications"
               className="flex h-9 w-9 items-center justify-center rounded-full text-[#64748B] transition hover:bg-slate-100 hover:text-[#26344D]"
               aria-label="Notifications"
             >
               <Bell size={18} />
-            </button>
+            </Link>
 
             <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-[#EEF4FF] text-xs font-bold text-[#2563EB]">
               {user?.avatar ? (
@@ -859,7 +875,7 @@ export default function UserProfilePage() {
                   <p className="mt-1 text-xs leading-5 text-green-700">
                     Your profile is connected to the
                     backend. Changes are saved to the
-                    authenticated user's database record
+                    authenticated user&apos;s database record
                     and will be loaded again when you
                     refresh the page.
                   </p>

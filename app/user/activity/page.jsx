@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
+  Bell,
   CalendarDays,
   ClipboardList,
   Clock3,
+  FileText,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -22,6 +24,8 @@ import {
   AlertCircle,
 } from "lucide-react";
 
+import { authService } from "@/services/authService";
+
 const navigation = [
   {
     label: "Dashboard",
@@ -29,7 +33,7 @@ const navigation = [
     icon: LayoutDashboard,
   },
   {
-    label: "Tasks",
+    label: "My Tasks",
     href: "/user/tasks",
     icon: ClipboardList,
   },
@@ -39,9 +43,24 @@ const navigation = [
     icon: CalendarDays,
   },
   {
+    label: "Attendance",
+    href: "/user/attendance",
+    icon: Clock3,
+  },
+  {
     label: "Messages",
     href: "/user/messages",
     icon: MessageSquare,
+  },
+  {
+    label: "Notifications",
+    href: "/user/notifications",
+    icon: Bell,
+  },
+  {
+    label: "Leave Requests",
+    href: "/user/leave-requests",
+    icon: FileText,
   },
   {
     label: "Activity",
@@ -57,6 +76,11 @@ const navigation = [
     label: "Settings",
     href: "/user/settings",
     icon: Settings,
+  },
+  {
+    label: "Policies",
+    href: "/user/policies",
+    icon: ShieldCheck,
   },
 ];
 
@@ -84,9 +108,10 @@ const activityTypes = [
 ];
 
 const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
 
 export default function UserActivityPage() {
+  const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [search, setSearch] = useState("");
@@ -102,7 +127,7 @@ export default function UserActivityPage() {
       setError("");
 
       const response = await fetch(
-        `${API_BASE_URL}/api/activity/my`,
+        `${API_BASE_URL}/activity/my`,
         {
           method: "GET",
           credentials: "include",
@@ -122,6 +147,10 @@ export default function UserActivityPage() {
       }
 
       if (!response.ok) {
+        if (response.status === 401) {
+          router.replace("/login");
+          return;
+        }
         throw new Error(
           data?.message ||
             "Failed to load activity records."
@@ -130,6 +159,8 @@ export default function UserActivityPage() {
 
       const activityData = Array.isArray(data?.activities)
         ? data.activities
+        : Array.isArray(data?.data)
+        ? data.data
         : [];
 
       setActivities(activityData);
@@ -162,16 +193,16 @@ export default function UserActivityPage() {
     return activities.filter((activity) => {
       const matchesSearch =
         !searchValue ||
-        activity.title
+        activity?.title
           ?.toLowerCase()
           .includes(searchValue) ||
-        activity.description
+        activity?.description
           ?.toLowerCase()
           .includes(searchValue);
 
       const matchesType =
         activityType === "all" ||
-        activity.type === activityType;
+        activity?.type === activityType;
 
       return matchesSearch && matchesType;
     });
@@ -235,49 +266,35 @@ export default function UserActivityPage() {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto px-3 py-5">
-          <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-300">
-            Workspace
-          </p>
-
-          <div className="space-y-1.5">
-            {navigation.map((item) => (
-              <UserNavItem
-                key={item.href}
-                item={item}
-                onNavigate={() =>
-                  setSidebarOpen(false)
-                }
-              />
-            ))}
-          </div>
+        <nav className="flex-1 overflow-y-auto px-4 py-4 space-y-1">
+          {navigation.map((item) => (
+            <UserNavItem
+              key={item.href}
+              item={item}
+              onNavigate={() =>
+                setSidebarOpen(false)
+              }
+            />
+          ))}
         </nav>
 
-        {/* User Area */}
-        <div className="border-t border-white/10 p-3">
-          <div className="mb-2 flex items-center gap-3 rounded-xl px-3 py-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#2563EB] text-xs font-bold text-white">
-              U
-            </div>
-
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-white">
-                User
-              </p>
-
-              <p className="truncate text-xs font-medium text-slate-300">
-                User Account
-              </p>
-            </div>
-          </div>
-
+        {/* Logout */}
+        <div className="shrink-0 border-t border-white/10 p-4">
           <button
             type="button"
-            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-white/10"
+            onClick={async () => {
+              try {
+                await authService.logout();
+              } catch (logoutError) {
+                console.error("Logout error:", logoutError);
+              } finally {
+                router.replace("/login");
+              }
+            }}
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
           >
-            <LogOut size={17} />
-
-            <span>Sign Out</span>
+            <LogOut size={18} />
+            <span>Logout</span>
           </button>
         </div>
       </aside>
@@ -307,8 +324,23 @@ export default function UserActivityPage() {
             </div>
           </div>
 
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#EEF4FF] text-xs font-bold text-[#2563EB]">
-            U
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={fetchActivities}
+              disabled={loading}
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-[#64748B] transition hover:bg-[#EEF4FF] hover:text-[#2563EB]"
+              aria-label="Refresh activity"
+            >
+              <RefreshCw
+                size={16}
+                className={loading ? "animate-spin" : ""}
+              />
+            </button>
+
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#EEF4FF] text-xs font-bold text-[#2563EB]">
+              U
+            </div>
           </div>
         </header>
 
@@ -450,7 +482,6 @@ export default function UserActivityPage() {
                     className="mt-5 inline-flex h-11 items-center gap-2 rounded-xl bg-[#2563EB] px-5 text-sm font-bold text-white transition hover:-translate-y-0.5 hover:bg-[#1D4ED8]"
                   >
                     <RefreshCw size={16} />
-
                     Try Again
                   </button>
                 </div>
@@ -528,7 +559,7 @@ export default function UserActivityPage() {
 }
 
 function ActivityItem({ activity }) {
-  const formattedDate = activity.createdAt
+  const formattedDate = activity?.createdAt
     ? new Date(
         activity.createdAt
       ).toLocaleString()
@@ -544,18 +575,17 @@ function ActivityItem({ activity }) {
         <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h3 className="text-sm font-bold text-[#171B3A]">
-              {activity.title}
+              {activity?.title || "Activity"}
             </h3>
 
             <p className="mt-1 text-sm leading-6 text-[#64748B]">
-              {activity.description}
+              {activity?.description || ""}
             </p>
           </div>
 
           {formattedDate && (
             <div className="flex shrink-0 items-center gap-1.5 text-xs text-slate-400">
               <Clock3 size={14} />
-
               <span>{formattedDate}</span>
             </div>
           )}
