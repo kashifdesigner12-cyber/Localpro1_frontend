@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 
 import {
   CalendarDays,
@@ -10,9 +10,13 @@ import {
   FileText,
   Flag,
   Loader2,
+  Paperclip,
   Save,
+  Trash2,
+  UploadCloud,
   User,
   UserCheck,
+  X,
 } from "lucide-react";
 
 import { authService } from "@/services/authService";
@@ -27,6 +31,7 @@ const API_URL =
 
 export default function ManagerNewTaskPage() {
   const router = useRouter();
+  const fileInputRef = useRef(null);
 
   const [teamMembers, setTeamMembers] = useState([]);
   const [currentManager, setCurrentManager] = useState(null);
@@ -46,6 +51,9 @@ export default function ManagerNewTaskPage() {
     priority: "Medium",
     dueDate: "",
   });
+
+  // Task Attachment State
+  const [selectedFile, setSelectedFile] = useState(null);
 
   // =====================================================
   // LOAD AUTH + TEAM MEMBERS
@@ -311,6 +319,32 @@ export default function ManagerNewTaskPage() {
   }
 
   // =====================================================
+  // FILE CHANGE & REMOVE
+  // =====================================================
+
+  function handleFileChange(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // 10MB limit check
+    if (file.size > 10 * 1024 * 1024) {
+      setError("File size cannot exceed 10MB.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    setSelectedFile(file);
+    setError("");
+  }
+
+  function handleRemoveFile() {
+    setSelectedFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
+
+  // =====================================================
   // ASSIGN TEAM MEMBER
   // =====================================================
 
@@ -451,43 +485,31 @@ export default function ManagerNewTaskPage() {
       setSubmitting(true);
 
       // -----------------------------------------------
-      // BACKEND PAYLOAD
-      //
-      // createdBy -> backend handles it
-      // status -> backend handles initial status
-      // assignedToName -> frontend-only field
+      // FORMDATA PAYLOAD (FOR MULTIPART/FILE UPLOAD)
       // -----------------------------------------------
 
-      const payload = {
-        title,
-        description,
-        assignedTo:
-          form.assignedTo,
-        priority:
-          form.priority,
-        dueDate:
-          form.dueDate,
-      };
+      const formData = new FormData();
+      formData.append("title", title);
+      formData.append("description", description);
+      formData.append("assignedTo", form.assignedTo);
+      formData.append("priority", form.priority);
+      formData.append("dueDate", form.dueDate);
+
+      if (selectedFile) {
+        formData.append("file", selectedFile);
+      }
 
       const response =
         await fetch(
           `${API_URL}/tasks`,
           {
             method: "POST",
-
             credentials: "include",
-
+            // Note: Don't set Content-Type header manually; browser sets boundary
             headers: {
-              "Content-Type":
-                "application/json",
-
-              Accept:
-                "application/json",
+              Accept: "application/json",
             },
-
-            body: JSON.stringify(
-              payload
-            ),
+            body: formData,
           }
         );
 
@@ -557,6 +579,11 @@ export default function ManagerNewTaskPage() {
         dueDate: "",
       });
 
+      setSelectedFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+
       setTimeout(() => {
         router.push(
           "/manager/tasks"
@@ -575,6 +602,15 @@ export default function ManagerNewTaskPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  // Format file size
+  function formatBytes(bytes) {
+    if (!bytes) return "0 Bytes";
+    const k = 1024;
+    const sizes = ["Bytes", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
   }
 
   // =====================================================
@@ -718,7 +754,7 @@ export default function ManagerNewTaskPage() {
                 FORM BODY
                 ================================================= */}
 
-            <div className="w-full space-y-6 p-5 sm:p-6 lg:p-8">
+            <div className="w-full space-y-6 p-5 sm:p-6 lg:px-8">
 
               {/* =================================================
                   TITLE
@@ -788,6 +824,65 @@ export default function ManagerNewTaskPage() {
                   }
                   /500
                 </p>
+              </div>
+
+              {/* =================================================
+                  FILE ATTACHMENT (NEW)
+                  ================================================= */}
+
+              <div>
+                <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-[#26344D]">
+                  <Paperclip size={16} />
+                  Task Attachment (Optional)
+                </label>
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  id="taskFile"
+                  className="hidden"
+                  onChange={handleFileChange}
+                />
+
+                {!selectedFile ? (
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/60 p-6 transition hover:border-[#2563EB] hover:bg-blue-50/20"
+                  >
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-sm text-[#2563EB]">
+                      <UploadCloud size={20} />
+                    </div>
+                    <p className="mt-2 text-sm font-semibold text-[#26344D]">
+                      Click to upload file
+                    </p>
+                    <p className="text-xs text-[#64748B]">
+                      PDF, Images, Documents up to 10MB
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between rounded-xl border border-blue-100 bg-[#EEF4FF] p-3.5">
+                    <div className="flex items-center gap-3 truncate">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#2563EB] text-white">
+                        <Paperclip size={17} />
+                      </div>
+                      <div className="truncate">
+                        <p className="truncate text-sm font-semibold text-[#171B3A]">
+                          {selectedFile.name}
+                        </p>
+                        <p className="text-xs text-[#64748B]">
+                          {formatBytes(selectedFile.size)}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleRemoveFile}
+                      className="ml-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-white hover:text-red-600"
+                    >
+                      <X size={17} />
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* =================================================
@@ -1024,7 +1119,7 @@ export default function ManagerNewTaskPage() {
                   ================================================= */}
 
               <div className="w-full rounded-xl border border-slate-200 bg-slate-50 p-4">
-                <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-3">
+                <div className="grid w-full grid-cols-1 gap-4 sm:grid-cols-4">
 
                   <PreviewItem
                     label="Status"
@@ -1045,6 +1140,13 @@ export default function ManagerNewTaskPage() {
                     value={
                       form.assignedToName ||
                       "Not assigned"
+                    }
+                  />
+
+                  <PreviewItem
+                    label="Attachment"
+                    value={
+                      selectedFile ? selectedFile.name : "None"
                     }
                   />
 

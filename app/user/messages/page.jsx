@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   Activity,
+  AlertTriangle,
   ArrowLeft,
   Bell,
   CalendarDays,
@@ -21,13 +22,18 @@ import {
   LogOut,
   Menu,
   MessageSquare,
+  MoreVertical,
   Paperclip,
   RefreshCw,
   Search,
   Send,
   Settings,
   ShieldCheck,
+  Trash2,
   UserRound,
+  Users,
+  Volume2,
+  VolumeX,
   X,
 } from "lucide-react";
 
@@ -45,6 +51,45 @@ const getFileUrl = (url) => {
     return url;
   }
   return `${BACKEND_BASE_URL}${url.startsWith("/") ? "" : "/"}${url}`;
+};
+
+/* ============================================================
+   AUDIO SYNTHESIZER: NOTIFICATION CHIME
+   Uses Web Audio API (Zero external MP3 dependency, never 404s)
+============================================================ */
+const playNotificationChime = () => {
+  try {
+    if (typeof window === "undefined") return;
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+
+    const ctx = new AudioCtx();
+    const now = ctx.currentTime;
+
+    const createNote = (frequency, startTime, duration) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(frequency, startTime);
+
+      gain.gain.setValueAtTime(0.18, startTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(startTime);
+      osc.stop(startTime + duration);
+    };
+
+    // Note 1 (E6 - 1318.5 Hz)
+    createNote(1318.51, now, 0.12);
+    // Note 2 (A6 - 1760 Hz)
+    createNote(1760.00, now + 0.08, 0.32);
+  } catch (err) {
+    console.warn("Chime playback error:", err);
+  }
 };
 
 /* ============================================================
@@ -82,11 +127,7 @@ const navigation = [
     href: "/user/attendance",
     icon: Clock3,
   },
-  {
-    label: "Attendance History",
-    href: "/user/attendance/history",
-    icon: History,
-  },
+
   {
     label: "Notifications",
     href: "/user/notifications",
@@ -130,7 +171,30 @@ export default function UserMessagesPage() {
 
   const [currentUser, setCurrentUser] = useState(null);
 
+  // Sound enable/mute toggle
+  const [soundEnabled, setSoundEnabled] = useState(true);
+
+  // Deletion state & modal
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [messageToDelete, setMessageToDelete] = useState(null);
+  const [deletingMessage, setDeletingMessage] = useState(false);
+
   const fileInputRef = useRef(null);
+  const messagesEndRef = useRef(null);
+  const selectedConversationRef = useRef(null);
+
+  useEffect(() => {
+    selectedConversationRef.current = selectedConversation;
+  }, [selectedConversation]);
+
+  // Auto scroll to bottom when messages change
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
 
   /* =======================================================
      LOAD CONVERSATIONS + CONTACTS
@@ -182,6 +246,47 @@ export default function UserMessagesPage() {
   useEffect(() => {
     loadConversations();
   }, [loadConversations]);
+
+  /* =======================================================
+     POLLING & INCOMING MESSAGE AUDIO NOTIFIER
+  ======================================================= */
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const activeConv = selectedConversationRef.current;
+      const conversationId = getConversationId(activeConv);
+
+      if (!conversationId) return;
+
+      try {
+        const response = await getConversationMessages(conversationId);
+        const fetchedMessages = normalizeMessages(response);
+
+        setMessages((prevMessages) => {
+          if (fetchedMessages.length > prevMessages.length) {
+            const latestMsg = fetchedMessages[fetchedMessages.length - 1];
+            const senderId = getUserId(latestMsg?.sender);
+            const myId = getUserId(currentUser);
+
+            // Play tone only if the message is from the other participant
+            if (
+              soundEnabled &&
+              senderId &&
+              myId &&
+              senderId.toString() !== myId.toString()
+            ) {
+              playNotificationChime();
+            }
+            return fetchedMessages;
+          }
+          return prevMessages;
+        });
+      } catch (pollErr) {
+        // Silent polling catch to prevent UI flicker
+      }
+    }, 3500);
+
+    return () => clearInterval(interval);
+  }, [currentUser, soundEnabled]);
 
   /* =======================================================
      BUILD DISPLAY LIST
@@ -362,7 +467,8 @@ export default function UserMessagesPage() {
       }
 
       const response = await getConversationMessages(conversationId);
-      setMessages(normalizeMessages(response));
+      const fetched = normalizeMessages(response);
+      setMessages(fetched);
     } catch (err) {
       console.error("Conversation selection error:", err);
 
@@ -502,6 +608,73 @@ export default function UserMessagesPage() {
   }
 
   /* =======================================================
+     DELETE MESSAGE (FOR ME / FOR EVERYONE)
+  ======================================================= */
+
+  function promptDeleteMessage(msg) {
+    setMessageToDelete(msg);
+    setDeleteModalOpen(true);
+  }
+
+  async function executeDeleteMessage(type) {
+    if (!messageToDelete) return;
+
+    const messageId = messageToDelete._id || messageToDelete.id;
+    if (!messageId) return;
+
+    try {
+      setDeletingMessage(true);
+
+      const endpoint =
+        type === "everyone"
+          ? `/messages/${messageId}/delete-for-everyone`
+          : `/messages/${messageId}/delete-for-me`;
+
+      const response = await apiRequest(endpoint, {
+        method: "POST",
+      });
+
+      if (type === "me") {
+        setMessages((prev) =>
+          prev.filter(
+            (m) => (m._id || m.id).toString() !== messageId.toString()
+          )
+        );
+      } else {
+        const updatedMsg = response?.data || response?.message;
+        setMessages((prev) =>
+          prev.map((m) => {
+            if ((m._id || m.id).toString() === messageId.toString()) {
+              return {
+                ...m,
+                ...(updatedMsg || {}),
+                body: "This message was deleted",
+                message: "This message was deleted",
+                isDeletedForEveryone: true,
+                attachments: [],
+              };
+            }
+            return m;
+          })
+        );
+      }
+
+      setDeleteModalOpen(false);
+      setMessageToDelete(null);
+
+      const conversationId = getConversationId(selectedConversation);
+      if (conversationId) {
+        refreshConversations(conversationId);
+      }
+    } catch (delError) {
+      console.error("Delete message failed:", delError);
+      alert(delError?.message || "Failed to delete message.");
+    } finally {
+      setDeletingMessage(false);
+    }
+  }
+
+  /* =======================================================
      REFRESH CONVERSATIONS
   ======================================================= */
 
@@ -535,7 +708,7 @@ export default function UserMessagesPage() {
 
   /* =======================================================
      SELECTED USER DETAILS
-  ====================================================== */
+  ======================================================= */
 
   const selectedName = selectedConversation
     ? getParticipantName(selectedConversation, currentUser)
@@ -571,11 +744,11 @@ export default function UserMessagesPage() {
   }
 
   /* =======================================================
-     UI RENDER
+     UI RENDER (STABLE LAYOUT H-SCREEN OVERFLOW-HIDDEN)
   ======================================================= */
 
   return (
-    <div className="min-h-screen w-full bg-[#F8FAFC]">
+    <div className="flex h-screen w-full overflow-hidden bg-[#F8FAFC]">
       {/* MOBILE OVERLAY */}
       {sidebarOpen && (
         <button
@@ -588,7 +761,7 @@ export default function UserMessagesPage() {
 
       {/* SIDEBAR */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-[#171B3A] text-white shadow-xl transition-transform duration-300 lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-[#171B3A] text-white shadow-xl transition-transform duration-300 lg:static lg:translate-x-0 ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
@@ -632,7 +805,7 @@ export default function UserMessagesPage() {
           </div>
         </nav>
 
-        <div className="border-t border-white/10 p-3">
+        <div className="shrink-0 border-t border-white/10 p-3">
           <div className="mb-2 flex items-center gap-3 rounded-xl px-3 py-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#2563EB] text-xs font-bold text-white">
               {currentUser?.avatar ? (
@@ -668,9 +841,9 @@ export default function UserMessagesPage() {
       </aside>
 
       {/* MAIN CONTENT AREA */}
-      <div className="lg:pl-64">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {/* TOP BAR */}
-        <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200 bg-white/95 px-5 backdrop-blur sm:px-6 lg:px-8">
+        <header className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 bg-white/95 px-5 backdrop-blur sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -687,6 +860,25 @@ export default function UserMessagesPage() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* SOUND MUTE / UNMUTE TOGGLE */}
+            <button
+              type="button"
+              onClick={() => {
+                const nextState = !soundEnabled;
+                setSoundEnabled(nextState);
+                if (nextState) playNotificationChime();
+              }}
+              className={`flex h-9 items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition ${
+                soundEnabled
+                  ? "border-blue-200 bg-blue-50 text-[#2563EB]"
+                  : "border-slate-200 bg-white text-slate-400"
+              }`}
+              title={soundEnabled ? "Notification sound is ON" : "Notification sound is MUTED"}
+            >
+              {soundEnabled ? <Volume2 size={15} /> : <VolumeX size={15} />}
+              <span className="hidden sm:inline">{soundEnabled ? "Sound ON" : "Muted"}</span>
+            </button>
+
             <button
               type="button"
               onClick={() => loadConversations()}
@@ -714,30 +906,9 @@ export default function UserMessagesPage() {
           </div>
         </header>
 
-        {/* WORKSPACE CHAT SECTION */}
-        <main className="min-h-[calc(100vh-4rem)] p-4 sm:p-5 lg:p-6 xl:p-8">
-          <div className="flex min-h-[calc(100vh-6rem)] w-full min-w-0 flex-col gap-5">
-            {/* Header */}
-            <section className="flex w-full shrink-0 flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-[#2563EB]">USER WORKSPACE</p>
-                <h1 className="mt-1 text-2xl font-bold tracking-tight text-[#171B3A] sm:text-3xl">
-                  Messages & Chats
-                </h1>
-                <p className="mt-2 text-sm text-[#64748B]">
-                  Connect and communicate with your team members and managers.
-                </p>
-              </div>
-
-              <Link
-                href="/user"
-                className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-[#26344D] shadow-sm transition hover:bg-slate-50"
-              >
-                <ArrowLeft size={17} />
-                Dashboard
-              </Link>
-            </section>
-
+        {/* WORKSPACE CHAT SECTION (STABLE VIEWPORT LOCK) */}
+        <main className="flex min-h-0 flex-1 flex-col p-4 sm:p-5 lg:p-6">
+          <div className="flex min-h-0 flex-1 w-full min-w-0 flex-col gap-4">
             {/* Error banner */}
             {error && (
               <section className="shrink-0 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
@@ -871,8 +1042,8 @@ export default function UserMessagesPage() {
                 </div>
               </aside>
 
-              {/* Right Column: Chat Screen */}
-              <div className="flex min-h-[600px] min-w-0 flex-col">
+              {/* Right Column: Chat Screen (Independent Scroll) */}
+              <div className="flex min-h-0 min-w-0 flex-col">
                 <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-4 sm:px-6">
                   <div className="flex min-w-0 items-center gap-3">
                     <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#EEF4FF] text-[#2563EB]">
@@ -904,7 +1075,7 @@ export default function UserMessagesPage() {
                   </div>
                 </div>
 
-                {/* Messages List */}
+                {/* Messages List (Scrollable Area) */}
                 <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
                   {!selectedConversation ? (
                     <NoConversationSelected />
@@ -925,13 +1096,15 @@ export default function UserMessagesPage() {
                           }
                           message={item}
                           currentUser={currentUser}
+                          onDeletePrompt={promptDeleteMessage}
                         />
                       ))}
+                      <div ref={messagesEndRef} />
                     </div>
                   )}
                 </div>
 
-                {/* Composer (Form with Paperclip Attachment Button) */}
+                {/* Composer (Form with Paperclip Attachment Button - Fixed Bottom) */}
                 <div className="shrink-0 border-t border-slate-100 bg-white p-4 sm:p-5">
                   {selectedFiles.length > 0 && (
                     <div className="mb-3 flex flex-wrap gap-2">
@@ -1033,15 +1206,99 @@ export default function UserMessagesPage() {
           </div>
         </main>
       </div>
+
+      {/* =======================================================
+          DELETE MESSAGE CONFIRMATION MODAL
+      ======================================================= */}
+      {deleteModalOpen && messageToDelete && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-100 bg-white p-6 shadow-2xl">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-50 text-red-600">
+                <Trash2 size={20} />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-[#171B3A]">
+                  Delete Message?
+                </h3>
+                <p className="text-xs text-[#64748B]">
+                  Choose how you want to delete this message.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-3 text-xs italic text-[#26344D]">
+              &ldquo;
+              {messageToDelete?.isDeletedForEveryone
+                ? "This message was deleted"
+                : messageToDelete?.body ||
+                  messageToDelete?.message ||
+                  (messageToDelete?.attachments?.length > 0 ? "Attachment" : "Message")}
+              &rdquo;
+            </div>
+
+            <div className="mt-6 flex flex-col gap-2.5">
+              {/* Delete for Everyone option (Only if sender and not already deleted for everyone) */}
+              {getUserId(messageToDelete?.sender)?.toString() ===
+                getUserId(currentUser)?.toString() &&
+                !messageToDelete?.isDeletedForEveryone && (
+                  <button
+                    type="button"
+                    disabled={deletingMessage}
+                    onClick={() => executeDeleteMessage("everyone")}
+                    className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-red-600 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-red-700 disabled:opacity-50"
+                  >
+                    {deletingMessage ? (
+                      <Loader2 size={16} className="animate-spin" />
+                    ) : (
+                      <Users size={16} />
+                    )}
+                    Delete for Everyone
+                  </button>
+                )}
+
+              {/* Delete for Me option */}
+              <button
+                type="button"
+                disabled={deletingMessage}
+                onClick={() => executeDeleteMessage("me")}
+                className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-[#26344D] transition hover:bg-slate-50 disabled:opacity-50"
+              >
+                {deletingMessage ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <Trash2 size={16} />
+                )}
+                Delete for Me
+              </button>
+
+              <button
+                type="button"
+                disabled={deletingMessage}
+                onClick={() => {
+                  setDeleteModalOpen(false);
+                  setMessageToDelete(null);
+                }}
+                className="mt-1 h-10 w-full text-center text-xs font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 /* =========================================================
-   MESSAGE BUBBLE
+   MESSAGE BUBBLE WITH 3-DOTS MENU
 ========================================================= */
 
-function MessageBubble({ message, currentUser }) {
+function MessageBubble({ message, currentUser, onDeletePrompt }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+
   const senderId = getUserId(message?.sender);
   const currentUserId = getUserId(currentUser);
 
@@ -1050,12 +1307,15 @@ function MessageBubble({ message, currentUser }) {
     currentUserId &&
     senderId.toString() === currentUserId.toString();
 
-  const body =
-    message?.body ||
-    message?.message ||
-    message?.text ||
-    message?.content ||
-    "";
+  const isDeleted = Boolean(message?.isDeletedForEveryone);
+
+  const body = isDeleted
+    ? "This message was deleted"
+    : message?.body ||
+      message?.message ||
+      message?.text ||
+      message?.content ||
+      "";
 
   const sender =
     message?.sender?.name ||
@@ -1063,27 +1323,86 @@ function MessageBubble({ message, currentUser }) {
     message?.from?.name ||
     "";
 
+  // Close popup menu on clicking outside
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setMenuOpen(false);
+      }
+    }
+    if (menuOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [menuOpen]);
+
   return (
-    <div className={`flex w-full ${isOutgoing ? "justify-end" : "justify-start"}`}>
+    <div
+      className={`group relative flex w-full items-center gap-2 ${
+        isOutgoing ? "justify-end" : "justify-start"
+      }`}
+    >
+      {/* 3-DOTS ACTION TRIGGER FOR OUTGOING MESSAGES (Left side of bubble) */}
+      {isOutgoing && !isDeleted && (
+        <div className="relative opacity-0 transition-opacity group-hover:opacity-100" ref={menuRef}>
+          <button
+            type="button"
+            onClick={() => setMenuOpen(!menuOpen)}
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            aria-label="Message options"
+          >
+            <MoreVertical size={15} />
+          </button>
+
+          {menuOpen && (
+            <div className="absolute bottom-full right-0 z-20 mb-1 w-44 rounded-xl border border-slate-100 bg-white py-1.5 shadow-xl">
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onDeletePrompt(message);
+                }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-red-600 transition hover:bg-red-50"
+              >
+                <Trash2 size={13} />
+                Delete Message
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* BUBBLE */}
       <div
         className={`max-w-[85%] rounded-2xl px-4 py-3 shadow-sm sm:max-w-[75%] ${
-          isOutgoing
+          isDeleted
+            ? "border border-slate-200 bg-slate-50 italic text-slate-400"
+            : isOutgoing
             ? "rounded-br-md bg-[#2563EB] text-white"
             : "rounded-bl-md border border-slate-200 bg-white text-[#26344D]"
         }`}
       >
-        {!isOutgoing && sender && (
+        {!isOutgoing && sender && !isDeleted && (
           <p className="mb-1 text-[10px] font-bold text-[#2563EB]">{sender}</p>
         )}
 
-        {body && (
-          <p className="whitespace-pre-wrap break-words text-sm leading-6">
-            {body}
-          </p>
+        {isDeleted ? (
+          <div className="flex items-center gap-1.5 text-xs">
+            <AlertTriangle size={13} />
+            <span>This message was deleted</span>
+          </div>
+        ) : (
+          body && (
+            <p className="whitespace-pre-wrap break-words text-sm leading-6">
+              {body}
+            </p>
+          )
         )}
 
         {/* ATTACHMENTS RENDERING */}
-        {Array.isArray(message?.attachments) && message.attachments.length > 0 && (
+        {!isDeleted && Array.isArray(message?.attachments) && message.attachments.length > 0 && (
           <div className="mt-2 space-y-1.5">
             {message.attachments.map((attachment, attachmentIndex) => {
               const mime = String(
@@ -1134,7 +1453,11 @@ function MessageBubble({ message, currentUser }) {
 
         <div
           className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${
-            isOutgoing ? "text-blue-100" : "text-slate-400"
+            isDeleted
+              ? "text-slate-400"
+              : isOutgoing
+              ? "text-blue-100"
+              : "text-slate-400"
           }`}
         >
           <span>
@@ -1143,9 +1466,39 @@ function MessageBubble({ message, currentUser }) {
             )}
           </span>
 
-          {isOutgoing && <CheckCheck size={12} />}
+          {isOutgoing && !isDeleted && <CheckCheck size={12} />}
         </div>
       </div>
+
+      {/* 3-DOTS ACTION TRIGGER FOR INCOMING MESSAGES (Right side of bubble) */}
+      {!isOutgoing && !isDeleted && (
+        <div className="relative opacity-0 transition-opacity group-hover:opacity-100" ref={menuRef}>
+          <button
+            type="button"
+            onClick={() => setMenuOpen(!menuOpen)}
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            aria-label="Message options"
+          >
+            <MoreVertical size={15} />
+          </button>
+
+          {menuOpen && (
+            <div className="absolute bottom-full left-0 z-20 mb-1 w-44 rounded-xl border border-slate-100 bg-white py-1.5 shadow-xl">
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onDeletePrompt(message);
+                }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-red-600 transition hover:bg-red-50"
+              >
+                <Trash2 size={13} />
+                Delete for Me
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1440,7 +1793,7 @@ async function apiRequest(endpoint, options = {}) {
       data?.message ||
         data?.error ||
         data?.errors?.[0]?.message ||
-        `Request failed with status ${response.status}`
+      `Request failed with status ${response.status}`
     );
     error.status = response.status;
     throw error;

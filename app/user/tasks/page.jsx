@@ -7,14 +7,18 @@ import {
   Activity,
   CalendarDays,
   CheckCircle2,
-  Clock,
   ClipboardList,
+  Clock,
   Clock3,
+  Download,
+  ExternalLink,
   Eye,
+  FileText,
   LayoutDashboard,
   Loader2,
   LogOut,
   Menu,
+  Paperclip,
   RefreshCw,
   Search,
   Settings,
@@ -26,9 +30,20 @@ import {
 
 import { authService } from "@/services/authService";
 
+/* =========================================================
+   API CONFIG
+========================================================= */
+
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ||
   "http://localhost:5000/api";
+
+// Backend base URL for static uploads (removes trailing /api)
+const BACKEND_BASE_URL = API_URL.replace(/\/api\/?$/, "");
+
+/* =========================================================
+   NAVIGATION
+========================================================= */
 
 const navigation = [
   {
@@ -59,7 +74,7 @@ const navigation = [
 ];
 
 /* =========================================================
-   USER TASKS PAGE
+   PAGE
 ========================================================= */
 
 export default function UserTasksPage() {
@@ -82,7 +97,6 @@ export default function UserTasksPage() {
 
   const [currentUser, setCurrentUser] = useState(null);
 
-  // Quick View Modal States
   const [selectedTask, setSelectedTask] = useState(null);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
 
@@ -94,9 +108,10 @@ export default function UserTasksPage() {
     try {
       setLoading(true);
       setError("");
+      setUpdateError("");
 
       /* -----------------------------------------------
-          Verify logged-in user
+         GET LOGGED-IN USER
       ------------------------------------------------ */
 
       const me = await authService.me();
@@ -124,16 +139,23 @@ export default function UserTasksPage() {
       setCurrentUser(user);
 
       /* -----------------------------------------------
-          Role protection
+         ROLE CHECK
       ------------------------------------------------ */
 
-      if (role !== "user" && role !== "admin" && role !== "manager") {
+      if (
+        role !== "user" &&
+        role !== "admin" &&
+        role !== "manager"
+      ) {
         router.replace("/login");
         return;
       }
 
       /* -----------------------------------------------
-          GET MY TASKS: GET /api/tasks/my
+         GET ASSIGNED TASKS
+         
+         Backend:
+         GET /api/tasks/my
       ------------------------------------------------ */
 
       const response = await apiRequest(
@@ -143,17 +165,39 @@ export default function UserTasksPage() {
         }
       );
 
-      const normalized =
+      const normalizedTasks =
         normalizeTasks(response);
 
-      setTasks(normalized);
+      setTasks(normalizedTasks);
+
+      /* -----------------------------------------------
+         UPDATE SELECTED TASK IF MODAL IS OPEN
+      ------------------------------------------------ */
+
+      setSelectedTask((previous) => {
+        if (!previous) return null;
+
+        const selectedId =
+          getTaskId(previous);
+
+        const freshTask =
+          normalizedTasks.find(
+            (task) =>
+              getTaskId(task) === selectedId
+          );
+
+        return freshTask || previous;
+      });
     } catch (err) {
       console.error(
         "User tasks load error:",
         err
       );
 
-      if (err?.status === 401) {
+      if (
+        err?.status === 401 ||
+        err?.status === 403
+      ) {
         router.replace("/login");
         return;
       }
@@ -172,15 +216,19 @@ export default function UserTasksPage() {
   }, [loadTasks]);
 
   /* =======================================================
-     LOGOUT HANDLER
+     LOGOUT
   ======================================================= */
 
   async function handleSignOut() {
     if (loggingOut) return;
+
     setLoggingOut(true);
 
     try {
-      if (typeof authService.logout === "function") {
+      if (
+        typeof authService.logout ===
+        "function"
+      ) {
         await authService.logout();
       }
     } catch (logoutError) {
@@ -206,7 +254,7 @@ export default function UserTasksPage() {
   }
 
   /* =======================================================
-     FILTERED TASKS
+     FILTER TASKS
   ======================================================= */
 
   const filteredTasks = useMemo(() => {
@@ -214,11 +262,13 @@ export default function UserTasksPage() {
       search.trim().toLowerCase();
 
     return tasks.filter((task) => {
-      const taskTitle =
+      const title =
         getTaskTitle(task).toLowerCase();
 
       const description =
-        getTaskDescription(task).toLowerCase();
+        getTaskDescription(
+          task
+        ).toLowerCase();
 
       const taskStatus =
         normalizeStatus(
@@ -232,7 +282,7 @@ export default function UserTasksPage() {
 
       const matchesSearch =
         !query ||
-        taskTitle.includes(query) ||
+        title.includes(query) ||
         description.includes(query);
 
       const matchesStatus =
@@ -259,7 +309,7 @@ export default function UserTasksPage() {
   ]);
 
   /* =======================================================
-     SUMMARY COUNTS
+     SUMMARY
   ======================================================= */
 
   const summary = useMemo(() => {
@@ -295,14 +345,23 @@ export default function UserTasksPage() {
   }, [tasks]);
 
   /* =======================================================
-     UPDATE TASK STATUS (PATCH /api/tasks/:id/status)
+     UPDATE TASK STATUS
+     
+     Backend:
+     PATCH /api/tasks/:id/status
+
+     Body:
+     {
+       "status": "Completed"
+     }
   ======================================================= */
 
   async function handleStatusChange(
     task,
     nextStatus
   ) {
-    const taskId = getTaskId(task);
+    const taskId =
+      getTaskId(task);
 
     if (!taskId) {
       setUpdateError(
@@ -315,8 +374,12 @@ export default function UserTasksPage() {
       getTaskStatus(task);
 
     if (
-      normalizeStatus(currentStatus) ===
-      normalizeStatus(nextStatus)
+      normalizeStatus(
+        currentStatus
+      ) ===
+      normalizeStatus(
+        nextStatus
+      )
     ) {
       return;
     }
@@ -326,45 +389,66 @@ export default function UserTasksPage() {
       setIsUpdatingStatus(true);
       setUpdateError("");
 
-      const response = await apiRequest(
-        `/tasks/${taskId}/status`,
-        {
-          method: "PATCH",
-          body: JSON.stringify({
-            status: nextStatus,
-          }),
-        }
-      );
+      const response =
+        await apiRequest(
+          `/tasks/${taskId}/status`,
+          {
+            method: "PATCH",
+            body: JSON.stringify({
+              status: nextStatus,
+            }),
+          }
+        );
 
       const updatedTask =
         extractTask(response);
 
-      setTasks((current) =>
-        current.map((item) =>
-          getTaskId(item) === taskId
-            ? {
-                ...item,
-                status: nextStatus,
-                ...(updatedTask || {}),
-              }
-            : item
+      setTasks((currentTasks) =>
+        currentTasks.map(
+          (item) => {
+            if (
+              getTaskId(item) !==
+              taskId
+            ) {
+              return item;
+            }
+
+            return {
+              ...item,
+              ...(updatedTask || {}),
+              status: nextStatus,
+            };
+          }
         )
       );
 
-      if (selectedTask && getTaskId(selectedTask) === taskId) {
-        setSelectedTask((prev) => ({
-          ...prev,
-          status: nextStatus,
-          ...(updatedTask || {}),
-        }));
-      }
+      setSelectedTask(
+        (previous) => {
+          if (
+            !previous ||
+            getTaskId(previous) !==
+              taskId
+          ) {
+            return previous;
+          }
+
+          return {
+            ...previous,
+            ...(updatedTask || {}),
+            status: nextStatus,
+          };
+        }
+      );
     } catch (err) {
       console.error(
         "Task status update error:",
         err
       );
 
-      if (err?.status === 401) {
+      if (
+        err?.status === 401 ||
+        err?.status === 403
+      ) {
         router.replace("/login");
         return;
       }
@@ -380,7 +464,7 @@ export default function UserTasksPage() {
   }
 
   /* =======================================================
-     USER DISPLAY
+     USER
   ======================================================= */
 
   const userName =
@@ -396,15 +480,13 @@ export default function UserTasksPage() {
       .toUpperCase() || "U";
 
   /* =======================================================
-     RENDER (FLEX FULL SCREEN WITH SIDEBAR & TOP HEADER)
+     RENDER
   ======================================================= */
 
   return (
     <div className="flex min-h-screen w-full bg-[#F8FAFC]">
 
-      {/* =================================================
-          MOBILE OVERLAY
-      ================================================= */}
+      {/* MOBILE OVERLAY */}
 
       {sidebarOpen && (
         <button
@@ -417,9 +499,7 @@ export default function UserTasksPage() {
         />
       )}
 
-      {/* =================================================
-          SIDEBAR
-      ================================================= */}
+      {/* SIDEBAR */}
 
       <aside
         className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-[#171B3A] shadow-xl transition-transform duration-300 lg:static lg:translate-x-0 ${
@@ -428,11 +508,11 @@ export default function UserTasksPage() {
             : "-translate-x-full"
         }`}
       >
-        {/* Sidebar Header / Logo */}
+        {/* HEADER */}
 
         <div className="flex h-20 shrink-0 items-center justify-between border-b border-white/10 px-5">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#2563EB] text-white shadow-sm">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#2563EB] text-white">
               <ShieldCheck size={22} />
             </div>
 
@@ -452,14 +532,13 @@ export default function UserTasksPage() {
             onClick={() =>
               setSidebarOpen(false)
             }
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-300 transition hover:bg-white/10 hover:text-white lg:hidden"
-            aria-label="Close sidebar"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-300 hover:bg-white/10 hover:text-white lg:hidden"
           >
             <X size={19} />
           </button>
         </div>
 
-        {/* Navigation */}
+        {/* NAVIGATION */}
 
         <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-5">
           <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-300">
@@ -467,19 +546,21 @@ export default function UserTasksPage() {
           </p>
 
           <div className="space-y-1.5">
-            {navigation.map((item) => (
-              <UserNavItem
-                key={item.href}
-                item={item}
-                onNavigate={() =>
-                  setSidebarOpen(false)
-                }
-              />
-            ))}
+            {navigation.map(
+              (item) => (
+                <UserNavItem
+                  key={item.href}
+                  item={item}
+                  onNavigate={() =>
+                    setSidebarOpen(false)
+                  }
+                />
+              )
+            )}
           </div>
         </nav>
 
-        {/* User Account Info In Sidebar */}
+        {/* ACCOUNT */}
 
         <div className="shrink-0 border-t border-white/10 p-3">
           <div className="mb-2 flex items-center gap-3 rounded-xl px-3 py-3">
@@ -510,7 +591,7 @@ export default function UserTasksPage() {
             type="button"
             onClick={handleSignOut}
             disabled={loggingOut}
-            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-white/10 disabled:opacity-60"
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-white hover:bg-white/10 disabled:opacity-60"
           >
             {loggingOut ? (
               <Loader2
@@ -520,6 +601,7 @@ export default function UserTasksPage() {
             ) : (
               <LogOut size={17} />
             )}
+
             <span>
               {loggingOut
                 ? "Signing Out..."
@@ -529,13 +611,11 @@ export default function UserTasksPage() {
         </div>
       </aside>
 
-      {/* =================================================
-          MAIN CONTENT AREA (WITH TOP HEADER)
-      ================================================= */}
+      {/* MAIN */}
 
       <div className="flex min-w-0 flex-1 flex-col">
 
-        {/* TOP HEADER BAR */}
+        {/* TOP HEADER */}
 
         <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between border-b border-slate-200 bg-white/95 px-5 backdrop-blur sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
@@ -544,8 +624,7 @@ export default function UserTasksPage() {
               onClick={() =>
                 setSidebarOpen(true)
               }
-              className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-[#26344D] transition hover:bg-slate-50 lg:hidden"
-              aria-label="Open sidebar"
+              className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-[#26344D] hover:bg-slate-50 lg:hidden"
             >
               <Menu size={20} />
             </button>
@@ -561,27 +640,25 @@ export default function UserTasksPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-[#EEF4FF] text-xs font-bold text-[#2563EB]">
-              {currentUser?.avatar ? (
-                <img
-                  src={currentUser.avatar}
-                  alt={userName}
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                userInitial
-              )}
-            </div>
+          <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-[#EEF4FF] text-xs font-bold text-[#2563EB]">
+            {currentUser?.avatar ? (
+              <img
+                src={currentUser.avatar}
+                alt={userName}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              userInitial
+            )}
           </div>
         </header>
 
-        {/* Page Content Body */}
+        {/* CONTENT */}
 
         <main className="w-full flex-1 p-4 sm:p-6 lg:p-8">
           <div className="w-full space-y-6">
 
-            {/* Heading Section */}
+            {/* HEADING */}
 
             <section className="flex w-full flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
               <div>
@@ -602,7 +679,7 @@ export default function UserTasksPage() {
                 type="button"
                 onClick={loadTasks}
                 disabled={loading}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-[#26344D] transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 shadow-xs"
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-[#26344D] shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {loading ? (
                   <Loader2
@@ -612,39 +689,56 @@ export default function UserTasksPage() {
                 ) : (
                   <RefreshCw size={17} />
                 )}
+
                 Refresh
               </button>
             </section>
 
-            {/* Error Notifications */}
+            {/* LOAD ERROR */}
 
             {error && (
               <section className="rounded-2xl border border-red-200 bg-red-50 p-4">
-                <div className="flex items-start gap-3">
-                  <div className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-red-500" />
+                <h2 className="text-sm font-bold text-red-700">
+                  Unable to load tasks
+                </h2>
 
-                  <div>
-                    <h2 className="text-sm font-bold text-red-700">
-                      Unable to load tasks
-                    </h2>
+                <p className="mt-1 text-xs leading-5 text-red-600">
+                  {error}
+                </p>
 
-                    <p className="mt-1 text-xs leading-5 text-red-600">
-                      {error}
-                    </p>
-                  </div>
+                <button
+                  type="button"
+                  onClick={loadTasks}
+                  className="mt-3 rounded-lg bg-red-600 px-3 py-2 text-xs font-bold text-white hover:bg-red-700"
+                >
+                  Try Again
+                </button>
+              </section>
+            )}
+
+            {/* UPDATE ERROR */}
+
+            {updateError && (
+              <section className="rounded-2xl border border-red-200 bg-red-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-red-700">
+                    {updateError}
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setUpdateError("")
+                    }
+                    className="text-red-500 hover:text-red-700"
+                  >
+                    <X size={17} />
+                  </button>
                 </div>
               </section>
             )}
 
-            {updateError && (
-              <section className="rounded-2xl border border-red-200 bg-red-50 p-4">
-                <p className="text-sm font-semibold text-red-700">
-                  {updateError}
-                </p>
-              </section>
-            )}
-
-            {/* SUMMARY CARDS */}
+            {/* SUMMARY */}
 
             <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <TaskSummaryCard
@@ -692,6 +786,7 @@ export default function UserTasksPage() {
 
             <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
               <div className="flex flex-col gap-3 lg:flex-row">
+
                 <div className="relative min-w-0 flex-1">
                   <Search
                     size={18}
@@ -718,20 +813,24 @@ export default function UserTasksPage() {
                       event.target.value
                     )
                   }
-                  className="h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm text-[#64748B] outline-none focus:border-[#2563EB] focus:ring-4 focus:ring-blue-500/10"
+                  className="h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm text-[#64748B] outline-none focus:border-[#2563EB]"
                 >
                   <option value="all">
                     All Statuses
                   </option>
+
                   <option value="Pending">
                     Pending
                   </option>
+
                   <option value="In Progress">
                     In Progress
                   </option>
+
                   <option value="Completed">
                     Completed
                   </option>
+
                   <option value="Cancelled">
                     Cancelled
                   </option>
@@ -744,20 +843,24 @@ export default function UserTasksPage() {
                       event.target.value
                     )
                   }
-                  className="h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm text-[#64748B] outline-none focus:border-[#2563EB] focus:ring-4 focus:ring-blue-500/10"
+                  className="h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm text-[#64748B] outline-none focus:border-[#2563EB]"
                 >
                   <option value="all">
                     All Priorities
                   </option>
+
                   <option value="Low">
                     Low
                   </option>
+
                   <option value="Medium">
                     Medium
                   </option>
+
                   <option value="High">
                     High
                   </option>
+
                   <option value="Urgent">
                     Urgent
                   </option>
@@ -766,19 +869,21 @@ export default function UserTasksPage() {
                 <button
                   type="button"
                   onClick={clearFilters}
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-[#64748B] transition hover:bg-slate-50 hover:text-[#26344D]"
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 text-sm font-semibold text-[#64748B] hover:bg-slate-50"
                 >
                   <SlidersHorizontal
                     size={17}
                   />
+
                   Clear Filters
                 </button>
               </div>
             </section>
 
-            {/* TASK TABLE */}
+            {/* TABLE */}
 
             <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+
               <div className="border-b border-slate-100 px-5 py-5 sm:px-6">
                 <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                   <div>
@@ -787,14 +892,16 @@ export default function UserTasksPage() {
                     </h2>
 
                     <p className="mt-1 text-sm text-[#64748B]">
-                      Tasks assigned to your account from workspace.
+                      Tasks assigned to your account.
                     </p>
                   </div>
 
                   {!loading && (
                     <span className="text-xs font-semibold text-slate-400">
                       Showing{" "}
-                      {filteredTasks.length}{" "}
+                      {
+                        filteredTasks.length
+                      }{" "}
                       of {tasks.length}
                     </span>
                   )}
@@ -831,7 +938,8 @@ export default function UserTasksPage() {
                     </thead>
 
                     <tbody>
-                      {filteredTasks.length === 0 ? (
+                      {filteredTasks.length ===
+                      0 ? (
                         <tr>
                           <td colSpan="5">
                             <EmptyTasks
@@ -839,8 +947,10 @@ export default function UserTasksPage() {
                                 Boolean(
                                   search.trim()
                                 ) ||
-                                status !== "all" ||
-                                priority !== "all"
+                                status !==
+                                  "all" ||
+                                priority !==
+                                  "all"
                               }
                               clearFilters={
                                 clearFilters
@@ -852,13 +962,17 @@ export default function UserTasksPage() {
                         filteredTasks.map(
                           (task) => (
                             <TaskRow
-                              key={getTaskId(
-                                task
-                              )}
+                              key={
+                                getTaskId(
+                                  task
+                                )
+                              }
                               task={task}
                               updating={
                                 updatingTaskId ===
-                                getTaskId(task)
+                                getTaskId(
+                                  task
+                                )
                               }
                               onStatusChange={
                                 handleStatusChange
@@ -877,160 +991,336 @@ export default function UserTasksPage() {
                 </div>
               )}
             </section>
-
           </div>
         </main>
       </div>
 
-      {/* ======================================================
-          TASK QUICK VIEW MODAL
-      ====================================================== */}
+      {/* =====================================================
+          TASK DETAILS MODAL
+      ===================================================== */}
 
       {selectedTask && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
-          <div className="relative w-full max-w-2xl rounded-2xl bg-white shadow-2xl border border-slate-100 max-h-[90vh] overflow-y-auto">
-            
-            {/* Modal Header */}
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-100 bg-white shadow-2xl">
+
+            {/* HEADER */}
+
             <div className="sticky top-0 z-10 flex items-start justify-between border-b border-slate-100 bg-white px-6 py-4">
-              <div>
-                <span className="text-[11px] font-mono uppercase tracking-wider text-slate-400">
-                  {getTaskId(selectedTask)}
+              <div className="min-w-0">
+                <span className="font-mono text-[11px] uppercase tracking-wider text-slate-400">
+                  {getTaskId(
+                    selectedTask
+                  )}
                 </span>
-                <h3 className="mt-0.5 text-lg font-bold text-[#171B3A]">
-                  {getTaskTitle(selectedTask)}
+
+                <h3 className="mt-1 text-lg font-bold text-[#171B3A]">
+                  {getTaskTitle(
+                    selectedTask
+                  )}
                 </h3>
               </div>
 
               <button
                 type="button"
-                onClick={() => setSelectedTask(null)}
-                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition"
+                onClick={() =>
+                  setSelectedTask(null)
+                }
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
               >
                 <X size={20} />
               </button>
             </div>
 
-            {/* Modal Body */}
-            <div className="p-6 space-y-6">
-              {/* Description */}
+            {/* BODY */}
+
+            <div className="space-y-6 p-6">
+
+              {/* DESCRIPTION */}
+
               <div>
                 <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
                   Description
                 </h4>
-                <div className="mt-2 rounded-xl bg-slate-50 p-4 border border-slate-100 text-sm text-[#26344D] leading-relaxed">
-                  {getTaskDescription(selectedTask) || "No description provided for this task."}
+
+                <div className="mt-2 rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm leading-relaxed text-[#26344D]">
+                  {getTaskDescription(
+                    selectedTask
+                  ) ||
+                    "No description provided for this task."}
                 </div>
               </div>
 
-              {/* Meta Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-xl border border-slate-100 p-4 bg-white">
+              {/* ATTACHMENT / FILE SECTION (NEW) */}
+
+              {getTaskAttachments(selectedTask).length > 0 && (
                 <div>
-                  <span className="text-xs text-slate-400 block mb-1">Created By</span>
+                  <h4 className="mb-2.5 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-slate-400">
+                    <Paperclip size={14} className="text-[#2563EB]" />
+                    Task Attachment
+                  </h4>
+
+                  <div className="space-y-2">
+                    {getTaskAttachments(selectedTask).map((att, idx) => {
+                      const fileUrl = getFullFileUrl(att.url);
+                      const displayName =
+                        att.originalName || att.filename || "Attached File";
+
+                      return (
+                        <div
+                          key={att.id || att._id || idx}
+                          className="flex items-center justify-between rounded-xl border border-blue-100 bg-[#F0F6FF] p-3.5 transition hover:border-blue-300"
+                        >
+                          <div className="flex items-center gap-3 truncate">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#2563EB] text-white">
+                              <FileText size={18} />
+                            </div>
+
+                            <div className="truncate">
+                              <p className="truncate text-sm font-bold text-[#171B3A]">
+                                {displayName}
+                              </p>
+
+                              <p className="text-xs font-medium text-slate-500">
+                                {att.size ? formatBytes(att.size) : "Document"}
+                                {att.fileType ? ` • ${att.fileType.split("/")[1]?.toUpperCase() || "FILE"}` : ""}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="ml-3 flex shrink-0 items-center gap-2">
+                            <a
+                              href={fileUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-[#26344D] shadow-sm transition hover:bg-slate-50"
+                            >
+                              <ExternalLink size={13} />
+                              Open
+                            </a>
+
+                            <a
+                              href={fileUrl}
+                              download={displayName}
+                              className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 text-xs font-bold text-white shadow-sm transition hover:bg-[#1D4ED8]"
+                            >
+                              <Download size={13} />
+                              Download
+                            </a>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* META */}
+
+              <div className="grid grid-cols-1 gap-4 rounded-xl border border-slate-100 bg-white p-4 sm:grid-cols-2">
+
+                <div>
+                  <span className="mb-1 block text-xs text-slate-400">
+                    Created By
+                  </span>
+
                   <div className="flex items-center gap-2">
-                    <User size={15} className="text-[#2563EB]" />
+                    <User
+                      size={15}
+                      className="text-[#2563EB]"
+                    />
+
                     <span className="text-sm font-semibold text-[#171B3A]">
-                      {selectedTask?.createdBy?.name || selectedTask?.createdBy?.email || "Manager / Admin"}
+                      {getCreatedByName(
+                        selectedTask
+                      )}
                     </span>
                   </div>
                 </div>
 
                 <div>
-                  <span className="text-xs text-slate-400 block mb-1">Due Date</span>
+                  <span className="mb-1 block text-xs text-slate-400">
+                    Due Date
+                  </span>
+
                   <div className="flex items-center gap-2">
-                    <Clock size={15} className="text-amber-500" />
+                    <Clock
+                      size={15}
+                      className="text-amber-500"
+                    />
+
                     <span className="text-sm font-semibold text-[#171B3A]">
-                      {formatDueDate(getTaskDueDate(selectedTask))}
+                      {formatDueDate(
+                        getTaskDueDate(
+                          selectedTask
+                        )
+                      )}
                     </span>
                   </div>
                 </div>
 
                 <div>
-                  <span className="text-xs text-slate-400 block mb-1">Priority</span>
-                  <PriorityBadge priority={getTaskPriority(selectedTask)} />
+                  <span className="mb-1 block text-xs text-slate-400">
+                    Priority
+                  </span>
+
+                  <PriorityBadge
+                    priority={getTaskPriority(
+                      selectedTask
+                    )}
+                  />
                 </div>
 
                 <div>
-                  <span className="text-xs text-slate-400 block mb-1">Category</span>
-                  <span className="text-xs font-semibold text-slate-700 bg-slate-100 px-2.5 py-0.5 rounded-full">
-                    {selectedTask?.category || "General"}
+                  <span className="mb-1 block text-xs text-slate-400">
+                    Category
+                  </span>
+
+                  <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                    {selectedTask?.category ||
+                      "General"}
                   </span>
                 </div>
               </div>
 
-              {/* Status Update Quick Selector */}
+              {/* STATUS */}
+
               <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+                <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400">
                   Update Status
                 </h4>
+
                 <div className="flex flex-wrap gap-2">
-                  {["Pending", "In Progress", "Completed"].map((st) => (
-                    <button
-                      key={st}
-                      type="button"
-                      disabled={isUpdatingStatus || getStatusSelectValue(getTaskStatus(selectedTask)) === st}
-                      onClick={() => handleStatusChange(selectedTask, st)}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition border ${
-                        getStatusSelectValue(getTaskStatus(selectedTask)) === st
-                          ? "bg-[#2563EB] text-white border-[#2563EB]"
-                          : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-                      } disabled:opacity-50`}
-                    >
-                      {getStatusSelectValue(getTaskStatus(selectedTask)) === st && <CheckCircle2 size={13} />}
-                      {st}
-                    </button>
-                  ))}
+                  {[
+                    "Pending",
+                    "In Progress",
+                    "Completed",
+                  ].map((taskStatus) => {
+                    const active =
+                      getStatusSelectValue(
+                        getTaskStatus(
+                          selectedTask
+                        )
+                      ) ===
+                      taskStatus;
+
+                    return (
+                      <button
+                        key={taskStatus}
+                        type="button"
+                        disabled={
+                          isUpdatingStatus ||
+                          active
+                        }
+                        onClick={() =>
+                          handleStatusChange(
+                            selectedTask,
+                            taskStatus
+                          )
+                        }
+                        className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-bold transition ${
+                          active
+                            ? "border-[#2563EB] bg-[#2563EB] text-white"
+                            : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                        } disabled:cursor-not-allowed disabled:opacity-50`}
+                      >
+                        {active && (
+                          <CheckCircle2
+                            size={13}
+                          />
+                        )}
+
+                        {taskStatus}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
-              {/* Comments Preview */}
-              {Array.isArray(selectedTask?.comments) && selectedTask.comments.length > 0 && (
-                <div>
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
-                    Comments ({selectedTask.comments.length})
-                  </h4>
-                  <div className="space-y-2 max-h-40 overflow-y-auto">
-                    {selectedTask.comments.map((c, i) => (
-                      <div key={c._id || i} className="rounded-lg bg-slate-50 p-3 text-xs border border-slate-100">
-                        <div className="flex justify-between text-slate-500 font-semibold mb-1">
-                          <span>{c.user?.name || "User"}</span>
-                          <span>{formatDueDate(c.createdAt)}</span>
-                        </div>
-                        <p className="text-slate-800">{c.text}</p>
-                      </div>
-                    ))}
+              {/* COMMENTS */}
+
+              {Array.isArray(
+                selectedTask?.comments
+              ) &&
+                selectedTask.comments
+                  .length > 0 && (
+                  <div>
+                    <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400">
+                      Comments (
+                      {
+                        selectedTask
+                          .comments
+                          .length
+                      }
+                      )
+                    </h4>
+
+                    <div className="max-h-40 space-y-2 overflow-y-auto">
+                      {selectedTask.comments.map(
+                        (comment, index) => (
+                          <div
+                            key={
+                              comment._id ||
+                              index
+                            }
+                            className="rounded-lg border border-slate-100 bg-slate-50 p-3"
+                          >
+                            <div className="mb-1 flex justify-between gap-3 text-slate-500">
+                              <span className="text-xs font-semibold">
+                                {comment?.user
+                                  ?.name ||
+                                  "User"}
+                              </span>
+
+                              <span className="text-[10px]">
+                                {formatDueDate(
+                                  comment?.createdAt
+                                )}
+                              </span>
+                            </div>
+
+                            <p className="text-xs text-slate-800">
+                              {comment?.text ||
+                                ""}
+                            </p>
+                          </div>
+                        )
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
             </div>
 
-            {/* Modal Footer */}
-            <div className="sticky bottom-0 flex items-center justify-end border-t border-slate-100 bg-white px-6 py-4">
+            {/* FOOTER */}
+
+            <div className="sticky bottom-0 flex justify-end border-t border-slate-100 bg-white px-6 py-4">
               <button
                 type="button"
-                onClick={() => setSelectedTask(null)}
-                className="h-10 rounded-xl bg-slate-100 hover:bg-slate-200 px-6 text-xs font-bold text-slate-700 transition"
+                onClick={() =>
+                  setSelectedTask(null)
+                }
+                className="h-10 rounded-xl bg-slate-100 px-6 text-xs font-bold text-slate-700 hover:bg-slate-200"
               >
                 Close
               </button>
             </div>
-
           </div>
         </div>
       )}
-
     </div>
   );
 }
 
 /* =========================================================
-   SIDEBAR NAV ITEM
+   SIDEBAR NAV
 ========================================================= */
 
 function UserNavItem({
   item,
   onNavigate,
 }) {
-  const pathname = usePathname();
+  const pathname =
+    usePathname();
+
   const Icon = item.icon;
 
   const isActive =
@@ -1047,12 +1337,11 @@ function UserNavItem({
       className={`group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold transition ${
         isActive
           ? "bg-[#2563EB] text-white shadow-sm"
-          : "bg-transparent text-white hover:bg-white/10"
+          : "text-white hover:bg-white/10"
       }`}
     >
       <Icon
         size={18}
-        strokeWidth={2}
         className="shrink-0 text-white"
       />
 
@@ -1073,27 +1362,64 @@ function TaskRow({
   onStatusChange,
   onViewDetails,
 }) {
-  const title = getTaskTitle(task);
-  const description = getTaskDescription(task);
-  const taskStatus = getTaskStatus(task);
-  const taskPriority = getTaskPriority(task);
-  const dueDate = getTaskDueDate(task);
-  const statusKey = normalizeStatus(taskStatus);
-  const overdue = isOverdue(dueDate, statusKey);
+  const title =
+    getTaskTitle(task);
+
+  const description =
+    getTaskDescription(task);
+
+  const taskStatus =
+    getTaskStatus(task);
+
+  const taskPriority =
+    getTaskPriority(task);
+
+  const dueDate =
+    getTaskDueDate(task);
+
+  const attachments =
+    getTaskAttachments(task);
+
+  const statusKey =
+    normalizeStatus(
+      taskStatus
+    );
+
+  const overdue =
+    isOverdue(
+      dueDate,
+      statusKey
+    );
 
   return (
-    <tr className="border-b border-slate-100 transition last:border-b-0 hover:bg-slate-50/60">
-      {/* Task */}
+    <tr className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/60">
+
+      {/* TASK */}
+
       <td className="px-5 py-4 sm:px-6">
         <div className="flex min-w-[280px] items-start gap-3">
+
           <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#EEF4FF] text-[#2563EB]">
             <ClipboardList size={18} />
           </div>
 
           <div className="min-w-0">
-            <p className="truncate text-sm font-bold text-[#171B3A]">
-              {title}
-            </p>
+            <div className="flex items-center gap-2">
+              <p className="truncate text-sm font-bold text-[#171B3A]">
+                {title}
+              </p>
+
+              {/* Attachment Pill Indicator */}
+              {attachments.length > 0 && (
+                <span
+                  title="Has file attachment"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-md bg-blue-50 px-1.5 py-0.5 text-[10px] font-bold text-[#2563EB]"
+                >
+                  <Paperclip size={11} />
+                  File
+                </span>
+              )}
+            </div>
 
             {description && (
               <p className="mt-1 line-clamp-2 max-w-md text-xs leading-5 text-[#64748B]">
@@ -1104,25 +1430,39 @@ function TaskRow({
         </div>
       </td>
 
-      {/* Status */}
+      {/* STATUS */}
+
       <td className="px-5 py-4">
-        <StatusBadge status={taskStatus} />
+        <StatusBadge
+          status={taskStatus}
+        />
       </td>
 
-      {/* Priority */}
+      {/* PRIORITY */}
+
       <td className="px-5 py-4">
-        <PriorityBadge priority={taskPriority} />
+        <PriorityBadge
+          priority={taskPriority}
+        />
       </td>
 
-      {/* Due Date */}
+      {/* DUE */}
+
       <td className="px-5 py-4">
         <div
           className={`flex items-center gap-2 text-xs font-semibold ${
-            overdue ? "text-red-600" : "text-[#64748B]"
+            overdue
+              ? "text-red-600"
+              : "text-[#64748B]"
           }`}
         >
           <CalendarDays size={14} />
-          <span>{formatDueDate(dueDate)}</span>
+
+          <span>
+            {formatDueDate(
+              dueDate
+            )}
+          </span>
         </div>
 
         {overdue && (
@@ -1132,13 +1472,15 @@ function TaskRow({
         )}
       </td>
 
-      {/* Action */}
+      {/* ACTION */}
+
       <td className="px-5 py-4 text-right sm:pr-6">
         <div className="flex items-center justify-end gap-2">
+
           <button
             type="button"
             onClick={onViewDetails}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-[#26344D] shadow-2xs transition hover:bg-slate-50"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-[#26344D] hover:bg-slate-50"
           >
             <Eye size={13} />
             View
@@ -1146,21 +1488,37 @@ function TaskRow({
 
           {updating ? (
             <div className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-[#64748B]">
-              <Loader2 size={14} className="animate-spin" />
+              <Loader2
+                size={14}
+                className="animate-spin"
+              />
+
               Saving...
             </div>
           ) : (
             <select
-              value={getStatusSelectValue(taskStatus)}
+              value={getStatusSelectValue(
+                taskStatus
+              )}
               onChange={(event) =>
-                onStatusChange(task, event.target.value)
+                onStatusChange(
+                  task,
+                  event.target.value
+                )
               }
-              className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-[#26344D] outline-none transition focus:border-[#2563EB] focus:ring-2 focus:ring-blue-100"
-              aria-label={`Update status for ${title}`}
+              className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-[#26344D] outline-none focus:border-[#2563EB]"
             >
-              <option value="Pending">Pending</option>
-              <option value="In Progress">In Progress</option>
-              <option value="Completed">Completed</option>
+              <option value="Pending">
+                Pending
+              </option>
+
+              <option value="In Progress">
+                In Progress
+              </option>
+
+              <option value="Completed">
+                Completed
+              </option>
             </select>
           )}
         </div>
@@ -1173,26 +1531,46 @@ function TaskRow({
    STATUS BADGE
 ========================================================= */
 
-function StatusBadge({ status }) {
-  const normalized = normalizeStatus(status);
+function StatusBadge({
+  status,
+}) {
+  const normalized =
+    normalizeStatus(status);
 
-  let className = "bg-slate-100 text-slate-600 border border-slate-200";
+  let className =
+    "border-slate-200 bg-slate-100 text-slate-600";
 
-  if (normalized === "pending") {
-    className = "bg-amber-50 text-amber-700 border border-amber-200";
+  if (
+    normalized === "pending"
+  ) {
+    className =
+      "border-amber-200 bg-amber-50 text-amber-700";
   }
 
-  if (normalized === "in progress") {
-    className = "bg-blue-50 text-blue-700 border border-blue-200";
+  if (
+    normalized === "in progress"
+  ) {
+    className =
+      "border-blue-200 bg-blue-50 text-blue-700";
   }
 
-  if (normalized === "completed") {
-    className = "bg-emerald-50 text-emerald-700 border border-emerald-200";
+  if (
+    normalized === "completed"
+  ) {
+    className =
+      "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+
+  if (
+    normalized === "cancelled"
+  ) {
+    className =
+      "border-red-200 bg-red-50 text-red-700";
   }
 
   return (
     <span
-      className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${className}`}
+      className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${className}`}
     >
       {formatStatus(status)}
     </span>
@@ -1203,30 +1581,48 @@ function StatusBadge({ status }) {
    PRIORITY BADGE
 ========================================================= */
 
-function PriorityBadge({ priority }) {
-  const normalized = normalizePriority(priority);
+function PriorityBadge({
+  priority,
+}) {
+  const normalized =
+    normalizePriority(
+      priority
+    );
 
-  let className = "bg-slate-100 text-slate-600 border border-slate-200";
+  let className =
+    "border-slate-200 bg-slate-100 text-slate-600";
 
-  if (normalized === "low") {
-    className = "bg-green-50 text-green-700 border border-green-200";
+  if (
+    normalized === "low"
+  ) {
+    className =
+      "border-green-200 bg-green-50 text-green-700";
   }
 
-  if (normalized === "medium") {
-    className = "bg-amber-50 text-amber-700 border border-amber-200";
+  if (
+    normalized === "medium"
+  ) {
+    className =
+      "border-amber-200 bg-amber-50 text-amber-700";
   }
 
-  if (normalized === "high") {
-    className = "bg-orange-50 text-orange-700 border border-orange-200";
+  if (
+    normalized === "high"
+  ) {
+    className =
+      "border-orange-200 bg-orange-50 text-orange-700";
   }
 
-  if (normalized === "urgent") {
-    className = "bg-red-50 text-red-700 border border-red-200";
+  if (
+    normalized === "urgent"
+  ) {
+    className =
+      "border-red-200 bg-red-50 text-red-700";
   }
 
   return (
     <span
-      className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${className}`}
+      className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ${className}`}
     >
       {formatPriority(priority)}
     </span>
@@ -1245,6 +1641,7 @@ function TaskSummaryCard({
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between">
+
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#EEF4FF] text-[#2563EB]">
           <Icon size={19} />
         </div>
@@ -1262,7 +1659,7 @@ function TaskSummaryCard({
 }
 
 /* =========================================================
-   EMPTY TASKS
+   EMPTY
 ========================================================= */
 
 function EmptyTasks({
@@ -1271,6 +1668,7 @@ function EmptyTasks({
 }) {
   return (
     <div className="flex min-h-[320px] flex-col items-center justify-center px-6 text-center">
+
       <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#EEF4FF] text-[#2563EB]">
         <ClipboardList size={25} />
       </div>
@@ -1284,14 +1682,14 @@ function EmptyTasks({
       <p className="mt-2 max-w-sm text-sm leading-6 text-[#64748B]">
         {hasFilters
           ? "No assigned task matches your current search or filters."
-          : "Tasks assigned to your account will appear here when they are assigned by an administrator or manager."}
+          : "Tasks assigned to your account will appear here when they are assigned."}
       </p>
 
       {hasFilters && (
         <button
           type="button"
           onClick={clearFilters}
-          className="mt-4 rounded-xl bg-[#2563EB] px-4 py-2.5 text-xs font-bold text-white transition hover:bg-[#1D4ED8]"
+          className="mt-4 rounded-xl bg-[#2563EB] px-4 py-2.5 text-xs font-bold text-white hover:bg-[#1D4ED8]"
         >
           Clear Filters
         </button>
@@ -1320,7 +1718,7 @@ function TasksLoading() {
 }
 
 /* =========================================================
-   TASK NORMALIZATION
+   NORMALIZE TASKS
 ========================================================= */
 
 function normalizeTasks(response) {
@@ -1333,12 +1731,16 @@ function normalizeTasks(response) {
     response?.data ||
     [];
 
-  if (!Array.isArray(possible)) {
-    return [];
-  }
-
-  return possible;
+  return Array.isArray(
+    possible
+  )
+    ? possible
+    : [];
 }
+
+/* =========================================================
+   EXTRACT TASK
+========================================================= */
 
 function extractTask(response) {
   return (
@@ -1406,8 +1808,46 @@ function getTaskDueDate(task) {
   );
 }
 
+function getCreatedByName(task) {
+  return (
+    task?.createdBy?.name ||
+    task?.createdBy?.fullName ||
+    task?.createdBy?.email ||
+    task?.assignedBy?.name ||
+    "Manager / Admin"
+  );
+}
+
+function getTaskAttachments(task) {
+  if (Array.isArray(task?.attachments)) {
+    return task.attachments.filter((att) => att && (att.url || att.filename));
+  }
+  // Single attachment backward compatibility
+  if (task?.attachment && typeof task.attachment === "string") {
+    return [{ url: task.attachment, filename: "Attachment" }];
+  }
+  return [];
+}
+
+function getFullFileUrl(path) {
+  if (!path) return "#";
+  if (path.startsWith("http://") || path.startsWith("https://")) {
+    return path;
+  }
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  return `${BACKEND_BASE_URL}${cleanPath}`;
+}
+
+function formatBytes(bytes) {
+  if (!bytes) return "0 Bytes";
+  const k = 1024;
+  const sizes = ["Bytes", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+}
+
 /* =========================================================
-   STATUS NORMALIZATION
+   STATUS
 ========================================================= */
 
 function normalizeStatus(value) {
@@ -1443,6 +1883,13 @@ function normalizeStatus(value) {
     return "pending";
   }
 
+  if (
+    raw === "cancelled" ||
+    raw === "canceled"
+  ) {
+    return "cancelled";
+  }
+
   return raw;
 }
 
@@ -1450,25 +1897,37 @@ function formatStatus(value) {
   const normalized =
     normalizeStatus(value);
 
-  if (normalized === "in progress") {
+  if (
+    normalized === "in progress"
+  ) {
     return "In Progress";
   }
 
-  if (normalized === "completed") {
+  if (
+    normalized === "completed"
+  ) {
     return "Completed";
   }
 
-  if (normalized === "pending") {
+  if (
+    normalized === "pending"
+  ) {
     return "Pending";
   }
 
-  return (
-    String(value || "Pending")
-      .replace(/[_-]+/g, " ")
-      .replace(/\b\w/g, (char) =>
-        char.toUpperCase()
-      )
-  );
+  if (
+    normalized === "cancelled"
+  ) {
+    return "Cancelled";
+  }
+
+  return String(
+    value || "Pending"
+  )
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (char) =>
+      char.toUpperCase()
+    );
 }
 
 function getStatusSelectValue(
@@ -1477,22 +1936,34 @@ function getStatusSelectValue(
   const normalized =
     normalizeStatus(value);
 
-  if (normalized === "completed") {
+  if (
+    normalized === "completed"
+  ) {
     return "Completed";
   }
 
-  if (normalized === "in progress") {
+  if (
+    normalized === "in progress"
+  ) {
     return "In Progress";
+  }
+
+  if (
+    normalized === "cancelled"
+  ) {
+    return "Pending";
   }
 
   return "Pending";
 }
 
 /* =========================================================
-   PRIORITY NORMALIZATION
+   PRIORITY
 ========================================================= */
 
-function normalizePriority(value) {
+function normalizePriority(
+  value
+) {
   return String(
     value || ""
   )
@@ -1504,33 +1975,29 @@ function formatPriority(value) {
   const normalized =
     normalizePriority(value);
 
-  if (normalized === "urgent") {
+  if (normalized === "urgent")
     return "Urgent";
-  }
 
-  if (normalized === "high") {
+  if (normalized === "high")
     return "High";
-  }
 
-  if (normalized === "low") {
+  if (normalized === "low")
     return "Low";
-  }
 
-  if (normalized === "medium") {
+  if (normalized === "medium")
     return "Medium";
-  }
 
-  return (
-    String(value || "Medium")
-      .replace(/[_-]+/g, " ")
-      .replace(/\b\w/g, (char) =>
-        char.toUpperCase()
-      )
-  );
+  return String(
+    value || "Medium"
+  )
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (char) =>
+      char.toUpperCase()
+    );
 }
 
 /* =========================================================
-   DATES
+   DATE
 ========================================================= */
 
 function formatDueDate(date) {
@@ -1538,7 +2005,8 @@ function formatDueDate(date) {
     return "No due date";
   }
 
-  const parsed = new Date(date);
+  const parsed =
+    new Date(date);
 
   if (
     Number.isNaN(
@@ -1569,7 +2037,8 @@ function isOverdue(
     return false;
   }
 
-  const parsed = new Date(date);
+  const parsed =
+    new Date(date);
 
   if (
     Number.isNaN(
@@ -1579,7 +2048,10 @@ function isOverdue(
     return false;
   }
 
-  return parsed.getTime() < Date.now();
+  return (
+    parsed.getTime() <
+    Date.now()
+  );
 }
 
 /* =========================================================
@@ -1590,39 +2062,64 @@ async function apiRequest(
   endpoint,
   options = {}
 ) {
-  const response = await fetch(
-    `${API_URL}${endpoint}`,
-    {
-      ...options,
-      credentials: "include",
-      headers: {
-        "Content-Type":
-          "application/json",
-        ...(options.headers || {}),
-      },
-    }
-  );
+  const response =
+    await fetch(
+      `${API_URL}${endpoint}`,
+      {
+        ...options,
+
+        credentials: "include",
+
+        headers: {
+          Accept:
+            "application/json",
+
+          "Content-Type":
+            "application/json",
+
+          ...(options.headers ||
+            {}),
+        },
+
+        cache: "no-store",
+      }
+    );
 
   let data = null;
 
-  try {
-    data =
-      await response.json();
-  } catch {
-    data = null;
+  const contentType =
+    response.headers.get(
+      "content-type"
+    );
+
+  if (
+    contentType?.includes(
+      "application/json"
+    )
+  ) {
+    try {
+      data =
+        await response.json();
+    } catch {
+      data = null;
+    }
   }
 
   if (!response.ok) {
-    const error = new Error(
+    const message =
       data?.message ||
-        data?.error ||
-        data?.errors?.[0]
-          ?.message ||
-        `Request failed with status ${response.status}`
-    );
+      data?.error ||
+      data?.errors?.[0]
+        ?.message ||
+      `Request failed with status ${response.status}`;
+
+    const error =
+      new Error(message);
 
     error.status =
       response.status;
+
+    error.data = data;
 
     throw error;
   }

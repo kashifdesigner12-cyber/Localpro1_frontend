@@ -239,7 +239,10 @@ export default function UserNotificationsPage() {
    */
 
   async function handleMarkAsRead(notification) {
-    if (!notification?.id || notification.isRead) {
+    const notificationId =
+      notification?.id || notification?._id;
+
+    if (!notificationId || notification.isRead) {
       return;
     }
 
@@ -247,22 +250,24 @@ export default function UserNotificationsPage() {
       setActionLoading(true);
 
       await apiRequest(
-        `/api/notifications/${notification.id}/read`,
+        `/api/notifications/${notificationId}/read`,
         {
           method: "PATCH",
         }
       );
 
       setNotifications((current) =>
-        current.map((item) =>
-          item.id === notification.id
+        current.map((item) => {
+          const itemId = item.id || item._id;
+
+          return itemId === notificationId
             ? {
                 ...item,
                 isRead: true,
                 readAt: new Date().toISOString(),
               }
-            : item
-        )
+            : item;
+        })
       );
     } catch (err) {
       console.error(
@@ -349,10 +354,13 @@ export default function UserNotificationsPage() {
       );
 
       setNotifications((current) =>
-        current.filter(
-          (notification) =>
-            notification.id !== notificationId
-        )
+        current.filter((notification) => {
+          const id =
+            notification.id ||
+            notification._id;
+
+          return id !== notificationId;
+        })
       );
     } catch (err) {
       console.error(
@@ -533,6 +541,33 @@ export default function UserNotificationsPage() {
       dateStyle: "medium",
       timeStyle: "short",
     }).format(parsedDate);
+  }
+
+  /*
+   * =========================================================
+   * VIEW NOTIFICATION
+   * =========================================================
+   *
+   * FIX:
+   * Task notification -> always opens My Tasks page.
+   *
+   * This prevents an invalid notification.actionUrl
+   * from sending the user to a 404 page.
+   *
+   * Other notification types continue using their
+   * existing actionUrl exactly as before.
+   */
+
+  function getNotificationActionUrl(notification) {
+    if (!notification) {
+      return null;
+    }
+
+    if (notification.type === "task") {
+      return "/user/tasks";
+    }
+
+    return notification.actionUrl || null;
   }
 
   return (
@@ -990,6 +1025,11 @@ export default function UserNotificationsPage() {
                           actionLoading={
                             actionLoading
                           }
+                          actionUrl={
+                            getNotificationActionUrl(
+                              notification
+                            )
+                          }
                         />
                       );
                     }
@@ -1128,6 +1168,7 @@ function NotificationItem({
   onDelete,
   formatDate,
   actionLoading,
+  actionUrl,
 }) {
   const notificationId =
     notification.id || notification._id;
@@ -1209,9 +1250,9 @@ function NotificationItem({
               </button>
             )}
 
-            {notification.actionUrl && (
+            {actionUrl && (
               <Link
-                href={notification.actionUrl}
+                href={actionUrl}
                 onClick={() =>
                   !notification.isRead &&
                   onRead(notification)

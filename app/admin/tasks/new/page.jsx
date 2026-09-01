@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   Activity,
   ArrowLeft,
@@ -15,9 +15,11 @@ import {
   Loader2,
   LogOut,
   Menu,
+  Paperclip,
   Save,
   Settings,
   ShieldCheck,
+  UploadCloud,
   User,
   Users,
   X,
@@ -63,6 +65,7 @@ const navigation = [
 
 export default function AdminNewTaskPage() {
   const router = useRouter();
+  const fileInputRef = useRef(null);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -81,6 +84,9 @@ export default function AdminNewTaskPage() {
     priority: "Medium",
     dueDate: "",
   });
+
+  // Task Attachment State
+  const [selectedFile, setSelectedFile] = useState(null);
 
   /*
    * ============================================================
@@ -246,6 +252,44 @@ export default function AdminNewTaskPage() {
 
   /*
    * ============================================================
+   * FILE CHANGE & REMOVE
+   * ============================================================
+   */
+
+  function handleFileChange(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // 10MB limit check
+    if (file.size > 10 * 1024 * 1024) {
+      setError("File size cannot exceed 10MB.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    setSelectedFile(file);
+    setSaved(false);
+    setError("");
+  }
+
+  function handleRemoveFile() {
+    setSelectedFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
+
+  // Format file size
+  function formatBytes(bytes) {
+    if (!bytes) return "0 Bytes";
+    const k = 1024;
+    const sizes = ["Bytes", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+  }
+
+  /*
+   * ============================================================
    * CREATE TASK
    * ============================================================
    */
@@ -281,14 +325,21 @@ export default function AdminNewTaskPage() {
       return;
     }
 
-    const payload = {
-      title: trimmedTitle,
-      description: trimmedDescription,
-      assignedTo: form.assignedTo,
-      status: form.status,
-      priority: form.priority,
-      dueDate: form.dueDate,
-    };
+    // --------------------------------------------------------
+    // FORMDATA PAYLOAD (MULTIPART/FORM-DATA FOR FILE UPLOAD)
+    // --------------------------------------------------------
+
+    const formData = new FormData();
+    formData.append("title", trimmedTitle);
+    formData.append("description", trimmedDescription);
+    formData.append("assignedTo", form.assignedTo);
+    formData.append("status", form.status);
+    formData.append("priority", form.priority);
+    formData.append("dueDate", form.dueDate);
+
+    if (selectedFile) {
+      formData.append("file", selectedFile);
+    }
 
     try {
       setSaving(true);
@@ -298,8 +349,9 @@ export default function AdminNewTaskPage() {
         {
           method: "POST",
           credentials: "include",
-          headers: getAuthHeaders(true),
-          body: JSON.stringify(payload),
+          // Content-Type manual nahi set karna, browser boundary khud lagata hai
+          headers: getAuthHeaders(false),
+          body: formData,
           cache: "no-store",
         }
       );
@@ -358,6 +410,11 @@ export default function AdminNewTaskPage() {
         priority: "Medium",
         dueDate: "",
       });
+
+      setSelectedFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
 
       setTimeout(() => {
         router.push("/admin/tasks");
@@ -530,9 +587,6 @@ export default function AdminNewTaskPage() {
 
       {/* ======================================================
           FULL WIDTH MAIN AREA
-          
-          NO TOP HEADER
-          NO lg:pl-64
       ====================================================== */}
 
       <div className="min-h-screen w-full">
@@ -738,6 +792,69 @@ export default function AdminNewTaskPage() {
                   </p>
                 </div>
 
+                {/* ==================================================
+                    ATTACHMENT (NEW)
+                ================================================== */}
+
+                <div>
+                  <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-[#26344D]">
+                    <Paperclip size={16} />
+                    Task Attachment (Optional)
+                  </label>
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    id="adminTaskFile"
+                    className="hidden"
+                    disabled={saving}
+                    onChange={handleFileChange}
+                  />
+
+                  {!selectedFile ? (
+                    <div
+                      onClick={() => !saving && fileInputRef.current?.click()}
+                      className={`flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/60 p-6 transition hover:border-[#2563EB] hover:bg-blue-50/20 ${
+                        saving ? "cursor-not-allowed opacity-60" : ""
+                      }`}
+                    >
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white shadow-sm text-[#2563EB]">
+                        <UploadCloud size={20} />
+                      </div>
+                      <p className="mt-2 text-sm font-semibold text-[#26344D]">
+                        Click to upload file
+                      </p>
+                      <p className="text-xs text-[#64748B]">
+                        PDF, Images, Documents up to 10MB
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between rounded-xl border border-blue-100 bg-[#EEF4FF] p-3.5">
+                      <div className="flex items-center gap-3 truncate">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#2563EB] text-white">
+                          <Paperclip size={17} />
+                        </div>
+                        <div className="truncate">
+                          <p className="truncate text-sm font-semibold text-[#171B3A]">
+                            {selectedFile.name}
+                          </p>
+                          <p className="text-xs text-[#64748B]">
+                            {formatBytes(selectedFile.size)}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={saving}
+                        onClick={handleRemoveFile}
+                        className="ml-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-white hover:text-red-600 disabled:opacity-50"
+                      >
+                        <X size={17} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 {/* Assigned To */}
 
                 <div>
@@ -790,6 +907,7 @@ export default function AdminNewTaskPage() {
                           value={userId}
                         >
                           {userName}
+
                           {user?.email
                             ? ` — ${user.email}`
                             : ""}
@@ -921,7 +1039,7 @@ export default function AdminNewTaskPage() {
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
 
                     <PreviewItem
                       label="Status"
@@ -940,6 +1058,13 @@ export default function AdminNewTaskPage() {
                           users,
                           form.assignedTo
                         ) || "Not assigned"
+                      }
+                    />
+
+                    <PreviewItem
+                      label="Attachment"
+                      value={
+                        selectedFile ? selectedFile.name : "None"
                       }
                     />
 

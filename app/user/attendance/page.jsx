@@ -590,11 +590,7 @@ export default function UserAttendancePage() {
       icon: Clock3,
       active: true,
     },
-    {
-      name: "Attendance History",
-      href: "/user/attendance/history",
-      icon: History,
-    },
+  
     {
       name: "Messages",
       href: "/user/messages",
