@@ -122,7 +122,7 @@ const initialForm = {
 };
 
 const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+  process.env.NEXT_PUBLIC_API_URL || "https://api.localpro1.net";
 
 export default function UserLeaveRequestsPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);

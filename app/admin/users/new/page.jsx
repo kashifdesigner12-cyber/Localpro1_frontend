@@ -13,7 +13,7 @@ import {
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ||
-  "http://localhost:5000/api";
+  "https://api.localpro1.net/api";
 
 export default function AdminNewUserPage() {
   const [saving, setSaving] = useState(false);

@@ -61,7 +61,7 @@ const navigation = [
 ];
 
 const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+  process.env.NEXT_PUBLIC_API_URL || "https://api.localpro1.net/api";
 
 const BACKEND_BASE_URL =
   API_BASE_URL.replace(/\/api\/?$/, "");

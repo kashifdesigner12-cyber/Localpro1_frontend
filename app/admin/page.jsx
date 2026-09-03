@@ -14,7 +14,7 @@ import {
 import { authService } from "@/services/authService";
 
 const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
+  process.env.NEXT_PUBLIC_API_URL || "https://api.localpro1.net/api";
 
 export default function AdminDashboardPage() {
   const mountedRef = useRef(false);
