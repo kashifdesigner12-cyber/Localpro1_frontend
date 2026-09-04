@@ -1,6 +1,4 @@
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  "https://api.localpro1.net/api";
+const API_URL = "https://api.localpro1.net/api";
 
 // ==========================================
 // Helper: Get Auth Headers
@@ -62,7 +60,7 @@ const getErrorMessage = (
 export const authService = {
   // ========================================
   // LOGIN
-  // POST /api/auth/login
+  // POST https://api.localpro1.net/api/auth/login
   // ========================================
 
   async login(email, password) {
@@ -93,8 +91,13 @@ export const authService = {
       );
     }
 
-    if (typeof window !== "undefined" && (data?.token || data?.data?.token)) {
-      const token = data.token || data.data.token;
+    if (
+      typeof window !== "undefined" &&
+      (data?.token || data?.data?.token)
+    ) {
+      const token =
+        data.token || data.data.token;
+
       localStorage.setItem("token", token);
     }
 
@@ -111,7 +114,9 @@ export const authService = {
       `${API_URL}/auth/me`,
       {
         method: "GET",
-        headers: getAuthHeaders({ "Content-Type": undefined }),
+        headers: getAuthHeaders({
+          "Content-Type": undefined,
+        }),
         credentials: "include",
         cache: "no-store",
       }
@@ -146,40 +151,49 @@ export const authService = {
 
   // ========================================
   // UPDATE PROFILE
-  // PUT /api/auth/me OR PUT /api/users/profile
+  // PUT /api/auth/me
+  // OR PUT /api/users/profile
   // ========================================
 
   async updateProfile(profileData = {}) {
     const payload = {
       ...profileData,
+
       name:
         profileData.name !== undefined
           ? profileData.name.trim()
           : undefined,
+
       email:
         profileData.email !== undefined
           ? profileData.email.trim().toLowerCase()
           : undefined,
+
       phone:
         profileData.phone !== undefined
           ? profileData.phone.trim()
           : undefined,
+
       avatar:
         profileData.avatar !== undefined
           ? profileData.avatar
           : undefined,
+
       preferences:
         profileData.preferences !== undefined
           ? profileData.preferences
           : undefined,
+
       attendanceSchedule:
         profileData.attendanceSchedule !== undefined
           ? profileData.attendanceSchedule
           : undefined,
+
       workSchedule:
         profileData.workSchedule !== undefined
           ? profileData.workSchedule
           : undefined,
+
       attendanceSettings:
         profileData.attendanceSettings !== undefined
           ? profileData.attendanceSettings
@@ -208,6 +222,7 @@ export const authService = {
           body: JSON.stringify(payload),
         }
       );
+
       data = await parseResponse(response);
     }
 
@@ -330,7 +345,10 @@ export const authService = {
   // ========================================
 
   getToken() {
-    if (typeof window === "undefined") return null;
+    if (typeof window === "undefined") {
+      return null;
+    }
+
     return (
       localStorage.getItem("token") ||
       sessionStorage.getItem("token") ||
@@ -339,7 +357,10 @@ export const authService = {
   },
 
   clearToken() {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined") {
+      return;
+    }
+
     localStorage.removeItem("token");
     localStorage.removeItem("authToken");
     sessionStorage.removeItem("token");
