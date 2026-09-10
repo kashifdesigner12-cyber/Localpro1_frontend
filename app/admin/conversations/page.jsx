@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 
 import {
   AlertTriangle,
@@ -27,6 +27,7 @@ import {
   Volume2,
   VolumeX,
   X,
+  Loader2,
 } from "lucide-react";
 
 const navigation = [
@@ -267,7 +268,7 @@ export default function AdminConversationsPage() {
     scrollToBottom();
   }, [messages]);
 
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     try {
       setLoadingUsers(true);
       setError("");
@@ -305,9 +306,9 @@ export default function AdminConversationsPage() {
     } finally {
       setLoadingUsers(false);
     }
-  };
+  }, []);
 
-  const fetchConversations = async ({ silent = false } = {}) => {
+  const fetchConversations = useCallback(async ({ silent = false } = {}) => {
     try {
       if (silent) {
         setRefreshing(true);
@@ -352,12 +353,12 @@ export default function AdminConversationsPage() {
       setLoadingConversations(false);
       setRefreshing(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchUsers();
     fetchConversations();
-  }, []);
+  }, [fetchUsers, fetchConversations]);
 
   /* =======================================================
      POLLING & INCOMING MESSAGE AUDIO NOTIFIER
@@ -410,7 +411,7 @@ export default function AdminConversationsPage() {
     return () => clearInterval(interval);
   }, [soundEnabled]);
 
-  const findConversationForUser = (
+  const findConversationForUser = useCallback((
     userId,
     conversationList = conversations
   ) => {
@@ -434,9 +435,9 @@ export default function AdminConversationsPage() {
         });
       }) || null
     );
-  };
+  }, [conversations]);
 
-  const fetchMessages = async (conversationId) => {
+  const fetchMessages = useCallback(async (conversationId) => {
     if (!conversationId) return;
 
     try {
@@ -486,9 +487,9 @@ export default function AdminConversationsPage() {
     } finally {
       setLoadingMessages(false);
     }
-  };
+  }, []);
 
-  const openConversation = async (
+  const openConversation = useCallback(async (
     conversation,
     user = null
   ) => {
@@ -549,9 +550,9 @@ export default function AdminConversationsPage() {
         readError
       );
     }
-  };
+  }, [fetchMessages]);
 
-  const createNewConversation = async (user) => {
+  const createNewConversation = useCallback(async (user) => {
     const userId = getId(user);
 
     if (!userId || startingConversation) {
@@ -672,9 +673,9 @@ export default function AdminConversationsPage() {
     } finally {
       setStartingConversation(false);
     }
-  };
+  }, [startingConversation, fetchConversations, findConversationForUser, openConversation]);
 
-  const handleSelectUser = async (user) => {
+  const handleSelectUser = useCallback(async (user) => {
     const userId = getId(user);
 
     if (!userId) {
@@ -701,7 +702,7 @@ export default function AdminConversationsPage() {
     }
 
     await createNewConversation(user);
-  };
+  }, [findConversationForUser, openConversation, createNewConversation]);
 
   const filteredUsers = useMemo(() => {
     const searchText = search.trim().toLowerCase();

@@ -228,57 +228,52 @@ export default function AdminDashboardPage() {
         avatar: user?.avatar || null,
       });
 
-      const results = await Promise.allSettled([
-        fetchJson(`${API_URL}/users`),
-        fetchJson(`${API_URL}/tasks?limit=100`),
-        fetchJson(`${API_URL}/notifications`),
-      ]);
+      // OPTIMIZED: Fetch sequentially one by one instead of Promise.allSettled
+      // to eliminate heavy concurrent load and reduce memory spike.
+      let loadedUsers = [];
+      let loadedTasks = [];
+      let loadedNotifications = [];
+      let requestErrorMsg = "";
+
+      try {
+        const usersRes = await fetchJson(`${API_URL}/users`);
+        loadedUsers = extractArray(usersRes, ["users"]);
+      } catch (err) {
+        if (isAuthError(err?.message || "")) {
+          redirectToLogin();
+          return;
+        }
+        requestErrorMsg = requestErrorMsg || err?.message;
+      }
+
+      try {
+        const tasksRes = await fetchJson(`${API_URL}/tasks?limit=100`);
+        loadedTasks = extractArray(tasksRes, ["tasks"]);
+      } catch (err) {
+        if (isAuthError(err?.message || "")) {
+          redirectToLogin();
+          return;
+        }
+        requestErrorMsg = requestErrorMsg || err?.message;
+      }
+
+      try {
+        const notifRes = await fetchJson(`${API_URL}/notifications`);
+        loadedNotifications = extractArray(notifRes, ["notifications"]);
+      } catch (err) {
+        if (isAuthError(err?.message || "")) {
+          redirectToLogin();
+          return;
+        }
+        requestErrorMsg = requestErrorMsg || err?.message;
+      }
 
       if (!mountedRef.current) {
         return;
       }
 
-      const authFailure = results.find(
-        (result) =>
-          result.status === "rejected" &&
-          isAuthError(result.reason?.message || "")
-      );
-
-      if (authFailure) {
-        redirectToLogin();
-        return;
-      }
-
-      const usersResult = results[0];
-      const tasksResult = results[1];
-      const notificationsResult = results[2];
-
-      const loadedUsers =
-        usersResult.status === "fulfilled"
-          ? extractArray(usersResult.value, ["users"])
-          : [];
-
-      const loadedTasks =
-        tasksResult.status === "fulfilled"
-          ? extractArray(tasksResult.value, ["tasks"])
-          : [];
-
-      const loadedNotifications =
-        notificationsResult.status === "fulfilled"
-          ? extractArray(notificationsResult.value, [
-              "notifications",
-            ])
-          : [];
-
-      const failedRequests = results.filter(
-        (result) => result.status === "rejected"
-      );
-
-      if (failedRequests.length > 0) {
-        setError(
-          failedRequests[0]?.reason?.message ||
-            "Some dashboard data could not be loaded."
-        );
+      if (requestErrorMsg) {
+        setError(requestErrorMsg);
       } else {
         setError("");
       }

@@ -41,7 +41,7 @@ export default function AdminTasksPage() {
 
   /*
    * ============================================================
-   * API HELPER
+   * API HELPER (Optimized: Added caching bypass option)
    * ============================================================
    */
 
@@ -49,6 +49,7 @@ export default function AdminTasksPage() {
     const response = await fetch(url, {
       ...options,
       credentials: "include",
+      cache: "no-store",
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
@@ -85,7 +86,7 @@ export default function AdminTasksPage() {
    * ============================================================
    */
 
-  function extractCurrentUser(result) {
+  const extractCurrentUser = useCallback((result) => {
     if (result?.user) {
       return result.user;
     }
@@ -103,7 +104,7 @@ export default function AdminTasksPage() {
     }
 
     return null;
-  }
+  }, []);
 
   /*
    * ============================================================
@@ -111,7 +112,7 @@ export default function AdminTasksPage() {
    * ============================================================
    */
 
-  function extractTasks(result) {
+  const extractTasks = useCallback((result) => {
     if (Array.isArray(result)) {
       return result;
     }
@@ -129,11 +130,11 @@ export default function AdminTasksPage() {
     }
 
     return [];
-  }
+  }, []);
 
   /*
    * ============================================================
-   * LOAD TASKS
+   * LOAD TASKS (Optimized with Parallel Requests via Promise.all)
    * ============================================================
    */
 
@@ -142,9 +143,11 @@ export default function AdminTasksPage() {
     setError("");
 
     try {
-      const meResult = await fetchJson(
-        `${API_URL}/auth/me`
-      );
+      // Optimized: Fetch me and tasks in parallel to speed up total load time
+      const [meResult, tasksResult] = await Promise.all([
+        fetchJson(`${API_URL}/auth/me`),
+        fetchJson(`${API_URL}/tasks`),
+      ]);
 
       const authenticatedUser =
         extractCurrentUser(meResult);
@@ -162,10 +165,6 @@ export default function AdminTasksPage() {
         router.replace("/login");
         return;
       }
-
-      const tasksResult = await fetchJson(
-        `${API_URL}/tasks`
-      );
 
       const loadedTasks =
         extractTasks(tasksResult);
@@ -211,7 +210,7 @@ export default function AdminTasksPage() {
     } finally {
       setLoading(false);
     }
-  }, [fetchJson, router]);
+  }, [fetchJson, router, extractCurrentUser, extractTasks]);
 
   /*
    * ============================================================
@@ -278,7 +277,7 @@ export default function AdminTasksPage() {
 
   /*
    * ============================================================
-   * FILTERED TASKS
+   * FILTERED TASKS (Optimized with useMemo)
    * ============================================================
    */
 

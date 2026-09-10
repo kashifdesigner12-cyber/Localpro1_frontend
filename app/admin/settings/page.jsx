@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Activity,
   Bell,
@@ -97,7 +97,7 @@ export default function AdminSettingsPage() {
   const fileInputRef = useRef(null);
 
   // =========================================
-  // LOAD CURRENT ADMIN
+  // LOAD CURRENT ADMIN (Optimized with cache control)
   // =========================================
 
   useEffect(() => {
@@ -177,7 +177,7 @@ export default function AdminSettingsPage() {
   // INPUT CHANGE
   // =========================================
 
-  function handleChange(event) {
+  const handleChange = useCallback((event) => {
     const { name, value } = event.target;
 
     setProfile((previous) => ({
@@ -186,13 +186,13 @@ export default function AdminSettingsPage() {
     }));
 
     setMessage("");
-  }
+  }, []);
 
   // =========================================
   // IMAGE CHANGE
   // =========================================
 
-  function handleImageChange(event) {
+  const handleImageChange = useCallback((event) => {
     const file = event.target.files?.[0];
 
     if (!file) {
@@ -211,22 +211,22 @@ export default function AdminSettingsPage() {
       return;
     }
 
-    if (imagePreview?.startsWith("blob:")) {
-      URL.revokeObjectURL(imagePreview);
-    }
-
-    const previewUrl = URL.createObjectURL(file);
+    setImagePreview((prev) => {
+      if (prev?.startsWith("blob:")) {
+        URL.revokeObjectURL(prev);
+      }
+      return URL.createObjectURL(file);
+    });
 
     setImageFile(file);
-    setImagePreview(previewUrl);
     setMessage("");
-  }
+  }, []);
 
   // =========================================
   // FILE TO DATA URL
   // =========================================
 
-  function fileToDataUrl(file) {
+  const fileToDataUrl = useCallback((file) => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
 
@@ -242,13 +242,13 @@ export default function AdminSettingsPage() {
 
       reader.readAsDataURL(file);
     });
-  }
+  }, []);
 
   // =========================================
   // SAVE PROFILE
   // =========================================
 
-  async function handleSave(event) {
+  const handleSave = useCallback(async (event) => {
     event.preventDefault();
 
     if (!profile.name.trim()) {
@@ -309,13 +309,13 @@ export default function AdminSettingsPage() {
     } finally {
       setSaving(false);
     }
-  }
+  }, [profile.name, profile.phone, profile.avatar, imageFile, fileToDataUrl]);
 
   // =========================================
   // NOTIFICATION TOGGLE
   // =========================================
 
-  async function handleNotificationToggle(field) {
+  const handleNotificationToggle = useCallback(async (field) => {
     const previousValue = notifications[field];
     const newValue = !previousValue;
 
@@ -355,13 +355,13 @@ export default function AdminSettingsPage() {
     } finally {
       setSavingNotification(false);
     }
-  }
+  }, [notifications]);
 
   // =========================================
   // SIGN OUT
   // =========================================
 
-  async function handleSignOut() {
+  const handleSignOut = useCallback(async () => {
     try {
       setMessage("");
 
@@ -377,7 +377,7 @@ export default function AdminSettingsPage() {
         error.message || "Unable to sign out."
       );
     }
-  }
+  }, [router]);
 
   // =========================================
   // LOADING

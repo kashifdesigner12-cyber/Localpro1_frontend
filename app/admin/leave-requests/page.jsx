@@ -91,7 +91,7 @@ export default function AdminLeaveRequestsPage() {
 
   /*
    * ============================================================
-   * LOAD LEAVE REQUESTS
+   * LOAD LEAVE REQUESTS (Optimized with cache: "no-store")
    * ============================================================
    */
 
@@ -183,10 +183,10 @@ export default function AdminLeaveRequestsPage() {
    * ============================================================
    */
 
-  async function handleLeaveAction(
+  const handleLeaveAction = useCallback(async (
     requestId,
     type
-  ) {
+  ) => {
     if (!requestId || actionId) {
       return;
     }
@@ -212,6 +212,7 @@ export default function AdminLeaveRequestsPage() {
             "Content-Type": "application/json",
           },
           credentials: "include",
+          cache: "no-store",
         }
       );
 
@@ -274,7 +275,7 @@ export default function AdminLeaveRequestsPage() {
       setActionId(null);
       setActionType("");
     }
-  }
+  }, [actionId, loadLeaveRequests, router]);
 
   /*
    * ============================================================
@@ -282,7 +283,7 @@ export default function AdminLeaveRequestsPage() {
    * ============================================================
    */
 
-  async function handleLogout() {
+  const handleLogout = useCallback(async () => {
     try {
       await authService.logout();
     } catch (logoutError) {
@@ -295,7 +296,7 @@ export default function AdminLeaveRequestsPage() {
       router.replace("/login");
       router.refresh();
     }
-  }
+  }, [router]);
 
   return (
     <div className="min-h-screen w-full bg-[#F8FAFC]">
