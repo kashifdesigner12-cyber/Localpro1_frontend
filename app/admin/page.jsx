@@ -83,6 +83,8 @@ export default function AdminDashboardPage() {
     const response = await fetch(url, {
       ...options,
       credentials: "include",
+      // OPTIMIZATION: Use cache control or default browser caching to avoid redundant network overhead
+      cache: "default",
       headers: {
         Accept: "application/json",
 
@@ -228,17 +230,23 @@ export default function AdminDashboardPage() {
         avatar: user?.avatar || null,
       });
 
-      // OPTIMIZED: Fetch sequentially one by one instead of Promise.allSettled
-      // to eliminate heavy concurrent load and reduce memory spike.
+      // OPTIMIZATION: Use Promise.allSettled to fetch users, tasks, and notifications in parallel
+      // instead of sequential waterfall requests, cutting total network wait time significantly.
+      const [usersRes, tasksRes, notifRes] = await Promise.allSettled([
+        fetchJson(`${API_URL}/users`),
+        fetchJson(`${API_URL}/tasks?limit=100`),
+        fetchJson(`${API_URL}/notifications`),
+      ]);
+
       let loadedUsers = [];
       let loadedTasks = [];
       let loadedNotifications = [];
       let requestErrorMsg = "";
 
-      try {
-        const usersRes = await fetchJson(`${API_URL}/users`);
-        loadedUsers = extractArray(usersRes, ["users"]);
-      } catch (err) {
+      if (usersRes.status === "fulfilled") {
+        loadedUsers = extractArray(usersRes.value, ["users"]);
+      } else {
+        const err = usersRes.reason;
         if (isAuthError(err?.message || "")) {
           redirectToLogin();
           return;
@@ -246,10 +254,10 @@ export default function AdminDashboardPage() {
         requestErrorMsg = requestErrorMsg || err?.message;
       }
 
-      try {
-        const tasksRes = await fetchJson(`${API_URL}/tasks?limit=100`);
-        loadedTasks = extractArray(tasksRes, ["tasks"]);
-      } catch (err) {
+      if (tasksRes.status === "fulfilled") {
+        loadedTasks = extractArray(tasksRes.value, ["tasks"]);
+      } else {
+        const err = tasksRes.reason;
         if (isAuthError(err?.message || "")) {
           redirectToLogin();
           return;
@@ -257,10 +265,10 @@ export default function AdminDashboardPage() {
         requestErrorMsg = requestErrorMsg || err?.message;
       }
 
-      try {
-        const notifRes = await fetchJson(`${API_URL}/notifications`);
-        loadedNotifications = extractArray(notifRes, ["notifications"]);
-      } catch (err) {
+      if (notifRes.status === "fulfilled") {
+        loadedNotifications = extractArray(notifRes.value, ["notifications"]);
+      } else {
+        const err = notifRes.reason;
         if (isAuthError(err?.message || "")) {
           redirectToLogin();
           return;
@@ -635,7 +643,7 @@ export default function AdminDashboardPage() {
                   ? "Connecting..."
                   : error
                     ? "Connection Error"
-                    : "Backend Connected"}
+                    : "Operational"}
               </span>
             </div>
           </div>

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   Activity,
@@ -25,9 +25,29 @@ import {
 
 import { authService } from "@/services/authService";
 
-const API_URL =
+/* ============================================================
+   API URL
+   Supports both:
+   https://api.localpro1.net
+   https://api.localpro1.net/api
+
+   Final result:
+   https://api.localpro1.net/api
+============================================================ */
+
+const RAW_API_URL =
   process.env.NEXT_PUBLIC_API_URL ||
   "https://api.localpro1.net/api";
+
+const CLEAN_API_URL = RAW_API_URL.replace(/\/+$/, "");
+
+const API_URL = CLEAN_API_URL.endsWith("/api")
+  ? CLEAN_API_URL
+  : `${CLEAN_API_URL}/api`;
+
+/* ============================================================
+   NAVIGATION
+============================================================ */
 
 const navigation = [
   {
@@ -72,6 +92,10 @@ const navigation = [
   },
 ];
 
+/* ============================================================
+   MAIN PAGE
+============================================================ */
+
 export default function AdminLeaveRequestsPage() {
   const router = useRouter();
 
@@ -89,28 +113,47 @@ export default function AdminLeaveRequestsPage() {
     rejected: 0,
   });
 
-  /*
-   * ============================================================
-   * LOAD LEAVE REQUESTS (Optimized with cache: "no-store")
-   * ============================================================
-   */
+  const mountedRef = useRef(false);
+  const loadingRef = useRef(false);
+
+  /* ==========================================================
+     MOUNT CHECK
+  ========================================================== */
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  /* ==========================================================
+     LOAD LEAVE REQUESTS
+  ========================================================== */
 
   const loadLeaveRequests = useCallback(
     async (showLoader = true) => {
+      if (loadingRef.current) {
+        return;
+      }
+
+      loadingRef.current = true;
+
       try {
-        if (showLoader) {
+        if (showLoader && mountedRef.current) {
           setLoading(true);
         }
 
-        setError("");
+        if (mountedRef.current) {
+          setError("");
+        }
 
         const response = await fetch(
           `${API_URL}/leave-requests`,
           {
             method: "GET",
-            headers: {
-              Accept: "application/json",
-            },
+            headers: getAuthHeaders(),
             credentials: "include",
             cache: "no-store",
           }
@@ -118,9 +161,19 @@ export default function AdminLeaveRequestsPage() {
 
         const result = await parseResponse(response);
 
+        /* ======================================================
+           IMPORTANT:
+           Do NOT automatically logout on 401.
+           Only show an error.
+        ====================================================== */
+
         if (response.status === 401) {
-          await authService.logout().catch(() => {});
-          router.replace("/login");
+          if (mountedRef.current) {
+            setError(
+              "Authentication failed. Your session or token may have expired. Please sign in again."
+            );
+          }
+
           return;
         }
 
@@ -131,10 +184,7 @@ export default function AdminLeaveRequestsPage() {
           );
         }
 
-        if (
-          !response.ok ||
-          result?.success === false
-        ) {
+        if (!response.ok || result?.success === false) {
           throw new Error(
             result?.message ||
               result?.error ||
@@ -144,9 +194,22 @@ export default function AdminLeaveRequestsPage() {
 
         const requests = extractRequests(result);
 
-        setLeaveRequests(requests);
+        if (!mountedRef.current) {
+          return;
+        }
+
+        const safeRequests = Array.isArray(
+          requests
+        )
+          ? requests
+          : [];
+
+        setLeaveRequests(safeRequests);
+
         setCounts(
-          calculateRequestCounts(requests)
+          calculateRequestCounts(
+            safeRequests
+          )
         );
       } catch (requestError) {
         console.error(
@@ -154,149 +217,183 @@ export default function AdminLeaveRequestsPage() {
           requestError
         );
 
+        if (!mountedRef.current) {
+          return;
+        }
+
         setError(
           requestError?.message ||
             "Unable to load leave requests. Please try again."
         );
       } finally {
-        if (showLoader) {
+        loadingRef.current = false;
+
+        if (
+          showLoader &&
+          mountedRef.current
+        ) {
           setLoading(false);
         }
       }
     },
-    [router]
+    []
   );
 
-  /*
-   * ============================================================
-   * INITIAL LOAD
-   * ============================================================
-   */
+  /* ==========================================================
+     INITIAL LOAD
+  ========================================================== */
 
   useEffect(() => {
     loadLeaveRequests(true);
   }, [loadLeaveRequests]);
 
-  /*
-   * ============================================================
-   * APPROVE / REJECT
-   * ============================================================
-   */
+  /* ==========================================================
+     APPROVE / REJECT
+  ========================================================== */
 
-  const handleLeaveAction = useCallback(async (
-    requestId,
-    type
-  ) => {
-    if (!requestId || actionId) {
-      return;
-    }
-
-    try {
-      setActionId(requestId);
-      setActionType(type);
-
-      setError("");
-      setSuccess("");
-
-      const endpoint =
-        type === "approve"
-          ? `${API_URL}/leave-requests/${requestId}/approve`
-          : `${API_URL}/leave-requests/${requestId}/reject`;
-
-      const response = await fetch(
-        endpoint,
-        {
-          method: "PUT",
-          headers: {
-            Accept: "application/json",
-            "Content-Type": "application/json",
-          },
-          credentials: "include",
-          cache: "no-store",
-        }
-      );
-
-      const result = await parseResponse(response);
-
-      if (response.status === 401) {
-        await authService.logout().catch(() => {});
-        router.replace("/login");
+  const handleLeaveAction = useCallback(
+    async (requestId, type) => {
+      if (!requestId || actionId) {
         return;
       }
 
-      if (response.status === 403) {
-        throw new Error(
-          result?.message ||
-            `You do not have permission to ${
-              type === "approve"
-                ? "approve"
-                : "reject"
-            } this leave request.`
-        );
+      if (
+        type !== "approve" &&
+        type !== "reject"
+      ) {
+        return;
       }
 
-      if (
-        !response.ok ||
-        result?.success === false
-      ) {
-        throw new Error(
-          result?.message ||
-            result?.error ||
-            `Failed to ${
+      try {
+        setActionId(requestId);
+        setActionType(type);
+        setError("");
+        setSuccess("");
+
+        const endpoint =
+          type === "approve"
+            ? `${API_URL}/leave-requests/${requestId}/approve`
+            : `${API_URL}/leave-requests/${requestId}/reject`;
+
+        const response = await fetch(
+          endpoint,
+          {
+            method: "PUT",
+            headers: {
+              ...getAuthHeaders(),
+              "Content-Type":
+                "application/json",
+            },
+            credentials: "include",
+            cache: "no-store",
+            body: JSON.stringify({}),
+          }
+        );
+
+        const result =
+          await parseResponse(response);
+
+        /* ======================================================
+           Never automatically logout on 401.
+        ====================================================== */
+
+        if (response.status === 401) {
+          if (mountedRef.current) {
+            setError(
+              "Authentication failed. Your session or token may have expired. Please sign in again."
+            );
+          }
+
+          return;
+        }
+
+        if (response.status === 403) {
+          throw new Error(
+            result?.message ||
+              `You do not have permission to ${
+                type === "approve"
+                  ? "approve"
+                  : "reject"
+              } this leave request.`
+          );
+        }
+
+        if (
+          !response.ok ||
+          result?.success === false
+        ) {
+          throw new Error(
+            result?.message ||
+              result?.error ||
+              `Failed to ${
+                type === "approve"
+                  ? "approve"
+                  : "reject"
+              } leave request.`
+          );
+        }
+
+        if (!mountedRef.current) {
+          return;
+        }
+
+        setSuccess(
+          type === "approve"
+            ? "Leave request approved successfully."
+            : "Leave request rejected successfully."
+        );
+
+        await loadLeaveRequests(false);
+      } catch (requestError) {
+        console.error(
+          `${type} leave request error:`,
+          requestError
+        );
+
+        if (!mountedRef.current) {
+          return;
+        }
+
+        setError(
+          requestError?.message ||
+            `Unable to ${
               type === "approve"
                 ? "approve"
                 : "reject"
             } leave request.`
         );
+      } finally {
+        if (mountedRef.current) {
+          setActionId(null);
+          setActionType("");
+        }
       }
+    },
+    [actionId, loadLeaveRequests]
+  );
 
-      setSuccess(
-        type === "approve"
-          ? "Leave request approved successfully."
-          : "Leave request rejected successfully."
-      );
+  /* ==========================================================
+     LOGOUT
+     Only actual Sign Out button logs out.
+  ========================================================== */
 
-      await loadLeaveRequests(false);
-    } catch (requestError) {
-      console.error(
-        `${type} leave request error:`,
-        requestError
-      );
-
-      setError(
-        requestError?.message ||
-          `Unable to ${
-            type === "approve"
-              ? "approve"
-              : "reject"
-          } leave request.`
-      );
-    } finally {
-      setActionId(null);
-      setActionType("");
-    }
-  }, [actionId, loadLeaveRequests, router]);
-
-  /*
-   * ============================================================
-   * LOGOUT
-   * ============================================================
-   */
-
-  const handleLogout = useCallback(async () => {
-    try {
-      await authService.logout();
-    } catch (logoutError) {
-      console.error(
-        "Admin logout error:",
-        logoutError
-      );
-    } finally {
-      setSidebarOpen(false);
-      router.replace("/login");
-      router.refresh();
-    }
-  }, [router]);
+  const handleLogout = useCallback(
+    async () => {
+      try {
+        await authService.logout();
+      } catch (logoutError) {
+        console.error(
+          "Admin logout error:",
+          logoutError
+        );
+      } finally {
+        setSidebarOpen(false);
+        router.replace("/login");
+        router.refresh();
+      }
+    },
+    [router]
+  );
 
   return (
     <div className="min-h-screen w-full bg-[#F8FAFC]">
@@ -327,9 +424,11 @@ export default function AdminLeaveRequestsPage() {
             : "-translate-x-full"
         } lg:translate-x-0`}
       >
+
         {/* Sidebar Header */}
 
         <div className="flex h-20 shrink-0 items-center justify-between border-b border-white/10 px-5">
+
           <div className="flex min-w-0 items-center gap-3">
 
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#2563EB] text-white">
@@ -337,6 +436,7 @@ export default function AdminLeaveRequestsPage() {
             </div>
 
             <div className="min-w-0">
+
               <h1 className="truncate text-sm font-bold text-white">
                 Local Pro 1
               </h1>
@@ -344,6 +444,7 @@ export default function AdminLeaveRequestsPage() {
               <p className="truncate text-[11px] font-medium text-slate-300">
                 Admin Workspace
               </p>
+
             </div>
 
           </div>
@@ -358,16 +459,19 @@ export default function AdminLeaveRequestsPage() {
           >
             <X size={19} />
           </button>
+
         </div>
 
         {/* Navigation */}
 
         <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-5">
+
           <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-300">
             Administration
           </p>
 
           <div className="space-y-1.5">
+
             {navigation.map((item) => (
               <AdminNavItem
                 key={item.href}
@@ -377,7 +481,9 @@ export default function AdminLeaveRequestsPage() {
                 }
               />
             ))}
+
           </div>
+
         </nav>
 
         {/* Profile */}
@@ -391,6 +497,7 @@ export default function AdminLeaveRequestsPage() {
             </div>
 
             <div className="min-w-0 flex-1">
+
               <p className="truncate text-sm font-semibold text-white">
                 Administrator
               </p>
@@ -398,6 +505,7 @@ export default function AdminLeaveRequestsPage() {
               <p className="truncate text-xs font-medium text-slate-300">
                 Admin Account
               </p>
+
             </div>
 
           </div>
@@ -408,19 +516,15 @@ export default function AdminLeaveRequestsPage() {
             className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-white/10"
           >
             <LogOut size={17} />
-
             <span>Sign Out</span>
           </button>
 
         </div>
+
       </aside>
 
       {/* ======================================================
           MAIN CONTENT
-
-          EXACT SAME STRUCTURE AS TASK PAGE
-          NO lg:pl-64
-          FULL WIDTH
       ====================================================== */}
 
       <div className="min-h-screen w-full">
@@ -428,6 +532,7 @@ export default function AdminLeaveRequestsPage() {
         {/* Mobile Menu */}
 
         <div className="flex w-full items-center border-b border-slate-200 bg-white px-5 py-3 lg:hidden">
+
           <button
             type="button"
             onClick={() =>
@@ -438,6 +543,7 @@ export default function AdminLeaveRequestsPage() {
           >
             <Menu size={20} />
           </button>
+
         </div>
 
         {/* ====================================================
@@ -448,13 +554,12 @@ export default function AdminLeaveRequestsPage() {
 
           <div className="w-full max-w-none space-y-6">
 
-            {/* ==================================================
-                PAGE HEADER
-            ================================================== */}
+            {/* PAGE HEADER */}
 
             <section className="flex w-full flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
 
               <div>
+
                 <p className="text-sm font-semibold text-[#2563EB]">
                   ADMINISTRATION
                 </p>
@@ -467,6 +572,7 @@ export default function AdminLeaveRequestsPage() {
                   Review and manage leave requests
                   submitted by workspace users.
                 </p>
+
               </div>
 
               <div className="flex flex-wrap gap-3">
@@ -479,6 +585,7 @@ export default function AdminLeaveRequestsPage() {
                   disabled={loading}
                   className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-[#26344D] transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                 >
+
                   {loading ? (
                     <Loader2
                       size={17}
@@ -491,15 +598,14 @@ export default function AdminLeaveRequestsPage() {
                   {loading
                     ? "Loading..."
                     : "Refresh"}
+
                 </button>
 
               </div>
 
             </section>
 
-            {/* ==================================================
-                SUCCESS
-            ================================================== */}
+            {/* SUCCESS */}
 
             {success && (
               <section className="w-full rounded-2xl border border-green-100 bg-green-50 p-5">
@@ -534,9 +640,7 @@ export default function AdminLeaveRequestsPage() {
               </section>
             )}
 
-            {/* ==================================================
-                ERROR
-            ================================================== */}
+            {/* ERROR */}
 
             {error && (
               <section className="w-full rounded-2xl border border-red-100 bg-red-50 p-5">
@@ -544,6 +648,7 @@ export default function AdminLeaveRequestsPage() {
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 
                   <div>
+
                     <h2 className="text-sm font-bold text-red-700">
                       Unable to process request
                     </h2>
@@ -551,6 +656,7 @@ export default function AdminLeaveRequestsPage() {
                     <p className="mt-1 text-sm text-red-600">
                       {error}
                     </p>
+
                   </div>
 
                   <button
@@ -569,9 +675,7 @@ export default function AdminLeaveRequestsPage() {
               </section>
             )}
 
-            {/* ==================================================
-                SUMMARY CARDS
-            ================================================== */}
+            {/* SUMMARY CARDS */}
 
             <section className="grid w-full grid-cols-1 gap-4 sm:grid-cols-3">
 
@@ -595,24 +699,22 @@ export default function AdminLeaveRequestsPage() {
 
             </section>
 
-            {/* ==================================================
-                REQUEST TABLE
-            ================================================== */}
+            {/* REQUEST TABLE */}
 
             <section className="w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-
-              {/* Table Header */}
 
               <div className="border-b border-slate-100 px-5 py-5 sm:px-6">
 
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
 
                   <div>
+
                     <h2 className="text-base font-bold text-[#171B3A]">
                       Workspace Leave Requests
                     </h2>
 
                     <p className="mt-1 text-sm text-[#64748B]">
+
                       {loading
                         ? "Loading leave requests from backend..."
                         : `${leaveRequests.length} request${
@@ -621,7 +723,9 @@ export default function AdminLeaveRequestsPage() {
                               ? "s"
                               : ""
                           } displayed.`}
+
                     </p>
+
                   </div>
 
                   {!loading && (
@@ -634,9 +738,8 @@ export default function AdminLeaveRequestsPage() {
 
               </div>
 
-              {/* Loading */}
-
               {loading ? (
+
                 <div className="flex min-h-[360px] w-full flex-col items-center justify-center px-6 text-center">
 
                   <Loader2
@@ -654,6 +757,7 @@ export default function AdminLeaveRequestsPage() {
                   </p>
 
                 </div>
+
               ) : leaveRequests.length > 0 ? (
 
                 <div className="w-full overflow-x-auto">
@@ -753,13 +857,12 @@ export default function AdminLeaveRequestsPage() {
 
             </section>
 
-            {/* ==================================================
-                RESULTS FOOTER
-            ================================================== */}
+            {/* RESULTS FOOTER */}
 
             <section className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 
               <p className="text-xs text-slate-400">
+
                 {loading
                   ? "Loading leave request records..."
                   : `${leaveRequests.length} leave request${
@@ -767,6 +870,7 @@ export default function AdminLeaveRequestsPage() {
                         ? "s"
                         : ""
                     } displayed`}
+
               </p>
 
               <button
@@ -777,6 +881,7 @@ export default function AdminLeaveRequestsPage() {
                 disabled={loading}
                 className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-[#26344D] transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
+
                 <Clock3
                   size={14}
                   className={
@@ -787,6 +892,7 @@ export default function AdminLeaveRequestsPage() {
                 />
 
                 Refresh Requests
+
               </button>
 
             </section>
@@ -802,13 +908,86 @@ export default function AdminLeaveRequestsPage() {
 }
 
 /* ============================================================
+   AUTH HEADERS
+============================================================ */
+
+function getAuthHeaders() {
+  const headers = {
+    Accept: "application/json",
+  };
+
+  if (typeof window === "undefined") {
+    return headers;
+  }
+
+  const tokenKeys = [
+    "token",
+    "accessToken",
+    "access_token",
+    "authToken",
+    "auth_token",
+    "jwt",
+  ];
+
+  let token = null;
+
+  for (const key of tokenKeys) {
+    try {
+      const localToken =
+        localStorage.getItem(key);
+
+      const sessionToken =
+        sessionStorage.getItem(key);
+
+      token =
+        localToken ||
+        sessionToken ||
+        null;
+
+      if (token) {
+        break;
+      }
+    } catch (storageError) {
+      console.error(
+        `Unable to read token from ${key}:`,
+        storageError
+      );
+    }
+  }
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  return headers;
+}
+
+/* ============================================================
    PARSE RESPONSE
 ============================================================ */
 
 async function parseResponse(response) {
   try {
-    return await response.json();
-  } catch {
+    const text = await response.text();
+
+    if (!text) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch {
+      return {
+        success: false,
+        message: text,
+      };
+    }
+  } catch (error) {
+    console.error(
+      "Response parsing error:",
+      error
+    );
+
     return null;
   }
 }
@@ -834,7 +1013,11 @@ function extractRequests(result) {
     return result.data;
   }
 
-  if (Array.isArray(result?.data?.requests)) {
+  if (
+    Array.isArray(
+      result?.data?.requests
+    )
+  ) {
     return result.data.requests;
   }
 
@@ -858,6 +1041,14 @@ function calculateRequestCounts(requests) {
   let approved = 0;
   let rejected = 0;
 
+  if (!Array.isArray(requests)) {
+    return {
+      pending: 0,
+      approved: 0,
+      rejected: 0,
+    };
+  }
+
   requests.forEach((request) => {
     const status = normalizeStatus(
       request?.status
@@ -865,9 +1056,13 @@ function calculateRequestCounts(requests) {
 
     if (status === "pending") {
       pending += 1;
-    } else if (status === "approved") {
+    }
+
+    if (status === "approved") {
       approved += 1;
-    } else if (status === "rejected") {
+    }
+
+    if (status === "rejected") {
       rejected += 1;
     }
   });
@@ -918,6 +1113,7 @@ function AdminNavItem({
           : "bg-transparent text-white hover:bg-white/10"
       }`}
     >
+
       <Icon
         size={18}
         strokeWidth={2}
@@ -927,6 +1123,7 @@ function AdminNavItem({
       <span className="text-white">
         {item.label}
       </span>
+
     </Link>
   );
 }
@@ -1064,6 +1261,7 @@ function LeaveRequestRow({
       {/* User */}
 
       <td className="px-5 py-4 sm:px-6">
+
         <div>
 
           <p className="text-sm font-bold text-[#171B3A]">
@@ -1077,6 +1275,7 @@ function LeaveRequestRow({
           )}
 
         </div>
+
       </td>
 
       {/* Leave Type */}
@@ -1100,12 +1299,14 @@ function LeaveRequestRow({
       {/* Reason */}
 
       <td className="max-w-xs px-5 py-4 text-sm text-[#64748B]">
+
         <p
           className="max-w-xs truncate"
-          title={reason}
+          title={String(reason)}
         >
           {reason}
         </p>
+
       </td>
 
       {/* Status */}
@@ -1124,7 +1325,10 @@ function LeaveRequestRow({
 
             <button
               type="button"
-              disabled={Boolean(actionId)}
+              disabled={
+                Boolean(actionId) ||
+                !id
+              }
               onClick={() =>
                 onAction(
                   id,
@@ -1133,6 +1337,7 @@ function LeaveRequestRow({
               }
               className="inline-flex items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 py-2 text-xs font-bold text-white transition hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-50"
             >
+
               {isProcessing &&
               actionType ===
                 "approve" ? (
@@ -1149,11 +1354,15 @@ function LeaveRequestRow({
                 "approve"
                 ? "Approving..."
                 : "Approve"}
+
             </button>
 
             <button
               type="button"
-              disabled={Boolean(actionId)}
+              disabled={
+                Boolean(actionId) ||
+                !id
+              }
               onClick={() =>
                 onAction(
                   id,
@@ -1162,6 +1371,7 @@ function LeaveRequestRow({
               }
               className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-bold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
+
               {isProcessing &&
               actionType ===
                 "reject" ? (
@@ -1178,6 +1388,7 @@ function LeaveRequestRow({
                 "reject"
                 ? "Rejecting..."
                 : "Reject"}
+
             </button>
 
           </div>

@@ -97,7 +97,7 @@ export default function AdminSettingsPage() {
   const fileInputRef = useRef(null);
 
   // =========================================
-  // LOAD CURRENT ADMIN (Optimized with cache control)
+  // LOAD CURRENT ADMIN
   // =========================================
 
   useEffect(() => {
@@ -137,13 +137,16 @@ export default function AdminSettingsPage() {
 
         setNotifications({
           taskUpdates:
-            user.notificationPreferences?.taskUpdates ?? true,
+            user.notificationPreferences?.taskUpdates ??
+            true,
 
           appointmentAlerts:
-            user.notificationPreferences?.appointmentAlerts ?? true,
+            user.notificationPreferences
+              ?.appointmentAlerts ?? true,
 
           messageAlerts:
-            user.notificationPreferences?.messageAlerts ?? true,
+            user.notificationPreferences
+              ?.messageAlerts ?? true,
         });
 
         if (user.avatar) {
@@ -157,7 +160,9 @@ export default function AdminSettingsPage() {
 
         if (mounted) {
           setMessageType("error");
-          setMessage("Unable to load your profile.");
+          setMessage(
+            "Unable to load your profile."
+          );
         }
       } finally {
         if (mounted) {
@@ -201,20 +206,25 @@ export default function AdminSettingsPage() {
 
     if (!file.type.startsWith("image/")) {
       setMessageType("error");
-      setMessage("Please select a valid image file.");
+      setMessage(
+        "Please select a valid image file."
+      );
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
       setMessageType("error");
-      setMessage("Image size must be less than 5MB.");
+      setMessage(
+        "Image size must be less than 5MB."
+      );
       return;
     }
 
-    setImagePreview((prev) => {
-      if (prev?.startsWith("blob:")) {
-        URL.revokeObjectURL(prev);
+    setImagePreview((previous) => {
+      if (previous?.startsWith("blob:")) {
+        URL.revokeObjectURL(previous);
       }
+
       return URL.createObjectURL(file);
     });
 
@@ -236,7 +246,9 @@ export default function AdminSettingsPage() {
 
       reader.onerror = () => {
         reject(
-          new Error("Unable to process profile image.")
+          new Error(
+            "Unable to process profile image."
+          )
         );
       };
 
@@ -248,114 +260,140 @@ export default function AdminSettingsPage() {
   // SAVE PROFILE
   // =========================================
 
-  const handleSave = useCallback(async (event) => {
-    event.preventDefault();
+  const handleSave = useCallback(
+    async (event) => {
+      event.preventDefault();
 
-    if (!profile.name.trim()) {
-      setMessageType("error");
-      setMessage("Full name is required.");
-      return;
-    }
-
-    try {
-      setSaving(true);
-      setMessage("");
-
-      let avatar = profile.avatar;
-
-      if (imageFile) {
-        avatar = await fileToDataUrl(imageFile);
+      if (!profile.name.trim()) {
+        setMessageType("error");
+        setMessage("Full name is required.");
+        return;
       }
 
-      const response = await authService.updateProfile({
-        name: profile.name.trim(),
-        phone: profile.phone.trim(),
-        ...(avatar ? { avatar } : {}),
-      });
+      try {
+        setSaving(true);
+        setMessage("");
 
-      const updatedUser = response?.user;
+        let avatar = profile.avatar;
 
-      if (updatedUser) {
-        setProfile((previous) => ({
-          ...previous,
-          id: updatedUser.id || previous.id,
-          name: updatedUser.name || previous.name,
-          email: updatedUser.email || previous.email,
-          phone: updatedUser.phone || "",
-          avatar: updatedUser.avatar || null,
-          role: updatedUser.role || previous.role,
-          status: updatedUser.status || previous.status,
-        }));
-
-        if (updatedUser.avatar) {
-          setImagePreview(updatedUser.avatar);
+        if (imageFile) {
+          avatar = await fileToDataUrl(imageFile);
         }
+
+        const response =
+          await authService.updateProfile({
+            name: profile.name.trim(),
+            phone: profile.phone.trim(),
+            ...(avatar ? { avatar } : {}),
+          });
+
+        const updatedUser = response?.user;
+
+        if (updatedUser) {
+          setProfile((previous) => ({
+            ...previous,
+            id: updatedUser.id || previous.id,
+            name:
+              updatedUser.name || previous.name,
+            email:
+              updatedUser.email || previous.email,
+            phone: updatedUser.phone || "",
+            avatar: updatedUser.avatar || null,
+            role:
+              updatedUser.role || previous.role,
+            status:
+              updatedUser.status ||
+              previous.status,
+          }));
+
+          if (updatedUser.avatar) {
+            setImagePreview(updatedUser.avatar);
+          }
+        }
+
+        setImageFile(null);
+
+        setMessageType("success");
+        setMessage(
+          response?.message ||
+            "Profile updated successfully."
+        );
+      } catch (error) {
+        console.error(
+          "Profile update failed:",
+          error
+        );
+
+        setMessageType("error");
+        setMessage(
+          error.message ||
+            "Unable to update profile."
+        );
+      } finally {
+        setSaving(false);
       }
-
-      setImageFile(null);
-
-      setMessageType("success");
-      setMessage(
-        response?.message ||
-          "Profile updated successfully."
-      );
-    } catch (error) {
-      console.error("Profile update failed:", error);
-
-      setMessageType("error");
-      setMessage(
-        error.message || "Unable to update profile."
-      );
-    } finally {
-      setSaving(false);
-    }
-  }, [profile.name, profile.phone, profile.avatar, imageFile, fileToDataUrl]);
+    },
+    [
+      profile.name,
+      profile.phone,
+      profile.avatar,
+      imageFile,
+      fileToDataUrl,
+    ]
+  );
 
   // =========================================
   // NOTIFICATION TOGGLE
   // =========================================
 
-  const handleNotificationToggle = useCallback(async (field) => {
-    const previousValue = notifications[field];
-    const newValue = !previousValue;
+  const handleNotificationToggle = useCallback(
+    async (field) => {
+      const previousValue =
+        notifications[field];
 
-    setNotifications((previous) => ({
-      ...previous,
-      [field]: newValue,
-    }));
-
-    try {
-      setSavingNotification(true);
-      setMessage("");
-
-      await authService.updateProfile({
-        notificationPreferences: {
-          [field]: newValue,
-        },
-      });
-
-      setMessageType("success");
-      setMessage("Notification preference updated.");
-    } catch (error) {
-      console.error(
-        "Notification preference update failed:",
-        error
-      );
+      const newValue = !previousValue;
 
       setNotifications((previous) => ({
         ...previous,
-        [field]: previousValue,
+        [field]: newValue,
       }));
 
-      setMessageType("error");
-      setMessage(
-        error.message ||
-          "Unable to update notification preference."
-      );
-    } finally {
-      setSavingNotification(false);
-    }
-  }, [notifications]);
+      try {
+        setSavingNotification(true);
+        setMessage("");
+
+        await authService.updateProfile({
+          notificationPreferences: {
+            [field]: newValue,
+          },
+        });
+
+        setMessageType("success");
+        setMessage(
+          "Notification preference updated."
+        );
+      } catch (error) {
+        console.error(
+          "Notification preference update failed:",
+          error
+        );
+
+        setNotifications((previous) => ({
+          ...previous,
+          [field]: previousValue,
+        }));
+
+        setMessageType("error");
+        setMessage(
+          error.message ||
+            "Unable to update notification preference."
+        );
+      } finally {
+        setSavingNotification(false);
+      }
+    },
+    [notifications]
+  );
 
   // =========================================
   // SIGN OUT
@@ -370,11 +408,15 @@ export default function AdminSettingsPage() {
       router.replace("/login");
       router.refresh();
     } catch (error) {
-      console.error("Sign out failed:", error);
+      console.error(
+        "Sign out failed:",
+        error
+      );
 
       setMessageType("error");
       setMessage(
-        error.message || "Unable to sign out."
+        error.message ||
+          "Unable to sign out."
       );
     }
   }, [router]);
@@ -447,7 +489,9 @@ export default function AdminSettingsPage() {
 
           <button
             type="button"
-            onClick={() => setSidebarOpen(false)}
+            onClick={() =>
+              setSidebarOpen(false)
+            }
             className="flex h-8 w-8 items-center justify-center rounded-lg text-white transition hover:bg-white/10 lg:hidden"
             aria-label="Close sidebar"
           >
@@ -477,7 +521,9 @@ export default function AdminSettingsPage() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  onClick={() => setSidebarOpen(false)}
+                  onClick={() =>
+                    setSidebarOpen(false)
+                  }
                   className={`group flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold transition ${
                     isActive
                       ? "bg-[#2563EB] text-white shadow-sm"
@@ -558,7 +604,9 @@ export default function AdminSettingsPage() {
         <div className="sticky top-0 z-30 flex h-16 items-center border-b border-slate-200 bg-white px-5 lg:hidden">
           <button
             type="button"
-            onClick={() => setSidebarOpen(true)}
+            onClick={() =>
+              setSidebarOpen(true)
+            }
             className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-[#26344D] transition hover:bg-slate-50"
             aria-label="Open sidebar"
           >
@@ -822,7 +870,9 @@ export default function AdminSettingsPage() {
                 <SettingRow
                   title="Task Notifications"
                   description="Receive notifications when tasks are created or updated."
-                  enabled={notifications.taskUpdates}
+                  enabled={
+                    notifications.taskUpdates
+                  }
                   disabled={savingNotification}
                   onToggle={() =>
                     handleNotificationToggle(
@@ -911,32 +961,6 @@ export default function AdminSettingsPage() {
                 </div>
               </div>
             </section>
-
-            {/* =========================================
-                BACKEND STATUS
-            ========================================= */}
-
-            <section className="w-full rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-              <div className="flex w-full flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h2 className="text-base font-bold text-[#171B3A]">
-                    Configuration Status
-                  </h2>
-
-                  <p className="mt-1 text-sm text-[#64748B]">
-                    Settings are connected to the Local Pro 1 backend.
-                  </p>
-                </div>
-
-                <div className="inline-flex w-fit items-center gap-2 rounded-xl border border-blue-100 bg-[#EEF4FF] px-4 py-2">
-                  <span className="h-2 w-2 rounded-full bg-[#2563EB]" />
-
-                  <span className="text-xs font-semibold text-[#2563EB]">
-                    Backend Connected
-                  </span>
-                </div>
-              </div>
-            </section>
           </div>
         </main>
       </div>
@@ -980,7 +1004,9 @@ function SettingRow({
       >
         <span
           className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow-sm transition ${
-            enabled ? "left-6" : "left-1"
+            enabled
+              ? "left-6"
+              : "left-1"
           }`}
         />
       </button>

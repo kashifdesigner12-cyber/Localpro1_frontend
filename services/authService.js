@@ -1,25 +1,99 @@
 const API_URL = "https://api.localpro1.net/api";
 
 // ==========================================
+// AUTH USER CACHE / REQUEST DEDUPLICATION
+// ==========================================
+
+let cachedUser = null;
+let cachedUserAt = 0;
+let cachedUserPromise = null;
+
+// Keep the authenticated user briefly in memory (increased slightly to 10s for better performance across layout/navbar/dashboard mounts).
+const USER_CACHE_TTL = 10000;
+
+// ==========================================
+// Helper: Clear Current User Cache
+// ==========================================
+
+const clearUserCache = () => {
+  cachedUser = null;
+  cachedUserAt = 0;
+  cachedUserPromise = null;
+};
+
+// ==========================================
+// Helper: Normalize Token
+// ==========================================
+
+const normalizeToken = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  let token = String(value).trim();
+
+  if (!token) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(token);
+
+    if (typeof parsed === "string") {
+      token = parsed.trim();
+    } else if (parsed?.token) {
+      token = String(parsed.token).trim();
+    } else if (parsed?.accessToken) {
+      token = String(parsed.accessToken).trim();
+    }
+  } catch {
+    // Token is already a normal string.
+  }
+
+  if (token.toLowerCase().startsWith("bearer ")) {
+    token = token.slice(7).trim();
+  }
+
+  return token || null;
+};
+
+// ==========================================
+// Helper: Get Stored Token
+// ==========================================
+
+const getStoredToken = () => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  return normalizeToken(
+    localStorage.getItem("token") ||
+      localStorage.getItem("authToken") ||
+      sessionStorage.getItem("token")
+  );
+};
+
+// ==========================================
 // Helper: Get Auth Headers
 // ==========================================
 
-const getAuthHeaders = (extraHeaders = {}) => {
+const getAuthHeaders = (
+  includeContentType = true,
+  extraHeaders = {}
+) => {
   const headers = {
-    "Content-Type": "application/json",
     Accept: "application/json",
     ...extraHeaders,
   };
 
-  if (typeof window !== "undefined") {
-    const token =
-      localStorage.getItem("token") ||
-      localStorage.getItem("authToken") ||
-      sessionStorage.getItem("token");
+  if (includeContentType) {
+    headers["Content-Type"] = "application/json";
+  }
 
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
+  const token = getStoredToken();
+
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
   }
 
   return headers;
@@ -31,7 +105,20 @@ const getAuthHeaders = (extraHeaders = {}) => {
 
 const parseResponse = async (response) => {
   try {
-    return await response.json();
+    const text = await response.text();
+
+    if (!text) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch {
+      return {
+        success: false,
+        message: text,
+      };
+    }
   } catch {
     return null;
   }
@@ -54,17 +141,91 @@ const getErrorMessage = (
 };
 
 // ==========================================
+// Safe Fetch
+// ==========================================
+
+const safeFetch = async (url, options = {}) => {
+  try {
+    return await fetch(url, {
+      ...options,
+      cache: options.cache || "no-store",
+    });
+  } catch (error) {
+    const networkError = new Error(
+      "Unable to connect to the server. Please check your internet connection or try again."
+    );
+
+    networkError.code = "NETWORK_ERROR";
+    networkError.originalError = error;
+
+    throw networkError;
+  }
+};
+
+// ==========================================
+// Fetch Current User
+// ==========================================
+
+const fetchCurrentUser = async () => {
+  const response = await safeFetch(
+    `${API_URL}/auth/me`,
+    {
+      method: "GET",
+      headers: getAuthHeaders(false),
+      credentials: "include",
+      cache: "no-store",
+    }
+  );
+
+  const data = await parseResponse(response);
+
+  if (response.status === 401) {
+    clearUserCache();
+    return null;
+  }
+
+  if (response.status === 403) {
+    const error = new Error(
+      getErrorMessage(
+        data,
+        "You do not have permission to access this account."
+      )
+    );
+
+    error.code = "AUTH_FORBIDDEN";
+
+    throw error;
+  }
+
+  if (!response.ok || data?.success === false) {
+    const error = new Error(
+      getErrorMessage(
+        data,
+        "Unable to load your account."
+      )
+    );
+
+    error.code = "AUTH_SERVER_ERROR";
+    error.status = response.status;
+
+    throw error;
+  }
+
+  cachedUser = data;
+  cachedUserAt = Date.now();
+
+  return data;
+};
+
+// ==========================================
 // Auth Service
 // ==========================================
 
 export const authService = {
-  // ========================================
-  // LOGIN
-  // POST https://api.localpro1.net/api/auth/login
-  // ========================================
-
   async login(email, password) {
-    const response = await fetch(
+    clearUserCache();
+
+    const response = await safeFetch(
       `${API_URL}/auth/login`,
       {
         method: "POST",
@@ -95,65 +256,44 @@ export const authService = {
       typeof window !== "undefined" &&
       (data?.token || data?.data?.token)
     ) {
-      const token =
-        data.token || data.data.token;
+      const token = normalizeToken(
+        data.token || data.data.token
+      );
 
-      localStorage.setItem("token", token);
+      if (token) {
+        localStorage.setItem("token", token);
+        localStorage.removeItem("authToken");
+        sessionStorage.removeItem("token");
+      }
     }
+
+    clearUserCache();
 
     return data;
   },
-
-  // ========================================
-  // CURRENT AUTHENTICATED USER
-  // GET /api/auth/me
-  // ========================================
 
   async me() {
-    const response = await fetch(
-      `${API_URL}/auth/me`,
-      {
-        method: "GET",
-        headers: getAuthHeaders({
-          "Content-Type": undefined,
-        }),
-        credentials: "include",
-        cache: "no-store",
-      }
-    );
+    const now = Date.now();
 
-    const data = await parseResponse(response);
-
-    if (response.status === 401) {
-      return null;
+    if (
+      cachedUser &&
+      now - cachedUserAt < USER_CACHE_TTL
+    ) {
+      return cachedUser;
     }
 
-    if (response.status === 403) {
-      throw new Error(
-        getErrorMessage(
-          data,
-          "You do not have permission to access this account."
-        )
-      );
+    if (cachedUserPromise) {
+      return cachedUserPromise;
     }
 
-    if (!response.ok || data?.success === false) {
-      throw new Error(
-        getErrorMessage(
-          data,
-          "Unable to load your account."
-        )
-      );
-    }
+    cachedUserPromise = fetchCurrentUser();
 
-    return data;
+    try {
+      return await cachedUserPromise;
+    } finally {
+      cachedUserPromise = null;
+    }
   },
-
-  // ========================================
-  // UPDATE PROFILE
-  // PUT /api/auth/me
-  // OR PUT /api/users/profile
-  // ========================================
 
   async updateProfile(profileData = {}) {
     const payload = {
@@ -200,7 +340,7 @@ export const authService = {
           : undefined,
     };
 
-    let response = await fetch(
+    let response = await safeFetch(
       `${API_URL}/auth/me`,
       {
         method: "PUT",
@@ -213,7 +353,7 @@ export const authService = {
     let data = await parseResponse(response);
 
     if (response.status === 404) {
-      response = await fetch(
+      response = await safeFetch(
         `${API_URL}/users/profile`,
         {
           method: "PUT",
@@ -227,9 +367,15 @@ export const authService = {
     }
 
     if (response.status === 401) {
-      throw new Error(
+      clearUserCache();
+
+      const error = new Error(
         "Your session has expired. Please login again."
       );
+
+      error.code = "AUTH_EXPIRED";
+
+      throw error;
     }
 
     if (response.status === 403) {
@@ -250,19 +396,16 @@ export const authService = {
       );
     }
 
+    clearUserCache();
+
     return data;
   },
-
-  // ========================================
-  // CHANGE PASSWORD
-  // PATCH /api/auth/change-password
-  // ========================================
 
   async changePassword(
     currentPassword,
     newPassword
   ) {
-    const response = await fetch(
+    const response = await safeFetch(
       `${API_URL}/auth/change-password`,
       {
         method: "PATCH",
@@ -278,9 +421,15 @@ export const authService = {
     const data = await parseResponse(response);
 
     if (response.status === 401) {
-      throw new Error(
+      clearUserCache();
+
+      const error = new Error(
         "Your session has expired or the current password is incorrect."
       );
+
+      error.code = "AUTH_EXPIRED";
+
+      throw error;
     }
 
     if (!response.ok || data?.success === false) {
@@ -295,68 +444,73 @@ export const authService = {
     return data;
   },
 
-  // ========================================
-  // LOGOUT
-  // POST /api/auth/logout
-  // ========================================
-
   async logout() {
+    const token = getStoredToken();
+
+    clearUserCache();
+
     if (typeof window !== "undefined") {
       localStorage.removeItem("token");
       localStorage.removeItem("authToken");
       sessionStorage.removeItem("token");
     }
 
-    const response = await fetch(
-      `${API_URL}/auth/logout`,
-      {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-        },
-        credentials: "include",
-      }
-    );
-
-    const data = await parseResponse(response);
-
-    if (
-      !response.ok &&
-      response.status !== 401
-    ) {
-      throw new Error(
-        getErrorMessage(
-          data,
-          "Unable to logout."
-        )
+    try {
+      const response = await safeFetch(
+        `${API_URL}/auth/logout`,
+        {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            ...(token
+              ? {
+                  Authorization: `Bearer ${token}`,
+                }
+              : {}),
+          },
+          credentials: "include",
+        }
       );
-    }
 
-    return (
-      data || {
-        success: true,
-        message: "Logout successful.",
+      const data = await parseResponse(response);
+
+      if (
+        !response.ok &&
+        response.status !== 401
+      ) {
+        throw new Error(
+          getErrorMessage(
+            data,
+            "Unable to logout."
+          )
+        );
       }
-    );
+
+      return (
+        data || {
+          success: true,
+          message: "Logout successful.",
+        }
+      );
+    } catch (error) {
+      if (error?.code === "NETWORK_ERROR") {
+        return {
+          success: true,
+          message: "Logged out locally.",
+        };
+      }
+
+      throw error;
+    }
   },
 
-  // ========================================
-  // TOKEN HELPERS
-  // ========================================
-
   getToken() {
-    if (typeof window === "undefined") {
-      return null;
-    }
-
-    return (
-      localStorage.getItem("token") ||
-      sessionStorage.getItem("token") ||
-      null
-    );
+    return getStoredToken();
   },
 
   clearToken() {
+    clearUserCache();
+
     if (typeof window === "undefined") {
       return;
     }
@@ -364,5 +518,9 @@ export const authService = {
     localStorage.removeItem("token");
     localStorage.removeItem("authToken");
     sessionStorage.removeItem("token");
+  },
+
+  clearUserCache() {
+    clearUserCache();
   },
 };

@@ -21,8 +21,10 @@ import {
   Power,
 } from "lucide-react";
 
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "https://api.localpro1.net";
+const API_URL = (
+  process.env.NEXT_PUBLIC_API_URL ||
+  "https://api.localpro1.net/api"
+).replace(/\/+$/, "");
 
 // ==========================================================
 // HELPERS
@@ -70,10 +72,23 @@ const formatDate = (date) => {
 };
 
 const getAuthHeaders = () => {
-  const token =
-    typeof window !== "undefined"
-      ? localStorage.getItem("token")
-      : null;
+  let token = null;
+
+  if (typeof window !== "undefined") {
+    token =
+      localStorage.getItem("token") ||
+      localStorage.getItem("accessToken") ||
+      localStorage.getItem("access_token") ||
+      localStorage.getItem("authToken") ||
+      localStorage.getItem("auth_token") ||
+      localStorage.getItem("jwt") ||
+      sessionStorage.getItem("token") ||
+      sessionStorage.getItem("accessToken") ||
+      sessionStorage.getItem("access_token") ||
+      sessionStorage.getItem("authToken") ||
+      sessionStorage.getItem("auth_token") ||
+      sessionStorage.getItem("jwt");
+  }
 
   return {
     "Content-Type": "application/json",
@@ -160,7 +175,7 @@ export default function AdminAttendancePage() {
       setError("");
 
       const response = await fetch(
-        `${API_URL}/api/attendance?startDate=${selectedDate}&endDate=${selectedDate}&limit=100`,
+        `${API_URL}/attendance?startDate=${selectedDate}&endDate=${selectedDate}&limit=100`,
         {
           method: "GET",
           headers: getAuthHeaders(),
@@ -329,7 +344,7 @@ export default function AdminAttendancePage() {
       setSaving(true);
 
       const response = await fetch(
-        `${API_URL}/api/attendance/${editingAttendance.id}`,
+        `${API_URL}/attendance/${editingAttendance.id}`,
         {
           method: "PUT",
           headers: getAuthHeaders(),
@@ -402,7 +417,7 @@ export default function AdminAttendancePage() {
 
     try {
       const response = await fetch(
-        `${API_URL}/api/attendance/${item.id}`,
+        `${API_URL}/attendance/${item.id}`,
         {
           method: "DELETE",
           headers: getAuthHeaders(),
@@ -456,7 +471,7 @@ export default function AdminAttendancePage() {
 
     try {
       const response = await fetch(
-        `${API_URL}/api/attendance/user/${user.id}/schedule`,
+        `${API_URL}/attendance/user/${user.id}/schedule`,
         {
           method: "GET",
           headers: getAuthHeaders(),
@@ -557,7 +572,7 @@ export default function AdminAttendancePage() {
       setScheduleSaving(true);
 
       const response = await fetch(
-        `${API_URL}/api/attendance/user/${scheduleUser.id}/schedule`,
+        `${API_URL}/attendance/user/${scheduleUser.id}/schedule`,
         {
           method: "PUT",
           headers: getAuthHeaders(),

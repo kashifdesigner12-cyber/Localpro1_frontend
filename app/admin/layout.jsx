@@ -79,7 +79,7 @@ export default function AdminLayout({ children }) {
   const redirectingRef = useRef(false);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
 
@@ -97,22 +97,19 @@ export default function AdminLayout({ children }) {
     }
 
     let cancelled = false;
-
     checkingAuthRef.current = true;
 
     const checkAdmin = async () => {
       try {
-        if (!cancelled && mountedRef.current) {
-          setLoading(true);
-        }
-
+        // OPTIMIZATION: authService.me() already utilizes memory caching and request 
+        // deduplication inside authService, preventing duplicate concurrent /auth/me calls.
         const response = await authService.me();
 
         if (cancelled || !mountedRef.current) {
           return;
         }
 
-        const user = response?.user;
+        const user = response?.user || response?.data || response;
 
         if (!user) {
           redirectToLogin();
@@ -214,23 +211,6 @@ export default function AdminLayout({ children }) {
 
       router.replace("/login");
     }
-  }
-
-  if (loading) {
-    return (
-      <div className="flex min-h-screen w-full items-center justify-center bg-[#F8FAFC]">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2
-            size={30}
-            className="animate-spin text-[#2563EB]"
-          />
-
-          <p className="text-sm font-medium text-[#64748B]">
-            Loading admin workspace...
-          </p>
-        </div>
-      </div>
-    );
   }
 
   return (

@@ -683,7 +683,7 @@ export default function ManagerSettingsPage() {
               <div className="min-w-0">
 
                 <h2 className="text-sm font-bold text-[#171B3A]">
-                  Backend Connected
+                  
                 </h2>
 
                 <p className="mt-1 text-xs leading-5 text-[#64748B]">
