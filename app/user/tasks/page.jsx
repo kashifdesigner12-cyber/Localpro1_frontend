@@ -2059,70 +2059,65 @@ function isOverdue(
 }
 
 /* =========================================================
-   API REQUEST
+   API REQUEST (BULLETPROOF TOKEN INJECTION)
 ========================================================= */
 
 async function apiRequest(
   endpoint,
   options = {}
 ) {
-  const response =
-    await fetch(
-      `${API_URL}${endpoint}`,
-      {
-        ...options,
+  let token = null;
+  try {
+    if (typeof window !== "undefined") {
+      token =
+        localStorage.getItem("token") ||
+        localStorage.getItem("authToken") ||
+        sessionStorage.getItem("token");
+    }
+    if (!token && typeof authService?.getToken === "function") {
+      token = authService.getToken();
+    }
+  } catch (e) {}
 
-        credentials: "include",
-
-        headers: {
-          Accept:
-            "application/json",
-
-          "Content-Type":
-            "application/json",
-
-          ...(options.headers ||
-            {}),
-        },
-
-        cache: "no-store",
-      }
-    );
+  const response = await fetch(
+    `${API_URL}${endpoint}`,
+    {
+      ...options,
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(options.headers || {}),
+      },
+      cache: "no-store",
+    }
+  );
 
   let data = null;
 
-  const contentType =
-    response.headers.get(
-      "content-type"
-    );
-
-  if (
-    contentType?.includes(
-      "application/json"
-    )
-  ) {
-    try {
-      data =
-        await response.json();
-    } catch {
-      data = null;
+  try {
+    const text = await response.text();
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = { message: text };
+      }
     }
+  } catch {
+    data = null;
   }
 
   if (!response.ok) {
     const message =
       data?.message ||
       data?.error ||
-      data?.errors?.[0]
-        ?.message ||
+      data?.errors?.[0]?.message ||
       `Request failed with status ${response.status}`;
 
-    const error =
-      new Error(message);
-
-    error.status =
-      response.status;
-
+    const error = new Error(message);
+    error.status = response.status;
     error.data = data;
 
     throw error;

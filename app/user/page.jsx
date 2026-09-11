@@ -285,7 +285,7 @@ export default function UserDashboardPage() {
 
   /* =======================================================
      UNREAD NOTIFICATIONS
-  ======================================================= */
+  ================================================       */
 
   const unreadNotifications =
     useMemo(() => {
@@ -301,14 +301,14 @@ export default function UserDashboardPage() {
 
   /* =======================================================
      CONVERSATION COUNT
-  ======================================================= */
+  ================================================       */
 
   const conversationCount =
     conversations.length;
 
   /* =======================================================
      RECENT TASKS
-  ======================================================= */
+  ================================================       */
 
   const recentTasks = useMemo(() => {
     return [...tasks]
@@ -336,7 +336,7 @@ export default function UserDashboardPage() {
 
   /* =======================================================
      RECENT NOTIFICATIONS
-  ======================================================= */
+  ================================================       */
 
   const recentNotifications =
     useMemo(() => {
@@ -363,7 +363,7 @@ export default function UserDashboardPage() {
 
   /* =======================================================
      USER NAME
-  ======================================================= */
+  ================================================       */
 
   const userName =
     user?.name ||
@@ -374,7 +374,7 @@ export default function UserDashboardPage() {
 
   /* =======================================================
      UI
-  ======================================================= */
+  ================================================       */
 
   return (
     <div className="min-h-screen bg-[#F8FAFC]">
@@ -1557,21 +1557,29 @@ function NotificationLoading() {
 }
 
 /* =========================================================
-   API REQUEST
+   API REQUEST (FIXED WITH AUTHORIZATION BEARER TOKEN)
 ========================================================= */
 
 async function apiRequest(
   endpoint,
   options = {}
 ) {
+  let token = null;
+  try {
+    if (typeof authService.getToken === "function") {
+      token = authService.getToken();
+    }
+  } catch (e) {}
+
   const response = await fetch(
     `${API_URL}${endpoint}`,
     {
       ...options,
       credentials: "include",
       headers: {
-        "Content-Type":
-          "application/json",
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(options.headers || {}),
       },
     }

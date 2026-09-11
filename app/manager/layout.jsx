@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 
 import {
   Activity,
@@ -64,6 +64,19 @@ const navigation = [
   },
 ];
 
+// Global persistent cache for manager layout session state
+let globalManagerUserCache = {
+  user: null,
+  loaded: false,
+};
+
+export const invalidateManagerUserCache = () => {
+  globalManagerUserCache = {
+    user: null,
+    loaded: false,
+  };
+};
+
 // =====================================================
 // MANAGER LAYOUT
 // =====================================================
@@ -72,35 +85,77 @@ export default function ManagerLayout({ children }) {
   const router = useRouter();
   const pathname = usePathname();
 
-  const { user, loading } = useAuth();
+  const { user: authUser, loading: authLoading, checkAuth } = useAuth();
 
   const redirectingRef = useRef(false);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  const [currentUser, setCurrentUser] = useState(globalManagerUserCache.user || authUser);
+  const [loading, setLoading] = useState(!globalManagerUserCache.loaded && authLoading);
+
   const [profile, setProfile] = useState({
-    name: "",
-    email: "",
-    avatar: "",
+    name: currentUser?.name || currentUser?.fullName || "",
+    email: currentUser?.email || "",
+    avatar: currentUser?.avatar || currentUser?.profileImage || currentUser?.profilePicture || currentUser?.image || "",
   });
 
   const [loggingOut, setLoggingOut] = useState(false);
+
+  // Sync profile state whenever cache or authUser updates
+  const syncProfileData = useCallback((activeUser) => {
+    if (!activeUser) return;
+    setProfile({
+      name: activeUser?.name || activeUser?.fullName || "",
+      email: activeUser?.email || "",
+      avatar: activeUser?.avatar || activeUser?.profileImage || activeUser?.profilePicture || activeUser?.image || "",
+    });
+    setCurrentUser(activeUser);
+  }, []);
+
+  // Listen for custom profile update events across the app for instantaneous UI refresh without full page reloads
+  useEffect(() => {
+    const handleProfileUpdate = (e) => {
+      const freshUser = e.detail;
+      if (freshUser) {
+        globalManagerUserCache = {
+          user: freshUser,
+          loaded: true,
+        };
+        syncProfileData(freshUser);
+      }
+    };
+
+    window.addEventListener("manager_profile_updated", handleProfileUpdate);
+    return () => {
+      window.removeEventListener("manager_profile_updated", handleProfileUpdate);
+    };
+  }, [syncProfileData]);
 
   // ===================================================
   // AUTH + PROFILE
   // ===================================================
 
   useEffect(() => {
-    if (loading) return;
+    if (globalManagerUserCache.loaded && globalManagerUserCache.user) {
+      syncProfileData(globalManagerUserCache.user);
+      setLoading(false);
+      return;
+    }
+
+    if (authLoading) return;
 
     if (redirectingRef.current) return;
+
+    const activeUser = authUser;
 
     // -------------------------------------------------
     // NOT AUTHENTICATED
     // -------------------------------------------------
 
-    if (!user) {
+    if (!activeUser) {
       redirectingRef.current = true;
+      globalManagerUserCache = { user: null, loaded: false };
 
       router.replace(
         `/login?redirect=${encodeURIComponent(
@@ -115,7 +170,7 @@ export default function ManagerLayout({ children }) {
     // ROLE
     // -------------------------------------------------
 
-    const currentRole = String(user?.role || "")
+    const currentRole = String(activeUser?.role || "")
       .trim()
       .toLowerCase();
 
@@ -145,36 +200,29 @@ export default function ManagerLayout({ children }) {
 
     if (currentRole !== "manager") {
       redirectingRef.current = true;
+      globalManagerUserCache = { user: null, loaded: false };
       router.replace("/login");
       return;
     }
 
     // -------------------------------------------------
-    // MANAGER PROFILE
+    // MANAGER PROFILE & CACHE SAVE
     // -------------------------------------------------
 
-    setProfile({
-      name:
-        user?.name ||
-        user?.fullName ||
-        "",
+    syncProfileData(activeUser);
 
-      email:
-        user?.email ||
-        "",
+    globalManagerUserCache = {
+      user: activeUser,
+      loaded: true,
+    };
 
-      avatar:
-        user?.avatar ||
-        user?.profileImage ||
-        user?.profilePicture ||
-        user?.image ||
-        "",
-    });
+    setLoading(false);
   }, [
-    loading,
-    user,
+    authLoading,
+    authUser,
     router,
     pathname,
+    syncProfileData,
   ]);
 
   // ===================================================
@@ -194,7 +242,7 @@ export default function ManagerLayout({ children }) {
 
     try {
       setLoggingOut(true);
-
+      globalManagerUserCache = { user: null, loaded: false };
       await authService.logout();
     } catch (error) {
       console.error(
@@ -217,10 +265,10 @@ export default function ManagerLayout({ children }) {
       ?.toUpperCase() || "M";
 
   // ===================================================
-  // AUTH LOADING
+  // AUTH LOADING (Only on initial hard load if no cache)
   // ===================================================
 
-  if (loading) {
+  if (loading && !globalManagerUserCache.loaded) {
     return (
       <div className="flex min-h-screen w-full items-center justify-center bg-[#F8FAFC]">
         <div className="flex flex-col items-center gap-3">
@@ -239,11 +287,13 @@ export default function ManagerLayout({ children }) {
     );
   }
 
+  const activeUser = currentUser || authUser;
+
   // ===================================================
   // REDIRECT LOADING
   // ===================================================
 
-  if (!user) {
+  if (!activeUser && !globalManagerUserCache.loaded) {
     return (
       <div className="flex min-h-screen w-full items-center justify-center bg-[#F8FAFC]">
         <div className="flex flex-col items-center gap-3">
@@ -256,33 +306,6 @@ export default function ManagerLayout({ children }) {
 
           <p className="text-sm font-semibold text-[#64748B]">
             Redirecting to login...
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // ===================================================
-  // ROLE CHECK
-  // ===================================================
-
-  const currentRole = String(user?.role || "")
-    .trim()
-    .toLowerCase();
-
-  if (currentRole !== "manager") {
-    return (
-      <div className="flex min-h-screen w-full items-center justify-center bg-[#F8FAFC]">
-        <div className="flex flex-col items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#EEF4FF]">
-            <Loader2
-              size={26}
-              className="animate-spin text-[#2563EB]"
-            />
-          </div>
-
-          <p className="text-sm font-semibold text-[#64748B]">
-            Redirecting...
           </p>
         </div>
       </div>

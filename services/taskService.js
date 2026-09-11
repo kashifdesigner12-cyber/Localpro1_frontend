@@ -2,6 +2,8 @@ const API_URL =
   process.env.NEXT_PUBLIC_API_URL ||
   "https://api.localpro1.net/api";
 
+import { authService } from "./authService";
+
 // ==========================================
 // Parse Response
 // ==========================================
@@ -12,6 +14,36 @@ const parseResponse = async (response) => {
   } catch {
     return null;
   }
+};
+
+// ==========================================
+// Get Request Headers with Authorization Support
+// ==========================================
+
+const getAuthHeaders = (hasBody = false) => {
+  let token = null;
+
+  try {
+    if (typeof authService.getToken === "function") {
+      token = authService.getToken();
+    }
+  } catch (error) {
+    console.error("Unable to retrieve auth token:", error);
+  }
+
+  return {
+    Accept: "application/json",
+    ...(hasBody
+      ? {
+          "Content-Type": "application/json",
+        }
+      : {}),
+    ...(token
+      ? {
+          Authorization: `Bearer ${token}`,
+        }
+      : {}),
+  };
 };
 
 // ==========================================
@@ -55,13 +87,8 @@ export const taskService = {
       `${API_URL}/tasks`,
       {
         method: "GET",
-
-        headers: {
-          Accept: "application/json",
-        },
-
+        headers: getAuthHeaders(false),
         credentials: "include",
-
         cache: "no-store",
       }
     );
@@ -82,13 +109,8 @@ export const taskService = {
       `${API_URL}/tasks/${id}`,
       {
         method: "GET",
-
-        headers: {
-          Accept: "application/json",
-        },
-
+        headers: getAuthHeaders(false),
         credentials: "include",
-
         cache: "no-store",
       }
     );
@@ -105,14 +127,8 @@ export const taskService = {
       `${API_URL}/tasks`,
       {
         method: "POST",
-
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-
+        headers: getAuthHeaders(true),
         credentials: "include",
-
         body: JSON.stringify(taskData),
       }
     );
@@ -133,14 +149,8 @@ export const taskService = {
       `${API_URL}/tasks/${id}`,
       {
         method: "PUT",
-
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-
+        headers: getAuthHeaders(true),
         credentials: "include",
-
         body: JSON.stringify(taskData),
       }
     );

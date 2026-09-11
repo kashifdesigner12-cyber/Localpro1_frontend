@@ -121,8 +121,10 @@ const initialForm = {
   reason: "",
 };
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "https://api.localpro1.net";
+const API_BASE_URL = (
+  process.env.NEXT_PUBLIC_API_URL ||
+  "https://api.localpro1.net/api"
+).replace(/\/+$/, "");
 
 export default function UserLeaveRequestsPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -152,7 +154,7 @@ export default function UserLeaveRequestsPage() {
       setError("");
 
       const response = await fetch(
-        `${API_BASE_URL}/api/leave-requests/my`,
+        `${API_BASE_URL}/leave-requests/my`,
         {
           method: "GET",
           credentials: "include",
@@ -185,6 +187,10 @@ export default function UserLeaveRequestsPage() {
         ? data.requests
         : Array.isArray(data?.data)
         ? data.data
+        : Array.isArray(data?.data?.leaveRequests)
+        ? data.data.leaveRequests
+        : Array.isArray(data?.data?.requests)
+        ? data.data.requests
         : [];
 
       setLeaveRequests(requests);
@@ -264,14 +270,17 @@ export default function UserLeaveRequestsPage() {
         throw new Error("Please enter a reason for your leave.");
       }
 
-      if (new Date(payload.endDate) < new Date(payload.startDate)) {
+      if (
+        new Date(payload.endDate) <
+        new Date(payload.startDate)
+      ) {
         throw new Error(
           "End date cannot be before start date."
         );
       }
 
       const response = await fetch(
-        `${API_BASE_URL}/api/leave-requests`,
+        `${API_BASE_URL}/leave-requests`,
         {
           method: "POST",
           credentials: "include",
@@ -298,7 +307,6 @@ export default function UserLeaveRequestsPage() {
       }
 
       setSubmitted(true);
-
       setForm(initialForm);
 
       await fetchLeaveRequests();
@@ -372,7 +380,7 @@ export default function UserLeaveRequestsPage() {
       setError("");
 
       const response = await fetch(
-        `${API_BASE_URL}/api/leave-requests/${id}/cancel`,
+        `${API_BASE_URL}/leave-requests/${id}/cancel`,
         {
           method: "PATCH",
           credentials: "include",
@@ -780,11 +788,7 @@ export default function UserLeaveRequestsPage() {
                 <div className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-500" />
 
                 <div>
-                  <h2 className="text-sm font-bold text-[#171B3A]">
-                    
-                  </h2>
-
-                  <p className="mt-1 text-xs leading-5 text-[#64748B]">
+                  <p className="text-xs leading-5 text-[#64748B]">
                     Leave requests are loaded and submitted through
                     the authenticated backend. No fake requests,
                     localStorage, or sessionStorage is being used.
@@ -1110,7 +1114,10 @@ function LeaveRequestRow({
     request.endDate
   );
 
-  const leaveType = request.leaveType || request.type || "—";
+  const leaveType =
+    request.leaveType ||
+    request.type ||
+    "—";
 
   const leaveTypeLabel =
     LEAVE_TYPES.find(

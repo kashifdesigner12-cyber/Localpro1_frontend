@@ -11,43 +11,47 @@ import {
   ClipboardList,
   Clock3,
   Loader2,
-  MessageSquare,
   Users,
 } from "lucide-react";
 
 import { authService } from "@/services/authService";
 import { dashboardService } from "@/services/dashboardService";
 
-export default function ManagerDashboardPage() {
-  const router = useRouter();
-
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [stats, setStats] = useState(null);
-
-  const [activity, setActivity] = useState({
+// Global persistent cache so data loads only once per session and doesn't re-fetch on tab switches
+let managerDashboardCache = {
+  stats: null,
+  activity: {
     tasks: [],
     leaveRequests: [],
     events: [],
-  });
+  },
+  manager: null,
+  loaded: false,
+};
 
-  const [manager, setManager] = useState(null);
+export default function ManagerDashboardPage() {
+  const router = useRouter();
+
+  const [loading, setLoading] = useState(!managerDashboardCache.loaded);
+  const [error, setError] = useState("");
+  const [stats, setStats] = useState(managerDashboardCache.stats);
+
+  const [activity, setActivity] = useState(managerDashboardCache.activity);
+  const [manager, setManager] = useState(managerDashboardCache.manager);
 
   useEffect(() => {
     let mounted = true;
 
     async function loadDashboard() {
+      // If data is already cached globally, skip network re-fetch completely
+      if (managerDashboardCache.loaded) {
+        if (mounted) setLoading(false);
+        return;
+      }
+
       try {
         setLoading(true);
         setError("");
-
-        /*
-         * ManagerLayout handles authentication
-         * and role protection.
-         *
-         * This page only loads authenticated
-         * manager data.
-         */
 
         const meResponse = await authService.me();
 
@@ -72,9 +76,6 @@ export default function ManagerDashboardPage() {
 
         setManager(authenticatedUser);
 
-        /*
-         * Load dashboard data.
-         */
         const [
           statsResponse,
           activityResponse,
@@ -85,22 +86,32 @@ export default function ManagerDashboardPage() {
 
         if (!mounted) return;
 
-        setStats(
+        const resolvedStats =
           statsResponse?.stats ||
-            statsResponse?.data?.stats ||
-            statsResponse?.data ||
-            null
-        );
+          statsResponse?.data?.stats ||
+          statsResponse?.data ||
+          null;
 
-        setActivity(
+        const resolvedActivity =
           activityResponse?.recentActivity ||
-            activityResponse?.data?.recentActivity ||
-            {
-              tasks: [],
-              leaveRequests: [],
-              events: [],
-            }
-        );
+          activityResponse?.data?.recentActivity ||
+          activityResponse?.data ||
+          {
+            tasks: [],
+            leaveRequests: [],
+            events: [],
+          };
+
+        setStats(resolvedStats);
+        setActivity(resolvedActivity);
+
+        // Store into global cache
+        managerDashboardCache = {
+          stats: resolvedStats,
+          activity: resolvedActivity,
+          manager: authenticatedUser,
+          loaded: true,
+        };
       } catch (err) {
         console.error(
           "Manager dashboard error:",
@@ -279,7 +290,7 @@ export default function ManagerDashboardPage() {
 
                 </div>
 
-                {activity.tasks.length === 0 ? (
+                {(!activity?.tasks || activity.tasks.length === 0) ? (
                   <EmptyState
                     icon={ClipboardList}
                     title="No task data available"
@@ -383,9 +394,9 @@ export default function ManagerDashboardPage() {
 
                 </div>
 
-                {activity.tasks.length === 0 &&
-                activity.leaveRequests.length === 0 &&
-                activity.events.length === 0 ? (
+                {(!activity?.tasks || activity.tasks.length === 0) &&
+                (!activity?.leaveRequests || activity.leaveRequests.length === 0) &&
+                (!activity?.events || activity.events.length === 0) ? (
                   <EmptyState
                     icon={Activity}
                     title="No activity available"
@@ -395,7 +406,7 @@ export default function ManagerDashboardPage() {
                 ) : (
                   <div className="divide-y divide-slate-100">
 
-                    {activity.tasks
+                    {Array.isArray(activity?.tasks) && activity.tasks
                       .slice(0, 3)
                       .map((task) => (
                         <ActivityRow
@@ -415,7 +426,7 @@ export default function ManagerDashboardPage() {
                         />
                       ))}
 
-                    {activity.leaveRequests
+                    {Array.isArray(activity?.leaveRequests) && activity.leaveRequests
                       .slice(0, 2)
                       .map((leave) => (
                         <ActivityRow
@@ -432,7 +443,7 @@ export default function ManagerDashboardPage() {
                         />
                       ))}
 
-                    {activity.events
+                    {Array.isArray(activity?.events) && activity.events
                       .slice(0, 2)
                       .map((event) => (
                         <ActivityRow
@@ -480,7 +491,7 @@ export default function ManagerDashboardPage() {
 
                 </div>
 
-                {activity.events.length === 0 ? (
+                {(!activity?.events || activity.events.length === 0) ? (
                   <EmptyState
                     icon={CalendarDays}
                     title="No events available"
@@ -490,7 +501,7 @@ export default function ManagerDashboardPage() {
                 ) : (
                   <div className="divide-y divide-slate-100">
 
-                    {activity.events
+                    {Array.isArray(activity?.events) && activity.events
                       .slice(0, 5)
                       .map((event) => (
                         <EventRow

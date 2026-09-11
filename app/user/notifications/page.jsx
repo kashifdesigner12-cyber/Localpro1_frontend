@@ -25,8 +25,11 @@ import {
   X,
 } from "lucide-react";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "https://api.localpro1.net";
+import { authService } from "@/services/authService";
+
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  "https://api.localpro1.net/api";
 
 const navigation = [
   {
@@ -99,38 +102,72 @@ export default function UserNotificationsPage() {
 
   /*
    * =========================================================
-   * API HELPER
+   * API HELPER (BULLETPROOF TOKEN INJECTION)
    * =========================================================
    */
 
   const apiRequest = useCallback(async (endpoint, options = {}) => {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    let token = null;
+    try {
+      if (typeof window !== "undefined") {
+        token =
+          localStorage.getItem("token") ||
+          localStorage.getItem("authToken") ||
+          sessionStorage.getItem("token");
+      }
+      if (!token && typeof authService?.getToken === "function") {
+        token = authService.getToken();
+      }
+    } catch (e) {}
+
+    // Clean endpoint to prevent double `/api/api/`ing
+    const cleanEndpoint = endpoint.startsWith("/api/")
+      ? endpoint.replace(/^\/api/, "")
+      : endpoint;
+    const finalPath = cleanEndpoint.startsWith("/") ? cleanEndpoint : `/${cleanEndpoint}`;
+
+    const response = await fetch(`${API_URL}${finalPath}`, {
       ...options,
       credentials: "include",
       headers: {
         Accept: "application/json",
         "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(options.headers || {}),
       },
+      cache: "no-store",
     });
 
     let data = null;
 
     try {
-      data = await response.json();
+      const text = await response.text();
+      if (text) {
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = { message: text };
+        }
+      }
     } catch {
       data = null;
     }
 
     if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        router.replace("/login");
+      }
+
       throw new Error(
         data?.message ||
+          data?.error ||
+          data?.errors?.[0]?.message ||
           `Request failed with status ${response.status}`
       );
     }
 
     return data;
-  }, []);
+  }, [router]);
 
   /*
    * =========================================================
@@ -148,12 +185,14 @@ export default function UserNotificationsPage() {
         setError("");
 
         const data = await apiRequest(
-          "/api/notifications?limit=100"
+          "/notifications?limit=100"
         );
 
         const notificationData =
           Array.isArray(data?.notifications)
             ? data.notifications
+            : Array.isArray(data?.data?.notifications)
+            ? data.data.notifications
             : Array.isArray(data?.data)
             ? data.data
             : [];
@@ -197,7 +236,7 @@ export default function UserNotificationsPage() {
   const totalNotifications = notifications.length;
 
   const unreadNotifications = notifications.filter(
-    (notification) => !notification.isRead
+    (notification) => !notification.isRead && !notification.read
   ).length;
 
   const readNotifications =
@@ -214,13 +253,13 @@ export default function UserNotificationsPage() {
 
     if (filter === "unread") {
       result = result.filter(
-        (notification) => !notification.isRead
+        (notification) => !notification.isRead && !notification.read
       );
     }
 
     if (filter === "read") {
       result = result.filter(
-        (notification) => notification.isRead
+        (notification) => notification.isRead || notification.read
       );
     }
 
@@ -259,7 +298,7 @@ export default function UserNotificationsPage() {
     const notificationId =
       notification?.id || notification?._id;
 
-    if (!notificationId || notification.isRead) {
+    if (!notificationId || notification.isRead || notification.read) {
       return;
     }
 
@@ -267,7 +306,7 @@ export default function UserNotificationsPage() {
       setActionLoading(true);
 
       await apiRequest(
-        `/api/notifications/${notificationId}/read`,
+        `/notifications/${notificationId}/read`,
         {
           method: "PATCH",
         }
@@ -281,6 +320,7 @@ export default function UserNotificationsPage() {
             ? {
                 ...item,
                 isRead: true,
+                read: true,
                 readAt: new Date().toISOString(),
               }
             : item;
@@ -317,7 +357,7 @@ export default function UserNotificationsPage() {
       setError("");
 
       await apiRequest(
-        "/api/notifications/read-all",
+        "/notifications/read-all",
         {
           method: "PATCH",
         }
@@ -329,6 +369,7 @@ export default function UserNotificationsPage() {
         current.map((notification) => ({
           ...notification,
           isRead: true,
+          read: true,
           readAt:
             notification.readAt || now,
         }))
@@ -364,7 +405,7 @@ export default function UserNotificationsPage() {
       setError("");
 
       await apiRequest(
-        `/api/notifications/${notificationId}`,
+        `/notifications/${notificationId}`,
         {
           method: "DELETE",
         }
@@ -410,7 +451,7 @@ export default function UserNotificationsPage() {
       setError("");
 
       await apiRequest(
-        "/api/notifications/read",
+        "/notifications/read",
         {
           method: "DELETE",
         }
@@ -418,7 +459,7 @@ export default function UserNotificationsPage() {
 
       setNotifications((current) =>
         current.filter(
-          (notification) => !notification.isRead
+          (notification) => !notification.isRead && !notification.read
         )
       );
     } catch (err) {
@@ -446,9 +487,9 @@ export default function UserNotificationsPage() {
     try {
       setActionLoading(true);
 
-      await apiRequest("/api/auth/logout", {
-        method: "POST",
-      });
+      if (typeof authService?.logout === "function") {
+        await authService.logout();
+      }
     } catch (err) {
       console.error(
         "Logout request failed:",
@@ -456,8 +497,7 @@ export default function UserNotificationsPage() {
       );
     } finally {
       setActionLoading(false);
-      router.push("/login");
-      router.refresh();
+      router.replace("/login");
     }
   }
 
@@ -997,6 +1037,8 @@ export default function UserNotificationsPage() {
                           notification.type
                         );
 
+                      const isRead = Boolean(notification.isRead || notification.read);
+
                       return (
                         <NotificationItem
                           key={
@@ -1025,6 +1067,7 @@ export default function UserNotificationsPage() {
                               notification
                             )
                           }
+                          isRead={isRead}
                         />
                       );
                     }
@@ -1164,6 +1207,7 @@ function NotificationItem({
   formatDate,
   actionLoading,
   actionUrl,
+  isRead,
 }) {
   const notificationId =
     notification.id || notification._id;
@@ -1171,7 +1215,7 @@ function NotificationItem({
   return (
     <div
       className={`group px-5 py-5 transition sm:px-6 ${
-        notification.isRead
+        isRead
           ? "bg-white hover:bg-slate-50"
           : "bg-[#EEF4FF]/40 hover:bg-[#EEF4FF]/70"
       }`}
@@ -1181,7 +1225,7 @@ function NotificationItem({
 
         <div
           className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${
-            notification.isRead
+            isRead
               ? "bg-slate-100 text-slate-500"
               : "bg-[#EEF4FF] text-[#2563EB]"
           }`}
@@ -1197,7 +1241,7 @@ function NotificationItem({
               <div className="flex flex-wrap items-center gap-2">
                 <h3
                   className={`text-sm ${
-                    notification.isRead
+                    isRead
                       ? "font-semibold text-[#26344D]"
                       : "font-bold text-[#171B3A]"
                   }`}
@@ -1210,7 +1254,7 @@ function NotificationItem({
                   {typeLabel}
                 </span>
 
-                {!notification.isRead && (
+                {!isRead && (
                   <span className="h-2 w-2 rounded-full bg-[#2563EB]" />
                 )}
               </div>
@@ -1231,7 +1275,7 @@ function NotificationItem({
           {/* Actions */}
 
           <div className="mt-4 flex flex-wrap items-center gap-2">
-            {!notification.isRead && (
+            {!isRead && (
               <button
                 type="button"
                 onClick={() =>
@@ -1249,7 +1293,7 @@ function NotificationItem({
               <Link
                 href={actionUrl}
                 onClick={() =>
-                  !notification.isRead &&
+                  !isRead &&
                   onRead(notification)
                 }
                 className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-3 text-[11px] font-bold text-[#26344D] transition hover:bg-slate-50"

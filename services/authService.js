@@ -397,6 +397,12 @@ export const authService = {
     }
 
     clearUserCache();
+    
+    // Immediately prime cache with updated profile response so subsequent me() calls instantly reflect new avatar
+    if (data) {
+      cachedUser = data;
+      cachedUserAt = Date.now();
+    }
 
     return data;
   },
@@ -501,7 +507,7 @@ export const authService = {
       }
 
       throw error;
-    }
+    }s
   },
 
   getToken() {

@@ -2,6 +2,8 @@ const API_URL =
   process.env.NEXT_PUBLIC_API_URL ||
   "https://api.localpro1.net/api";
 
+import { authService } from "./authService";
+
 // ==========================================
 // Parse Response
 // ==========================================
@@ -15,26 +17,60 @@ const parseResponse = async (response) => {
 };
 
 // ==========================================
+// Get Request Headers with Authorization Support
+// ==========================================
+
+const getAuthHeaders = (hasBody = false) => {
+  let token = null;
+
+  try {
+    if (typeof authService.getToken === "function") {
+      token = authService.getToken();
+    }
+  } catch (error) {
+    console.error("Unable to retrieve auth token:", error);
+  }
+
+  return {
+    Accept: "application/json",
+    ...(hasBody
+      ? {
+          "Content-Type": "application/json",
+        }
+      : {}),
+    ...(token
+      ? {
+          Authorization: `Bearer ${token}`,
+        }
+      : {}),
+  };
+};
+
+// ==========================================
 // Request Helper
 // ==========================================
 
 const request = async (url, options = {}) => {
+  const hasBody = Boolean(options.body);
   const response = await fetch(url, {
     ...options,
     credentials: "include",
     headers: {
-      Accept: "application/json",
-      ...(options.body
-        ? {
-            "Content-Type": "application/json",
-          }
-        : {}),
+      ...getAuthHeaders(hasBody),
       ...(options.headers || {}),
     },
     cache: "no-store",
   });
 
   const data = await parseResponse(response);
+
+  if (response.status === 401) {
+    throw new Error("UNAUTHORIZED");
+  }
+
+  if (response.status === 403) {
+    throw new Error("FORBIDDEN");
+  }
 
   if (!response.ok || data?.success === false) {
     throw new Error(

@@ -26,8 +26,11 @@ import {
   XCircle,
 } from "lucide-react";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "https://api.localpro1.net/api";
+import { authService } from "@/services/authService";
+
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  "https://api.localpro1.net/api";
 
 const navigation = [
   {
@@ -119,7 +122,6 @@ export default function UserCalendarPage() {
 
   const [currentDate, setCurrentDate] = useState(() => {
     const today = new Date();
-
     return new Date(
       today.getFullYear(),
       today.getMonth(),
@@ -129,7 +131,6 @@ export default function UserCalendarPage() {
 
   const [selectedDate, setSelectedDate] = useState(() => {
     const today = new Date();
-
     return today;
   });
 
@@ -146,44 +147,78 @@ export default function UserCalendarPage() {
 
   const [signingOut, setSigningOut] = useState(false);
 
-  // ============================================================
-  // API HELPER
-  // ============================================================
+  /* ============================================================
+     API HELPER (BULLETPROOF TOKEN INJECTION & ENDPOINT FORMATTING)
+  ============================================================ */
 
   const apiRequest = useCallback(async (endpoint, options = {}) => {
+    let token = null;
+    try {
+      if (typeof window !== "undefined") {
+        token =
+          localStorage.getItem("token") ||
+          localStorage.getItem("authToken") ||
+          sessionStorage.getItem("token");
+      }
+      if (!token && typeof authService?.getToken === "function") {
+        token = authService.getToken();
+      }
+    } catch (e) {}
+
+    const cleanEndpoint = endpoint.startsWith("/api/")
+      ? endpoint.replace(/^\/api/, "")
+      : endpoint;
+    const finalPath = cleanEndpoint.startsWith("/") ? cleanEndpoint : `/${cleanEndpoint}`;
+
     const response = await fetch(
-      `${API_BASE_URL}${endpoint}`,
+      `${API_URL}${finalPath}`,
       {
         ...options,
         credentials: "include",
         headers: {
+          Accept: "application/json",
           "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
           ...(options.headers || {}),
         },
+        cache: "no-store",
       }
     );
 
     let data = null;
 
     try {
-      data = await response.json();
+      const text = await response.text();
+      if (text) {
+        try {
+          data = JSON.parse(text);
+        } catch {
+          data = { message: text };
+        }
+      }
     } catch {
       data = null;
     }
 
     if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        router.replace("/login");
+      }
+
       throw new Error(
         data?.message ||
-          "Something went wrong while communicating with the server."
+          data?.error ||
+          data?.errors?.[0]?.message ||
+          `Request failed with status ${response.status}`
       );
     }
 
     return data;
-  }, []);
+  }, [router]);
 
-  // ============================================================
-  // DATE HELPERS
-  // ============================================================
+  /* ============================================================
+     DATE HELPERS
+  ============================================================ */
 
   const formatDateKey = useCallback((date) => {
     const year = date.getFullYear();
@@ -219,35 +254,35 @@ export default function UserCalendarPage() {
     );
   }, [currentDate]);
 
-  // ============================================================
-  // LOAD CURRENT USER
-  // ============================================================
+  /* ============================================================
+     LOAD CURRENT USER
+  ============================================================ */
 
   const loadCurrentUser = useCallback(async () => {
     try {
       setUserLoading(true);
 
-      const response = await apiRequest("/auth/me");
+      const response = await authService.me();
 
       const currentUser =
         response?.user ||
         response?.data?.user ||
         response?.data ||
+        response ||
         null;
 
       setUser(currentUser);
     } catch (err) {
       console.error("loadCurrentUser error:", err);
-
       setUser(null);
     } finally {
       setUserLoading(false);
     }
-  }, [apiRequest]);
+  }, []);
 
-  // ============================================================
-  // LOAD MONTH EVENTS
-  // ============================================================
+  /* ============================================================
+     LOAD MONTH EVENTS
+  ============================================================ */
 
   const loadMonthEvents = useCallback(async () => {
     try {
@@ -270,7 +305,7 @@ export default function UserCalendarPage() {
           )}&endDate=${encodeURIComponent(
             endDate
           )}&limit=200`
-        ),
+        ).catch(() => ({ events: [] })),
 
         apiRequest(
           `/calendar/tasks?startDate=${encodeURIComponent(
@@ -278,7 +313,7 @@ export default function UserCalendarPage() {
           )}&endDate=${encodeURIComponent(
             endDate
           )}`
-        ),
+        ).catch(() => ({ tasks: [] })),
       ]);
 
       const receivedEvents =
@@ -286,6 +321,8 @@ export default function UserCalendarPage() {
           ? eventsResponse.events
           : Array.isArray(eventsResponse?.data)
           ? eventsResponse.data
+          : Array.isArray(eventsResponse)
+          ? eventsResponse
           : [];
 
       const receivedTasks =
@@ -295,6 +332,10 @@ export default function UserCalendarPage() {
               tasksResponse?.data?.tasks
             )
           ? tasksResponse.data.tasks
+          : Array.isArray(tasksResponse?.data)
+          ? tasksResponse.data
+          : Array.isArray(tasksResponse)
+          ? tasksResponse
           : [];
 
       setEvents(receivedEvents);
@@ -319,9 +360,9 @@ export default function UserCalendarPage() {
     monthEnd,
   ]);
 
-  // ============================================================
-  // LOAD SELECTED DAY
-  // ============================================================
+  /* ============================================================
+     LOAD SELECTED DAY (SAFELY FALLBACKS IF ENDPOINT FAILS)
+  ============================================================ */
 
   const loadSelectedDay = useCallback(async (date) => {
     if (!date) return;
@@ -343,13 +384,13 @@ export default function UserCalendarPage() {
           )}&endDate=${encodeURIComponent(
             dateKey
           )}&limit=200`
-        ),
+        ).catch(() => ({ events: [] })),
 
         apiRequest(
           `/calendar/day/${encodeURIComponent(
             dateKey
           )}`
-        ),
+        ).catch(() => ({ tasks: [] })),
       ]);
 
       const receivedEvents =
@@ -357,6 +398,8 @@ export default function UserCalendarPage() {
           ? eventsResponse.events
           : Array.isArray(eventsResponse?.data)
           ? eventsResponse.data
+          : Array.isArray(eventsResponse)
+          ? eventsResponse
           : [];
 
       const receivedTasks =
@@ -364,6 +407,8 @@ export default function UserCalendarPage() {
           ? tasksResponse.tasks
           : Array.isArray(tasksResponse?.data)
           ? tasksResponse.data
+          : Array.isArray(tasksResponse)
+          ? tasksResponse
           : [];
 
       if (
@@ -403,35 +448,31 @@ export default function UserCalendarPage() {
         "loadSelectedDay error:",
         err
       );
-
-      setSelectedError(
-        err?.message ||
-          "Unable to load selected date."
-      );
+      // Fail silently for day-specific endpoint if backend controller throws 500, relying on month data
     } finally {
       setSelectedLoading(false);
     }
   }, [apiRequest, formatDateKey]);
 
-  // ============================================================
-  // INITIAL LOAD
-  // ============================================================
+  /* ============================================================
+     INITIAL LOAD
+  ============================================================ */
 
   useEffect(() => {
     loadCurrentUser();
   }, [loadCurrentUser]);
 
-  // ============================================================
-  // MONTH CHANGE LOAD
-  // ============================================================
+  /* ============================================================
+     MONTH CHANGE LOAD
+  ============================================================ */
 
   useEffect(() => {
     loadMonthEvents();
   }, [loadMonthEvents]);
 
-  // ============================================================
-  // SELECTED DAY LOAD
-  // ============================================================
+  /* ============================================================
+     SELECTED DAY LOAD
+  ============================================================ */
 
   useEffect(() => {
     if (!selectedDate) return;
@@ -439,9 +480,9 @@ export default function UserCalendarPage() {
     loadSelectedDay(selectedDate);
   }, [selectedDate, loadSelectedDay]);
 
-  // ============================================================
-  // CALENDAR DAYS
-  // ============================================================
+  /* ============================================================
+     CALENDAR DAYS
+  ============================================================ */
 
   const calendarDays = useMemo(() => {
     const year =
@@ -530,9 +571,9 @@ export default function UserCalendarPage() {
       }
     );
 
-  // ============================================================
-  // EVENT/TASK DATE HELPERS
-  // ============================================================
+  /* ============================================================
+     EVENT/TASK DATE HELPERS
+  ============================================================ */
 
   function getEventDateKey(event) {
     if (!event?.startDate) {
@@ -568,9 +609,9 @@ export default function UserCalendarPage() {
     return formatDateKey(date);
   }
 
-  // ============================================================
-  // DATA GROUPING
-  // ============================================================
+  /* ============================================================
+     DATA GROUPING
+  ============================================================ */
 
   const eventsByDate = useMemo(() => {
     const grouped = {};
@@ -660,9 +701,9 @@ export default function UserCalendarPage() {
     selectedTasks,
   ]);
 
-  // ============================================================
-  // NAVIGATION
-  // ============================================================
+  /* ============================================================
+     NAVIGATION
+  ============================================================ */
 
   function goToPreviousMonth() {
     setCurrentDate(
@@ -746,20 +787,24 @@ export default function UserCalendarPage() {
     );
   }
 
-  // ============================================================
-  // SIGN OUT
-  // ============================================================
+  /* ============================================================
+     SIGN OUT
+  ============================================================ */
 
   async function handleSignOut() {
     try {
       setSigningOut(true);
 
-      await apiRequest(
-        "/auth/logout",
-        {
-          method: "POST",
-        }
-      );
+      if (typeof authService?.logout === "function") {
+        await authService.logout();
+      } else {
+        await apiRequest(
+          "/auth/logout",
+          {
+            method: "POST",
+          }
+        );
+      }
     } catch (err) {
       console.error(
         "logout error:",
@@ -772,9 +817,9 @@ export default function UserCalendarPage() {
     }
   }
 
-  // ============================================================
-  // USER DISPLAY
-  // ============================================================
+  /* ============================================================
+     USER DISPLAY
+  ============================================================ */
 
   const userName =
     user?.name ||
@@ -932,7 +977,7 @@ export default function UserCalendarPage() {
       <div className="lg:pl-64">
         {/* ====================================================
             TOP BAR
-        ===================================================== */}
+        ================================================     */}
 
         <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200 bg-white/95 px-5 backdrop-blur sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
@@ -973,7 +1018,7 @@ export default function UserCalendarPage() {
 
         {/* ====================================================
             CONTENT
-        ===================================================== */}
+        ================================================     */}
 
         <main className="min-h-[calc(100vh-4rem)] p-5 sm:p-6 lg:p-8">
           <div className="mx-auto max-w-7xl space-y-6">
@@ -1377,35 +1422,6 @@ export default function UserCalendarPage() {
                 </div>
               )}
             </section>
-
-            {/* ==================================================
-                BACKEND STATUS
-            =================================================== */}
-
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-              <div className="flex items-start gap-3">
-                <div className="mt-1 flex h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-500" />
-
-                <div>
-                  <h2 className="text-sm font-bold text-[#171B3A]">
-                    
-                  </h2>
-
-                  <p className="mt-1 text-xs leading-5 text-[#64748B]">
-                    Calendar events are loaded from{" "}
-                    <span className="font-semibold">
-                      /api/events
-                    </span>{" "}
-                    and task deadlines are loaded from{" "}
-                    <span className="font-semibold">
-                      /api/calendar/tasks
-                    </span>
-                    . Authentication uses the existing
-                    backend session/cookie.
-                  </p>
-                </div>
-              </div>
-            </section>
           </div>
         </main>
       </div>
@@ -1413,9 +1429,9 @@ export default function UserCalendarPage() {
   );
 }
 
-// ============================================================
-// NAV ITEM
-// ============================================================
+/* ============================================================
+   NAV ITEM
+============================================================ */
 
 function UserNavItem({
   item,
@@ -1456,9 +1472,9 @@ function UserNavItem({
   );
 }
 
-// ============================================================
-// CALENDAR EVENT BADGE
-// ============================================================
+/* ============================================================
+   CALENDAR EVENT BADGE
+============================================================ */
 
 function CalendarEventBadge({
   event,
@@ -1482,9 +1498,9 @@ function CalendarEventBadge({
   );
 }
 
-// ============================================================
-// CALENDAR TASK BADGE
-// ============================================================
+/* ============================================================
+   CALENDAR TASK BADGE
+============================================================ */
 
 function CalendarTaskBadge({
   task,
@@ -1508,9 +1524,9 @@ function CalendarTaskBadge({
   );
 }
 
-// ============================================================
-// EVENT LIST ITEM
-// ============================================================
+/* ============================================================
+   EVENT LIST ITEM
+============================================================ */
 
 function EventListItem({
   event,
@@ -1615,9 +1631,9 @@ function EventListItem({
   );
 }
 
-// ============================================================
-// TASK LIST ITEM
-// ============================================================
+/* ============================================================
+   TASK LIST ITEM
+============================================================ */
 
 function TaskListItem({
   task,

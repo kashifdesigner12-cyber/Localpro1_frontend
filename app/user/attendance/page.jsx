@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import {
   CalendarDays,
   Clock3,
@@ -96,15 +95,12 @@ export default function UserAttendancePage() {
   const [loading, setLoading] = useState(true);
   const [checkingIn, setCheckingIn] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
+  const [attendanceWindowExpired, setAttendanceWindowExpired] = useState(false);
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  /* =========================================================
-     LOAD PAGE (PARALLEL FRESH FETCH & AUTO SYNC)
-  ========================================================= */
 
   const loadPage = useCallback(async (isSilent = false) => {
     try {
@@ -115,14 +111,12 @@ export default function UserAttendancePage() {
 
       const timestamp = Date.now();
 
-      // Fetch profile, attendance, and potential settings in parallel with cache-busting
       const [profileRes, attendanceRes, settingsRes] = await Promise.allSettled([
         apiRequest(`/users/profile?_t=${timestamp}`),
         apiRequest(`/attendance/today?_t=${timestamp}`),
         apiRequest(`/attendance/settings?_t=${timestamp}`),
       ]);
 
-      // 1. Process User Profile
       let currentUser = null;
       if (profileRes.status === "fulfilled" && profileRes.value) {
         currentUser =
@@ -136,12 +130,9 @@ export default function UserAttendancePage() {
         setUser(currentUser);
         try {
           localStorage.setItem("user", JSON.stringify(currentUser));
-        } catch {
-          // ignore storage parse error
-        }
+        } catch {}
       }
 
-      // Check role
       const role = String(currentUser?.role || "")
         .trim()
         .toLowerCase();
@@ -157,7 +148,6 @@ export default function UserAttendancePage() {
         return;
       }
 
-      // 2. Process Today's Attendance & Embedded Schedule
       let attendanceRecord = null;
       let extractedSchedule = null;
 
@@ -171,7 +161,33 @@ export default function UserAttendancePage() {
           attData?.data?.record ||
           (attData?.checkIn || attData?.status ? attData : null);
 
-        // Capture live schedule/settings inside attendance response
+        const attendanceMessage = String(
+          attData?.message ||
+          attData?.data?.message ||
+          attData?.error ||
+          ""
+        ).toLowerCase();
+
+        const attendanceStatus = String(
+          attendanceRecord?.status ||
+          attData?.status ||
+          attData?.data?.status ||
+          ""
+        ).toLowerCase();
+
+        const windowAlreadyExpired =
+          attendanceStatus === "absent" ||
+          attendanceMessage.includes("attendance window") ||
+          attendanceMessage.includes("window has expired") ||
+          attendanceMessage.includes("marked absent") ||
+          Boolean(
+            attendanceRecord?.windowExpired ||
+            attData?.windowExpired ||
+            attData?.data?.windowExpired
+          );
+
+        setAttendanceWindowExpired(windowAlreadyExpired);
+
         extractedSchedule =
           attData?.schedule ||
           attData?.todaySchedule ||
@@ -182,14 +198,12 @@ export default function UserAttendancePage() {
           attData?.data?.settings ||
           null;
 
-        // If today's attendance endpoint returns an updated user object, sync it
         const nestedUser = attData?.user || attData?.data?.user;
         if (nestedUser && typeof nestedUser === "object") {
           setUser((prev) => ({ ...(prev || {}), ...nestedUser }));
         }
       }
 
-      // 3. Process Global / Company Attendance Settings (if endpoint exists)
       if (settingsRes.status === "fulfilled" && settingsRes.value) {
         const setVal = settingsRes.value;
         const extraSettings =
@@ -231,19 +245,13 @@ export default function UserAttendancePage() {
     }
   }, []);
 
-  /* =========================================================
-     AUTO SYNC & EVENT LISTENERS
-  ========================================================= */
-
   useEffect(() => {
     loadPage();
 
-    // Auto-sync every 5 seconds to catch live schedule changes by admin
     const interval = setInterval(() => {
       loadPage(true);
     }, 5000);
 
-    // Refresh immediately when returning to the tab
     const handleVisibilityOrFocus = () => {
       if (document.visibilityState === "visible") {
         loadPage(true);
@@ -261,10 +269,6 @@ export default function UserAttendancePage() {
       window.removeEventListener("storage", handleVisibilityOrFocus);
     };
   }, [loadPage]);
-
-  /* =========================================================
-     GPS HELPER (GET CURRENT POSITION)
-  ========================================================= */
 
   function getCurrentGPSPosition() {
     return new Promise((resolve, reject) => {
@@ -311,10 +315,6 @@ export default function UserAttendancePage() {
     });
   }
 
-  /* =========================================================
-     CHECK IN (WITH GPS VERIFICATION)
-  ========================================================= */
-
   async function handleCheckIn() {
     if (checkingIn || checkingOut) {
       return;
@@ -349,28 +349,59 @@ export default function UserAttendancePage() {
         response;
 
       setAttendance(record);
+      setAttendanceWindowExpired(false);
 
       setSuccess(
         response?.message ||
           "Checked in successfully from verified office location."
       );
     } catch (err) {
-      console.error("Check-in error:", err);
-
       if (err?.status === 401) {
         window.location.href = "/login";
         return;
       }
 
-      setError(err?.message || "Unable to check in.");
+      const message = String(err?.message || "").toLowerCase();
+      const isExpiredWindow =
+        message.includes("attendance window") ||
+        message.includes("window has expired") ||
+        message.includes("marked absent") ||
+        message.includes("expired");
+
+      if (isExpiredWindow) {
+        const errorData = err?.data || {};
+        const expiredRecord =
+          errorData?.attendance ||
+          errorData?.record ||
+          errorData?.data?.attendance ||
+          errorData?.data?.record ||
+          errorData?.data;
+
+        if (expiredRecord && typeof expiredRecord === "object") {
+          setAttendance((prev) => ({
+            ...(prev || {}),
+            ...expiredRecord,
+            status: expiredRecord.status || "Absent",
+          }));
+        } else {
+          setAttendance((prev) => ({
+            ...(prev || {}),
+            status: "Absent",
+          }));
+        }
+
+        setAttendanceWindowExpired(true);
+        setError(
+          "Today's check-in window has expired. You have been marked absent for today. Check-in is no longer available."
+        );
+        return;
+      }
+
+      setError(err?.message || "Unable to check in. Please try again.");
     } finally {
       setCheckingIn(false);
     }
   }
-
-  /* =========================================================
-     CHECK OUT
-  ========================================================= */
 
   async function handleCheckOut() {
     if (checkingIn || checkingOut) {
@@ -385,9 +416,7 @@ export default function UserAttendancePage() {
       let coords = null;
       try {
         coords = await getCurrentGPSPosition();
-      } catch {
-        // Optional coords on checkout
-      }
+      } catch {}
 
       const response = await apiRequest("/attendance/check-out", {
         method: "POST",
@@ -423,22 +452,14 @@ export default function UserAttendancePage() {
     }
   }
 
-  /* =========================================================
-     REFRESH
-  ========================================================= */
-
   async function handleRefresh() {
     setSuccess("");
     setError("");
     await loadPage(false);
   }
 
-  /* =========================================================
-     ROBUST SCHEDULE RESOLVER (HANDLES ALL ADMIN FORMATS)
-  ========================================================= */
-
   const resolveActiveSchedule = () => {
-    const dayOfWeek = new Date().getDay(); // 0 = Sunday, 1 = Monday, ... 6 = Saturday
+    const dayOfWeek = new Date().getDay();
     const daysLong = [
       "sunday",
       "monday",
@@ -452,10 +473,9 @@ export default function UserAttendancePage() {
 
     const dayLong = daysLong[dayOfWeek];
     const dayShort = daysShort[dayOfWeek];
-    const isoDay = dayOfWeek === 0 ? 7 : dayOfWeek; // 1 = Monday, 7 = Sunday
-    const sun1Day = dayOfWeek + 1; // 1 = Sunday, 7 = Saturday
+    const isoDay = dayOfWeek === 0 ? 7 : dayOfWeek;
+    const sun1Day = dayOfWeek + 1;
 
-    // Priority order: Live Settings -> User Profile -> Embedded attendance schedule
     const candidateSources = [
       liveSettings?.schedule,
       liveSettings?.todaySchedule,
@@ -485,7 +505,6 @@ export default function UserAttendancePage() {
     for (const raw of candidateSources) {
       if (!raw) continue;
 
-      // Case 1: Array of day schedules
       if (Array.isArray(raw)) {
         const found = raw.find((item) => {
           if (!item || typeof item !== "object") return false;
@@ -525,7 +544,6 @@ export default function UserAttendancePage() {
         if (found) return found;
       }
 
-      // Case 2: Object keyed by day name or index
       if (typeof raw === "object" && !Array.isArray(raw)) {
         const keyed =
           raw[dayLong] ||
@@ -538,7 +556,6 @@ export default function UserAttendancePage() {
           return keyed;
         }
 
-        // Case 3: Flat schedule object with timing keys
         if (
           raw.startTime ||
           raw.start ||
@@ -569,7 +586,6 @@ export default function UserAttendancePage() {
     attendance?.clockOut ||
     null;
 
-  // PRIORITY: Always prefer live admin-configured schedules over old DB snapshot in attendance
   const scheduledTime =
     userSchedule?.startTime ||
     userSchedule?.scheduledTime ||
@@ -614,6 +630,10 @@ export default function UserAttendancePage() {
 
   const status = attendance?.status || "Pending";
 
+  const isAbsent =
+    attendanceWindowExpired ||
+    String(status).trim().toLowerCase() === "absent";
+
   const isCheckedIn = Boolean(checkIn) && !Boolean(checkOut);
   const isCheckedOut = Boolean(checkIn) && Boolean(checkOut);
 
@@ -626,13 +646,8 @@ export default function UserAttendancePage() {
 
   const hasSchedule = Boolean(scheduledTime || windowStart);
 
-  /* =========================================================
-     PAGE
-  ========================================================= */
-
   return (
     <div className="min-h-screen w-full bg-[#F8FAFC]">
-      {/* MOBILE OVERLAY */}
       {sidebarOpen && (
         <button
           type="button"
@@ -642,7 +657,6 @@ export default function UserAttendancePage() {
         />
       )}
 
-      {/* SIDEBAR */}
       <aside
         className={`
           fixed
@@ -661,7 +675,6 @@ export default function UserAttendancePage() {
           ${sidebarOpen ? "translate-x-0" : "-translate-x-full"}
         `}
       >
-        {/* SIDEBAR HEADER */}
         <div className="flex h-[82px] shrink-0 items-center justify-between border-b border-white/10 px-5">
           <Link
             href="/user"
@@ -690,7 +703,6 @@ export default function UserAttendancePage() {
           </button>
         </div>
 
-        {/* NAVIGATION */}
         <nav className="min-h-0 flex-1 overflow-y-auto px-4 py-5">
           <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.16em] text-white/50">
             Navigation
@@ -741,7 +753,6 @@ export default function UserAttendancePage() {
           </div>
         </nav>
 
-        {/* SIDEBAR FOOTER */}
         <div className="shrink-0 border-t border-white/10 p-4">
           <div className="rounded-xl bg-white/5 p-3">
             <div className="flex items-center gap-2">
@@ -755,9 +766,7 @@ export default function UserAttendancePage() {
         </div>
       </aside>
 
-      {/* MAIN AREA */}
       <div className="min-h-screen w-full lg:ml-64 lg:w-[calc(100%-16rem)]">
-        {/* HEADER */}
         <header className="sticky top-0 z-[900] flex h-[82px] items-center justify-between border-b border-slate-200 bg-white px-4 shadow-sm sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
             <button
@@ -801,10 +810,8 @@ export default function UserAttendancePage() {
           </div>
         </header>
 
-        {/* CONTENT */}
         <main className="min-h-[calc(100vh-82px)] bg-[#F8FAFC] px-4 py-6 sm:px-6 lg:px-8">
           <div className="mx-auto w-full max-w-6xl">
-            {/* PAGE TITLE */}
             <div className="mb-6">
               <p className="text-sm font-semibold text-[#2563EB]">
                 ATTENDANCE
@@ -817,7 +824,6 @@ export default function UserAttendancePage() {
               </p>
             </div>
 
-            {/* ERROR */}
             {error && (
               <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 p-4">
                 <div className="flex items-start gap-3">
@@ -835,7 +841,6 @@ export default function UserAttendancePage() {
               </div>
             )}
 
-            {/* SUCCESS */}
             {success && (
               <div className="mb-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
                 <div className="flex items-center gap-3">
@@ -850,9 +855,27 @@ export default function UserAttendancePage() {
               </div>
             )}
 
-            {/* ATTENDANCE CARD */}
+            {attendanceWindowExpired && !success && (
+              <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                <div className="flex items-start gap-3">
+                  <AlertCircle
+                    size={18}
+                    className="mt-0.5 shrink-0 text-amber-600"
+                  />
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-amber-800">
+                      Check-in window closed
+                    </p>
+                    <p className="mt-1 text-sm text-amber-700">
+                      The attendance window for today has expired. Your attendance
+                      is marked absent and check-in is disabled for today.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
-              {/* USER */}
               <div className="text-center">
                 <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[#EEF4FF] text-[#2563EB]">
                   <Clock3 size={28} />
@@ -867,10 +890,9 @@ export default function UserAttendancePage() {
                 </p>
               </div>
 
-              {/* STATUS */}
               <div className="mx-auto mt-8 max-w-2xl rounded-2xl bg-slate-50 p-5 text-center">
                 <p className="text-xs font-semibold uppercase tracking-wide text-[#64748B]">
-                  Today's Status
+                  Today&apos;s Status
                 </p>
 
                 <p
@@ -903,7 +925,6 @@ export default function UserAttendancePage() {
                 </p>
               </div>
 
-              {/* SCHEDULE */}
               {hasSchedule && (
                 <div className="mx-auto mt-6 max-w-2xl rounded-2xl border border-blue-100 bg-[#EEF4FF] p-5">
                   <div className="flex items-center gap-3">
@@ -944,9 +965,7 @@ export default function UserAttendancePage() {
                 </div>
               )}
 
-              {/* TIMES */}
               <div className="mx-auto mt-6 grid max-w-2xl grid-cols-1 gap-4 sm:grid-cols-2">
-                {/* CHECK IN */}
                 <div className="rounded-2xl border border-slate-200 bg-white p-5">
                   <div className="flex items-center gap-3">
                     <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
@@ -964,7 +983,6 @@ export default function UserAttendancePage() {
                   </div>
                 </div>
 
-                {/* CHECK OUT */}
                 <div className="rounded-2xl border border-slate-200 bg-white p-5">
                   <div className="flex items-center gap-3">
                     <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-red-50 text-red-500">
@@ -983,9 +1001,7 @@ export default function UserAttendancePage() {
                 </div>
               </div>
 
-              {/* BUTTONS */}
               <div className="mx-auto mt-8 grid max-w-2xl grid-cols-1 gap-4 sm:grid-cols-2">
-                {/* CHECK IN BUTTON */}
                 <button
                   type="button"
                   onClick={handleCheckIn}
@@ -994,7 +1010,9 @@ export default function UserAttendancePage() {
                     checkingIn ||
                     checkingOut ||
                     isCheckedIn ||
-                    isCheckedOut
+                    isCheckedOut ||
+                    attendanceWindowExpired ||
+                    String(status).toLowerCase() === "absent"
                   }
                   className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-[#2563EB] px-5 text-sm font-bold text-white transition hover:-translate-y-0.5 hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -1011,7 +1029,6 @@ export default function UserAttendancePage() {
                   )}
                 </button>
 
-                {/* CHECK OUT BUTTON */}
                 <button
                   type="button"
                   onClick={handleCheckOut}
@@ -1034,7 +1051,6 @@ export default function UserAttendancePage() {
                 </button>
               </div>
 
-              {/* NO SCHEDULE */}
               {!loading && !hasSchedule && (
                 <div className="mx-auto mt-6 max-w-2xl rounded-2xl border border-amber-200 bg-amber-50 p-4">
                   <div className="flex items-start gap-3">
@@ -1061,10 +1077,6 @@ export default function UserAttendancePage() {
     </div>
   );
 }
-
-/* =========================================================
-   SHIELD ICON
-========================================================= */
 
 function ShieldIcon() {
   return (
@@ -1094,29 +1106,30 @@ function ShieldIcon() {
   );
 }
 
-/* =========================================================
-   API REQUEST
-========================================================= */
-
 async function apiRequest(endpoint, options = {}) {
+  let token = null;
+  try {
+    if (typeof window !== "undefined") {
+      token =
+        localStorage.getItem("token") ||
+        localStorage.getItem("authToken") ||
+        sessionStorage.getItem("token");
+    }
+  } catch (e) {}
+
   const headers = {
     "Content-Type": "application/json",
     Accept: "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(options.headers || {}),
   };
 
-  if (typeof window !== "undefined") {
-    const token =
-      localStorage.getItem("token") ||
-      localStorage.getItem("authToken") ||
-      sessionStorage.getItem("token");
+  const cleanEndpoint = endpoint.startsWith("/api/")
+    ? endpoint.replace(/^\/api/, "")
+    : endpoint;
+  const finalPath = cleanEndpoint.startsWith("/") ? cleanEndpoint : `/${cleanEndpoint}`;
 
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
-  }
-
-  const response = await fetch(`${API_URL}${endpoint}`, {
+  const response = await fetch(`${API_URL}${finalPath}`, {
     ...options,
     credentials: "include",
     cache: "no-store",
@@ -1126,33 +1139,57 @@ async function apiRequest(endpoint, options = {}) {
   let data = null;
 
   try {
-    data = await response.json();
+    const text = await response.text();
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = { message: text };
+      }
+    }
   } catch {
     data = null;
   }
 
   if (!response.ok) {
-    const error = new Error(
-      data?.message ||
-        data?.error ||
-        data?.errors?.[0]?.message ||
-        `Request failed with status ${response.status}`
-    );
+    if (response.status === 401 || response.status === 403) {
+      if (typeof window !== "undefined") {
+        window.location.href = "/login";
+      }
+    }
 
+    const message =
+      data?.message ||
+      data?.error ||
+      data?.errors?.[0]?.message ||
+      (typeof data === "string" ? data : null) ||
+      `Request failed with status ${response.status}`;
+
+    const error = new Error(message);
     error.status = response.status;
+    error.data = data;
     throw error;
   }
 
   return data;
 }
 
-/* =========================================================
-   FORMAT TIME
-========================================================= */
-
 function formatTime(value) {
   if (!value) {
     return "";
+  }
+
+  if (typeof value === "string") {
+    const lower = value.toLowerCase();
+    if (
+      lower.includes("expired") ||
+      lower.includes("absent") ||
+      lower.includes("error") ||
+      lower.includes("window") ||
+      value.length > 25
+    ) {
+      return "";
+    }
   }
 
   const str = String(value).trim();
@@ -1184,10 +1221,6 @@ function formatTime(value) {
     minute: "2-digit",
   });
 }
-
-/* =========================================================
-   FORMAT DATE
-========================================================= */
 
 function formatDate(value) {
   const parsed = new Date(value);

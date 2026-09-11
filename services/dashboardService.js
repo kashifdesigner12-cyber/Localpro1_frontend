@@ -1,3 +1,5 @@
+import { authService } from "./authService";
+
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ||
   "https://api.localpro1.net/api";
@@ -12,6 +14,31 @@ const parseResponse = async (response) => {
   } catch {
     return null;
   }
+};
+
+// ==========================================
+// Get Request Headers with Authorization Support
+// ==========================================
+
+const getAuthHeaders = () => {
+  let token = null;
+
+  try {
+    if (typeof authService.getToken === "function") {
+      token = authService.getToken();
+    }
+  } catch (error) {
+    console.error("Unable to retrieve auth token:", error);
+  }
+
+  return {
+    Accept: "application/json",
+    ...(token
+      ? {
+          Authorization: `Bearer ${token}`,
+        }
+      : {}),
+  };
 };
 
 // ==========================================
@@ -55,13 +82,8 @@ export const dashboardService = {
       `${API_URL}/dashboard/stats`,
       {
         method: "GET",
-
-        headers: {
-          Accept: "application/json",
-        },
-
+        headers: getAuthHeaders(),
         credentials: "include",
-
         cache: "no-store",
       }
     );
@@ -79,13 +101,8 @@ export const dashboardService = {
       `${API_URL}/dashboard/summary`,
       {
         method: "GET",
-
-        headers: {
-          Accept: "application/json",
-        },
-
+        headers: getAuthHeaders(),
         credentials: "include",
-
         cache: "no-store",
       }
     );
@@ -103,13 +120,8 @@ export const dashboardService = {
       `${API_URL}/dashboard/activity`,
       {
         method: "GET",
-
-        headers: {
-          Accept: "application/json",
-        },
-
+        headers: getAuthHeaders(),
         credentials: "include",
-
         cache: "no-store",
       }
     );
@@ -127,13 +139,8 @@ export const dashboardService = {
       `${API_URL}/dashboard/chart-data`,
       {
         method: "GET",
-
-        headers: {
-          Accept: "application/json",
-        },
-
+        headers: getAuthHeaders(),
         credentials: "include",
-
         cache: "no-store",
       }
     );

@@ -7,10 +7,8 @@ import {
   useRef,
   useState,
 } from "react";
-import Link from "next/link";
 import {
   AlertTriangle,
-  ArrowLeft,
   CheckCheck,
   Clock3,
   File,
@@ -46,9 +44,16 @@ const getFileUrl = (url) => {
   return `${BACKEND_BASE_URL}${url.startsWith("/") ? "" : "/"}${url}`;
 };
 
+// Global persistent cache so conversations and selected state survive tab navigation without reloading
+let managerConversationsCache = {
+  conversations: [],
+  contacts: [],
+  currentUser: null,
+  loaded: false,
+};
+
 /* ============================================================
    AUDIO SYNTHESIZER: NOTIFICATION CHIME
-   Uses Web Audio API (Zero external MP3 dependency, never 404s)
 ============================================================ */
 const playNotificationChime = () => {
   try {
@@ -76,9 +81,7 @@ const playNotificationChime = () => {
       osc.stop(startTime + duration);
     };
 
-    // Note 1 (E6 - 1318.5 Hz)
     createNote(1318.51, now, 0.12);
-    // Note 2 (A6 - 1760 Hz)
     createNote(1760.00, now + 0.08, 0.32);
   } catch (err) {
     console.warn("Chime playback error:", err);
@@ -90,8 +93,8 @@ const playNotificationChime = () => {
 ========================================================= */
 
 export default function ManagerConversationsPage() {
-  const [conversations, setConversations] = useState([]);
-  const [contacts, setContacts] = useState([]);
+  const [conversations, setConversations] = useState(managerConversationsCache.conversations);
+  const [contacts, setContacts] = useState(managerConversationsCache.contacts);
 
   const [selectedConversation, setSelectedConversation] =
     useState(null);
@@ -102,7 +105,7 @@ export default function ManagerConversationsPage() {
   const [message, setMessage] = useState("");
   const [selectedFiles, setSelectedFiles] = useState([]);
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!managerConversationsCache.loaded);
   const [messagesLoading, setMessagesLoading] =
     useState(false);
   const [sending, setSending] = useState(false);
@@ -112,7 +115,7 @@ export default function ManagerConversationsPage() {
     useState("");
 
   const [currentUser, setCurrentUser] =
-    useState(null);
+    useState(managerConversationsCache.currentUser);
 
   // Sound enable/mute toggle
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -140,17 +143,18 @@ export default function ManagerConversationsPage() {
   }, [messages]);
 
   /* =======================================================
-     LOAD CONVERSATIONS + CONTACTS
+      LOAD CONVERSATIONS + CONTACTS
   ======================================================= */
 
-  const loadConversations = useCallback(async () => {
+  const loadConversations = useCallback(async (forceRefresh = false) => {
+    if (!forceRefresh && managerConversationsCache.loaded) {
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       setError("");
-
-      /* -----------------------------------------------
-          AUTH
-      ------------------------------------------------ */
 
       const me = await authService.me();
 
@@ -183,10 +187,6 @@ export default function ManagerConversationsPage() {
         return;
       }
 
-      /* -----------------------------------------------
-          GET BACKEND DATA
-      ------------------------------------------------ */
-
       const response = await apiRequest(
         "/conversations",
         {
@@ -207,6 +207,13 @@ export default function ManagerConversationsPage() {
       setContacts(
         backendContacts
       );
+
+      managerConversationsCache = {
+        conversations: backendConversations,
+        contacts: backendContacts,
+        currentUser: user,
+        loaded: true,
+      };
     } catch (err) {
       console.error(
         "Manager conversations error:",
@@ -228,11 +235,11 @@ export default function ManagerConversationsPage() {
   }, []);
 
   useEffect(() => {
-    loadConversations();
+    loadConversations(false);
   }, [loadConversations]);
 
   /* =======================================================
-     POLLING & INCOMING MESSAGE AUDIO NOTIFIER
+      POLLING & INCOMING MESSAGE AUDIO NOTIFIER
   ======================================================= */
   useEffect(() => {
     const interval = setInterval(async () => {
@@ -251,7 +258,6 @@ export default function ManagerConversationsPage() {
             const senderId = getUserId(latestMsg?.sender);
             const myId = getUserId(currentUser);
 
-            // Play tone only if the message is from the other participant
             if (
               soundEnabled &&
               senderId &&
@@ -265,7 +271,7 @@ export default function ManagerConversationsPage() {
           return prevMessages;
         });
       } catch (pollErr) {
-        // Silent polling catch to avoid interrupting user interactions
+        // Silent polling catch
       }
     }, 3500);
 
@@ -273,7 +279,7 @@ export default function ManagerConversationsPage() {
   }, [currentUser, soundEnabled]);
 
   /* =======================================================
-     BUILD DISPLAY LIST
+      BUILD DISPLAY LIST
   ======================================================= */
 
   const displayConversations = useMemo(() => {
@@ -374,7 +380,7 @@ export default function ManagerConversationsPage() {
   ]);
 
   /* =======================================================
-     FILTER
+      FILTER
   ======================================================= */
 
   const filteredConversations =
@@ -434,7 +440,7 @@ export default function ManagerConversationsPage() {
     ]);
 
   /* =======================================================
-     FILE HANDLING
+      FILE HANDLING
   ======================================================= */
 
   const handleFileChange = (e) => {
@@ -451,7 +457,7 @@ export default function ManagerConversationsPage() {
   };
 
   /* =======================================================
-     SELECT CONVERSATION / CONTACT
+      SELECT CONVERSATION / CONTACT
   ======================================================= */
 
   async function handleSelectConversation(
@@ -540,10 +546,9 @@ export default function ManagerConversationsPage() {
               return current;
             }
 
-            return [
-              ...current,
-              created,
-            ];
+            const updatedList = [...current, created];
+            managerConversationsCache.conversations = updatedList;
+            return updatedList;
           }
         );
       }
@@ -572,8 +577,8 @@ export default function ManagerConversationsPage() {
           );
 
           setConversations(
-            (current) =>
-              current.map(
+            (current) => {
+              const updatedList = current.map(
                 (item) => {
                   if (
                     getConversationId(
@@ -590,7 +595,10 @@ export default function ManagerConversationsPage() {
                     unread: 0,
                   };
                 }
-              )
+              );
+              managerConversationsCache.conversations = updatedList;
+              return updatedList;
+            }
           );
 
           setSelectedConversation(
@@ -643,7 +651,7 @@ export default function ManagerConversationsPage() {
   }
 
   /* =======================================================
-     SEND MESSAGE (SUPPORTS FILES + TEXT)
+      SEND MESSAGE
   ======================================================= */
 
   async function handleSendMessage(
@@ -728,12 +736,14 @@ export default function ManagerConversationsPage() {
                   ) === conversationId
               );
 
-            return exists
+            const updatedList = exists
               ? current
               : [
                   ...current,
                   created,
                 ];
+            managerConversationsCache.conversations = updatedList;
+            return updatedList;
           }
         );
       }
@@ -750,14 +760,31 @@ export default function ManagerConversationsPage() {
           formData.append("files", file);
         });
 
+        let token = null;
+        try {
+          if (typeof authService.getToken === "function") {
+            token = authService.getToken();
+          }
+        } catch (e) {}
+
+        const headers = {
+          Accept: "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        };
+
         const res = await fetch(`${API_URL}/messages`, {
           method: "POST",
           credentials: "include",
+          headers,
           body: formData,
         });
 
         response = await res.json();
         if (!res.ok) {
+          if (res.status === 401) {
+            window.location.href = "/login";
+            return;
+          }
           throw new Error(response?.message || "Failed to send files.");
         }
       } else {
@@ -831,7 +858,7 @@ export default function ManagerConversationsPage() {
   }
 
   /* =======================================================
-     DELETE MESSAGE (FOR ME / FOR EVERYONE)
+      DELETE MESSAGE
   ======================================================= */
 
   function promptDeleteMessage(msg) {
@@ -858,14 +885,12 @@ export default function ManagerConversationsPage() {
       });
 
       if (type === "me") {
-        // Hide message from current screen
         setMessages((prev) =>
           prev.filter(
             (m) => (m._id || m.id).toString() !== messageId.toString()
           )
         );
       } else {
-        // Update in-place to deleted message state
         const updatedMsg = response?.data || response?.message;
         setMessages((prev) =>
           prev.map((m) => {
@@ -900,7 +925,7 @@ export default function ManagerConversationsPage() {
   }
 
   /* =======================================================
-     REFRESH CONVERSATIONS
+      REFRESH CONVERSATIONS
   ======================================================= */
 
   async function refreshConversations(
@@ -933,6 +958,9 @@ export default function ManagerConversationsPage() {
         normalizedContacts
       );
 
+      managerConversationsCache.conversations = normalized;
+      managerConversationsCache.contacts = normalizedContacts;
+
       if (selectedId) {
         const updated =
           normalized.find(
@@ -962,7 +990,7 @@ export default function ManagerConversationsPage() {
   }
 
   /* =======================================================
-     SELECTED USER
+      SELECTED USER
   ======================================================= */
 
   const selectedName =
@@ -994,366 +1022,340 @@ export default function ManagerConversationsPage() {
     "chat";
 
   /* =======================================================
-     UI (STABLE LAYOUT H-SCREEN OVERFLOW-HIDDEN)
+      UI (FIXED FULL SCREEN HEIGHT - SINGLE HEADER - NO FULL PAGE SCROLL)
   ======================================================= */
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-[#F8FAFC]">
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+    <div className="flex h-[calc(100vh-4rem)] w-full flex-col overflow-hidden bg-[#F8FAFC]">
+      {/* =================================================
+          ERROR
+      ================================================= */}
 
-        {/* =================================================
-            HEADER
-        ================================================= */}
+      {error && (
+        <section className="shrink-0 rounded-xl border border-red-200 bg-red-50 px-4 py-3 mx-4 mt-4">
+          <p className="text-sm font-semibold text-red-700">
+            {error}
+          </p>
+        </section>
+      )}
 
-        <header className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200 bg-white/95 px-5 backdrop-blur sm:px-6 lg:px-8">
-          <div className="min-w-0">
-            <p className="text-xs font-semibold text-[#2563EB]">
-              MANAGER WORKSPACE
-            </p>
-            <h1 className="text-sm font-bold text-[#171B3A]">
-              Conversations
-            </h1>
-          </div>
+      {/* =================================================
+          WORKSPACE (FIXED GRID HEIGHT - INDEPENDENT SCROLLING COLUMNS)
+      ================================================= */}
 
-          <div className="flex items-center gap-3">
-            {/* SOUND MUTE / UNMUTE TOGGLE */}
-            <button
-              type="button"
-              onClick={() => {
-                const nextState = !soundEnabled;
-                setSoundEnabled(nextState);
-                if (nextState) playNotificationChime();
-              }}
-              className={`flex h-9 items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition ${
-                soundEnabled
-                  ? "border-blue-200 bg-blue-50 text-[#2563EB]"
-                  : "border-slate-200 bg-white text-slate-400"
-              }`}
-              title={soundEnabled ? "Notification sound is ON" : "Notification sound is MUTED"}
-            >
-              {soundEnabled ? <Volume2 size={15} /> : <VolumeX size={15} />}
-              <span className="hidden sm:inline">{soundEnabled ? "Sound ON" : "Muted"}</span>
-            </button>
+      <main className="flex min-h-0 flex-1 overflow-hidden p-4 sm:p-5 lg:p-6">
+        <section className="grid min-h-0 flex-1 w-full grid-cols-1 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:grid-cols-[340px_minmax(0,1fr)]">
 
-            <Link
-              href="/manager"
-              className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-[#26344D] shadow-xs transition hover:bg-slate-50"
-            >
-              <ArrowLeft size={15} />
-              Dashboard
-            </Link>
-          </div>
-        </header>
+          {/* =================================================
+              LEFT: USER & CONVERSATION LIST (INDEPENDENT SCROLL)
+          ================================================= */}
 
-        {/* =================================================
-            ERROR
-        ================================================= */}
+          <aside className="flex min-h-0 flex-col border-b border-slate-200 lg:border-b-0 lg:border-r overflow-hidden">
 
-        {error && (
-          <section className="shrink-0 rounded-xl border border-red-200 bg-red-50 px-4 py-3 mx-4 mt-4">
-            <p className="text-sm font-semibold text-red-700">
-              {error}
-            </p>
-          </section>
-        )}
+            {/* SEARCH */}
 
-        {/* =================================================
-            WORKSPACE (STABLE VIEWPORT LOCK)
-        ================================================= */}
+            <div className="shrink-0 border-b border-slate-100 p-4 sm:p-5">
+              <div className="mb-4">
+                <h2 className="text-base font-bold text-[#171B3A]">
+                  Users & Conversations
+                </h2>
 
-        <main className="flex min-h-0 flex-1 flex-col p-4 sm:p-5 lg:p-6">
-          <section className="grid min-h-0 flex-1 w-full grid-cols-1 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:grid-cols-[340px_minmax(0,1fr)]">
-
-            {/* =================================================
-                LEFT: USER & CONVERSATION LIST
-            ================================================= */}
-
-            <aside className="flex min-h-0 flex-col border-b border-slate-200 lg:border-b-0 lg:border-r">
-
-              {/* SEARCH */}
-
-              <div className="shrink-0 border-b border-slate-100 p-4 sm:p-5">
-                <div className="mb-4">
-                  <h2 className="text-base font-bold text-[#171B3A]">
-                    Users & Conversations
-                  </h2>
-
-                  <p className="mt-1 text-xs text-[#64748B]">
-                    Select any available user
-                    to start chatting.
-                  </p>
-                </div>
-
-                <div className="relative">
-                  <Search
-                    size={17}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-[#64748B]"
-                  />
-
-                  <input
-                    type="text"
-                    value={search}
-                    onChange={(event) =>
-                      setSearch(
-                        event.target.value
-                      )
-                    }
-                    placeholder="Search users..."
-                    className="h-10 w-full rounded-xl border border-slate-200 bg-[#F8FAFC] pl-9 pr-3 text-sm text-[#26344D] outline-none transition placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-blue-100"
-                  />
-                </div>
+                <p className="mt-1 text-xs text-[#64748B]">
+                  Select any available user
+                  to start chatting.
+                </p>
               </div>
 
-              {/* LIST */}
+              <div className="relative">
+                <Search
+                  size={17}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-[#64748B]"
+                />
 
-              <div className="min-h-0 flex-1 overflow-y-auto">
-                {loading ? (
-                  <ConversationLoading />
-                ) : filteredConversations.length >
-                  0 ? (
-                  filteredConversations.map(
-                    (
-                      conversation,
-                      index
-                    ) => {
-                      const id =
-                        getConversationId(
-                          conversation
-                        );
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(event) =>
+                    setSearch(
+                      event.target.value
+                    )
+                  }
+                  placeholder="Search users..."
+                  className="h-10 w-full rounded-xl border border-slate-200 bg-[#F8FAFC] pl-9 pr-3 text-sm text-[#26344D] outline-none transition placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-blue-100"
+                />
+              </div>
+            </div>
 
-                      const participant =
-                        getOtherParticipant(
-                          conversation,
-                          currentUser
-                        );
+            {/* LIST */}
 
-                      const participantId =
-                        getUserId(
-                          participant
-                        );
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {loading ? (
+                <ConversationLoading />
+              ) : filteredConversations.length >
+                0 ? (
+                filteredConversations.map(
+                  (
+                    conversation,
+                    index
+                  ) => {
+                    const id =
+                      getConversationId(
+                        conversation
+                      );
 
-                      const name =
-                        getParticipantName(
-                          conversation,
-                          currentUser
-                        );
+                    const participant =
+                      getOtherParticipant(
+                        conversation,
+                        currentUser
+                      );
 
-                      const email =
-                        getParticipantEmail(
-                          conversation,
-                          currentUser
-                        );
+                    const participantId =
+                      getUserId(
+                        participant
+                      );
 
-                      const role =
-                        getParticipantRole(
-                          conversation,
-                          currentUser
-                        );
+                    const name =
+                      getParticipantName(
+                        conversation,
+                        currentUser
+                      );
 
-                      const avatar =
-                        getParticipantAvatar(
-                          conversation,
-                          currentUser
-                        );
+                    const email =
+                      getParticipantEmail(
+                        conversation,
+                        currentUser
+                      );
 
-                      const lastMessage =
-                        conversation?.lastMessage ||
-                        conversation?.lastMessageText ||
-                        conversation?.preview ||
-                        "No messages yet";
+                    const role =
+                      getParticipantRole(
+                        conversation,
+                        currentUser
+                      );
 
-                      const unread =
-                        Number(
-                          conversation?.unreadCount ||
-                            conversation?.unread ||
-                            0
-                        );
+                    const avatar =
+                      getParticipantAvatar(
+                        conversation,
+                        currentUser
+                      );
 
-                      const active =
-                        selectedConversation &&
-                        (
-                          id
-                            ? getConversationId(
-                                selectedConversation
-                              ) === id
-                            : getUserId(
-                                getOtherParticipant(
-                                  selectedConversation,
-                                  currentUser
-                                )
-                              ) ===
-                              participantId
-                        );
+                    const lastMessage =
+                      conversation?.lastMessage ||
+                      conversation?.lastMessageText ||
+                      conversation?.preview ||
+                      "No messages yet";
 
-                      return (
-                        <button
-                          key={
-                            id ||
-                            participantId ||
-                            `contact-${index}`
-                          }
-                          type="button"
-                          onClick={() =>
-                            handleSelectConversation(
-                              conversation
-                            )
-                          }
-                          className={`flex w-full items-start gap-3 border-b border-slate-100 px-4 py-4 text-left transition ${
-                            active
-                              ? "bg-[#EEF4FF]"
-                              : "hover:bg-[#F8FAFC]"
-                          }`}
-                        >
-                          {/* AVATAR */}
+                    const unread =
+                      Number(
+                        conversation?.unreadCount ||
+                          conversation?.unread ||
+                          0
+                      );
 
-                          <div className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#EEF4FF] text-[#2563EB]">
-                            {avatar ? (
-                              <img
-                                src={avatar}
-                                alt={name}
-                                className="h-full w-full object-cover"
-                              />
-                            ) : (
-                              <UserRound
-                                size={19}
-                              />
-                            )}
+                    const active =
+                      selectedConversation &&
+                      (
+                        id
+                          ? getConversationId(
+                              selectedConversation
+                            ) === id
+                          : getUserId(
+                              getOtherParticipant(
+                                selectedConversation,
+                                currentUser
+                              )
+                            ) ===
+                            participantId
+                      );
 
-                            {unread > 0 && (
-                              <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#2563EB] px-1 text-[10px] font-bold text-white">
-                                {unread >
-                                99
-                                  ? "99+"
-                                  : unread}
-                              </span>
-                            )}
-                          </div>
+                    return (
+                      <button
+                        key={
+                          id ||
+                          participantId ||
+                          `contact-${index}`
+                        }
+                        type="button"
+                        onClick={() =>
+                          handleSelectConversation(
+                            conversation
+                          )
+                        }
+                        className={`flex w-full items-start gap-3 border-b border-slate-100 px-4 py-4 text-left transition ${
+                          active
+                            ? "bg-[#EEF4FF]"
+                            : "hover:bg-[#F8FAFC]"
+                        }`}
+                      >
+                        {/* AVATAR */}
 
-                          {/* INFO */}
+                        <div className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#EEF4FF] text-[#2563EB]">
+                          {avatar ? (
+                            <img
+                              src={avatar}
+                              alt={name}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <UserRound
+                              size={19}
+                            />
+                          )}
 
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center justify-between gap-2">
-                              <p
-                                className={`truncate text-sm ${
-                                  unread >
-                                  0
-                                    ? "font-bold text-[#171B3A]"
-                                    : "font-semibold text-[#171B3A]"
-                                }`}
-                              >
-                                {name}
-                              </p>
+                          {unread > 0 && (
+                            <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#2563EB] px-1 text-[10px] font-bold text-white">
+                              {unread >
+                              99
+                                ? "99+"
+                                : unread}
+                            </span>
+                          )}
+                        </div>
 
-                              <span className="shrink-0 text-[10px] text-[#64748B]">
-                                {formatDateTime(
-                                  conversation?.lastMessageAt ||
-                                    conversation?.updatedAt ||
-                                    conversation?.createdAt
-                                )}
-                              </span>
-                            </div>
+                        {/* INFO */}
 
-                            {email && (
-                              <p className="mt-0.5 truncate text-[10px] text-slate-400">
-                                {email}
-                              </p>
-                            )}
-
-                            {role && (
-                              <p className="mt-1 text-[9px] font-bold uppercase text-[#2563EB]">
-                                {role}
-                              </p>
-                            )}
-
-                            <p className="mt-1 truncate text-xs text-[#64748B]">
-                              {lastMessage}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <p
+                              className={`truncate text-sm ${
+                                unread >
+                                0
+                                  ? "font-bold text-[#171B3A]"
+                                  : "font-semibold text-[#171B3A]"
+                              }`}
+                            >
+                              {name}
                             </p>
 
-                            <div className="mt-2 flex items-center gap-2">
-                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-bold uppercase text-slate-600">
-                                {conversation?.isNewContact
-                                  ? "New Chat"
-                                  : conversation?.channel ||
-                                    "Chat"}
-                              </span>
-
-                              {conversation?.status && (
-                                <span className="truncate text-[9px] font-medium text-slate-400">
-                                  {
-                                    conversation.status
-                                  }
-                                </span>
+                            <span className="shrink-0 text-[10px] text-[#64748B]">
+                              {formatDateTime(
+                                conversation?.lastMessageAt ||
+                                  conversation?.updatedAt ||
+                                  conversation?.createdAt
                               )}
-                            </div>
+                            </span>
                           </div>
-                        </button>
-                      );
-                    }
-                  )
-                ) : (
-                  <EmptyConversationList
-                    search={search}
-                  />
-                )}
-              </div>
-            </aside>
 
-            {/* =================================================
-                RIGHT: CHAT PANE (INDEPENDENT SCROLL)
-            ================================================= */}
+                          {email && (
+                            <p className="mt-0.5 truncate text-[10px] text-slate-400">
+                              {email}
+                            </p>
+                          )}
 
-            <div className="flex min-h-0 min-w-0 flex-col">
+                          {role && (
+                            <p className="mt-1 text-[9px] font-bold uppercase text-[#2563EB]">
+                              {role}
+                            </p>
+                          )}
 
-              {/* HEADER */}
+                          <p className="mt-1 truncate text-xs text-[#64748B]">
+                            {lastMessage}
+                          </p>
 
-              <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-4 sm:px-6">
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#EEF4FF] text-[#2563EB]">
-                    {selectedConversation &&
-                    getParticipantAvatar(
-                      selectedConversation,
-                      currentUser
-                    ) ? (
-                      <img
-                        src={getParticipantAvatar(
-                          selectedConversation,
-                          currentUser
-                        )}
-                        alt={
-                          selectedName
-                        }
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <MessageSquare
-                        size={20}
-                      />
-                    )}
-                  </div>
+                          <div className="mt-2 flex items-center gap-2">
+                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[9px] font-bold uppercase text-slate-600">
+                              {conversation?.isNewContact
+                                ? "New Chat"
+                                : conversation?.channel ||
+                                  "Chat"}
+                            </span>
 
-                  <div className="min-w-0">
-                    <h2 className="truncate text-sm font-bold text-[#171B3A]">
-                      {selectedName}
-                    </h2>
+                            {conversation?.status && (
+                              <span className="truncate text-[9px] font-medium text-slate-400">
+                                {
+                                  conversation.status
+                                }
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  }
+                )
+              ) : (
+                <EmptyConversationList
+                  search={search}
+                />
+              )}
+            </div>
+          </aside>
 
-                    <div className="mt-1 flex min-w-0 items-center gap-1.5">
-                      <Clock3
-                        size={12}
-                        className="shrink-0 text-[#64748B]"
-                      />
+          {/* =================================================
+              RIGHT: CHAT PANE (INDEPENDENT SCROLLING COLUMN)
+          ================================================= */}
 
-                      <p className="truncate text-xs text-[#64748B]">
-                        {selectedConversation
-                          ? selectedEmail ||
-                            selectedRole ||
-                            String(
-                              selectedChannel
-                            ).toUpperCase()
-                          : "Choose a user to start a conversation"}
-                      </p>
-                    </div>
+          <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+
+            {/* HEADER */}
+
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 py-4 sm:px-6">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#EEF4FF] text-[#2563EB]">
+                  {selectedConversation &&
+                  getParticipantAvatar(
+                    selectedConversation,
+                    currentUser
+                  ) ? (
+                    <img
+                      src={getParticipantAvatar(
+                        selectedConversation,
+                        currentUser
+                      )}
+                      alt={
+                        selectedName
+                      }
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <MessageSquare
+                      size={20}
+                    />
+                  )}
+                </div>
+
+                <div className="min-w-0">
+                  <h2 className="truncate text-sm font-bold text-[#171B3A]">
+                    {selectedName}
+                  </h2>
+
+                  <div className="mt-1 flex min-w-0 items-center gap-1.5">
+                    <Clock3
+                      size={12}
+                      className="shrink-0 text-[#64748B]"
+                    />
+
+                    <p className="truncate text-xs text-[#64748B]">
+                      {selectedConversation
+                        ? selectedEmail ||
+                          selectedRole ||
+                          String(
+                            selectedChannel
+                          ).toUpperCase()
+                        : "Choose a user to start a conversation"}
+                    </p>
                   </div>
                 </div>
+              </div>
+
+              {/* SOUND MUTE / UNMUTE TOGGLE IN CHAT HEADER */}
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextState = !soundEnabled;
+                    setSoundEnabled(nextState);
+                    if (nextState) playNotificationChime();
+                  }}
+                  className={`flex h-9 items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition ${
+                    soundEnabled
+                      ? "border-blue-200 bg-blue-50 text-[#2563EB]"
+                      : "border-slate-200 bg-white text-slate-400"
+                  }`}
+                  title={soundEnabled ? "Notification sound is ON" : "Notification sound is MUTED"}
+                >
+                  {soundEnabled ? <Volume2 size={15} /> : <VolumeX size={15} />}
+                  <span className="hidden sm:inline">{soundEnabled ? "Sound ON" : "Muted"}</span>
+                </button>
 
                 <button
                   type="button"
@@ -1368,190 +1370,190 @@ export default function ManagerConversationsPage() {
                   />
                 </button>
               </div>
+            </div>
 
-              {/* MESSAGES (SCROLLABLE AREA) */}
+            {/* MESSAGES (SCROLLABLE AREA) */}
 
-              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
-                {!selectedConversation ? (
-                  <NoConversationSelected />
-                ) : messagesLoading ? (
-                  <MessagesLoading />
-                ) : messagesError ? (
-                  <MessageError
-                    message={
-                      messagesError
-                    }
-                  />
-                ) : messages.length ===
-                  0 ? (
-                  <NoMessages />
-                ) : (
-                  <div className="mx-auto flex w-full max-w-5xl flex-col gap-3">
-                    {messages.map(
-                      (
-                        item,
-                        index
-                      ) => (
-                        <MessageBubble
-                          key={
-                            item?._id ||
-                            item?.id ||
-                            `${item?.createdAt || "message"}-${index}`
-                          }
-                          message={
-                            item
-                          }
-                          currentUser={
-                            currentUser
-                          }
-                          onDeletePrompt={
-                            promptDeleteMessage
-                          }
-                        />
-                      )
-                    )}
-                    <div ref={messagesEndRef} />
-                  </div>
-                )}
-              </div>
-
-              {/* COMPOSER (FIXED BOTTOM) */}
-
-              <div className="shrink-0 border-t border-slate-100 bg-white p-4 sm:p-5">
-                
-                {/* SELECTED ATTACHMENT CHIPS */}
-                {selectedFiles.length > 0 && (
-                  <div className="mb-3 flex flex-wrap gap-2">
-                    {selectedFiles.map((file, idx) => (
-                      <div
-                        key={`${file.name}-${idx}`}
-                        className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-[#F8FAFC] px-2.5 py-1 text-xs text-[#26344D]"
-                      >
-                        {file.type.startsWith("image/") ? (
-                          <ImageIcon size={13} className="text-[#2563EB]" />
-                        ) : (
-                          <File size={13} className="text-[#2563EB]" />
-                        )}
-                        <span className="max-w-[140px] truncate font-medium">
-                          {file.name}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => removeSelectedFile(idx)}
-                          className="ml-1 rounded text-slate-400 hover:text-red-500"
-                        >
-                          <X size={13} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <form
-                  onSubmit={
-                    handleSendMessage
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-6">
+              {!selectedConversation ? (
+                <NoConversationSelected />
+              ) : messagesLoading ? (
+                <MessagesLoading />
+              ) : messagesError ? (
+                <MessageError
+                  message={
+                    messagesError
                   }
-                  className="flex items-end gap-2"
-                >
-                  {/* Hidden Multi-file input */}
-                  <input
-                    type="file"
-                    multiple
-                    ref={fileInputRef}
-                    onChange={handleFileChange}
-                    className="hidden"
-                  />
+                />
+              ) : messages.length ===
+                0 ? (
+                <NoMessages />
+              ) : (
+                <div className="mx-auto flex w-full max-w-5xl flex-col gap-3">
+                  {messages.map(
+                    (
+                      item,
+                      index
+                    ) => (
+                      <MessageBubble
+                        key={
+                          item?._id ||
+                          item?.id ||
+                          `${item?.createdAt || "message"}-${index}`
+                        }
+                        message={
+                          item
+                        }
+                        currentUser={
+                          currentUser
+                        }
+                        onDeletePrompt={
+                          promptDeleteMessage
+                        }
+                      />
+                    )
+                  )}
+                  <div ref={messagesEndRef} />
+                </div>
+              )}
+            </div>
 
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
+            {/* COMPOSER (FIXED BOTTOM) */}
+
+            <div className="shrink-0 border-t border-slate-100 bg-white p-4 sm:p-5">
+              
+              {/* SELECTED ATTACHMENT CHIPS */}
+              {selectedFiles.length > 0 && (
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {selectedFiles.map((file, idx) => (
+                    <div
+                      key={`${file.name}-${idx}`}
+                      className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-[#F8FAFC] px-2.5 py-1 text-xs text-[#26344D]"
+                    >
+                      {file.type.startsWith("image/") ? (
+                        <ImageIcon size={13} className="text-[#2563EB]" />
+                      ) : (
+                        <File size={13} className="text-[#2563EB]" />
+                      )}
+                      <span className="max-w-[140px] truncate font-medium">
+                        {file.name}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removeSelectedFile(idx)}
+                        className="ml-1 rounded text-slate-400 hover:text-red-500"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <form
+                onSubmit={
+                  handleSendMessage
+                }
+                className="flex items-end gap-2"
+              >
+                {/* Hidden Multi-file input */}
+                <input
+                  type="file"
+                  multiple
+                  ref={fileInputRef}
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={
+                    !selectedConversation ||
+                    sending
+                  }
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 hover:text-[#2563EB] disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-300"
+                  aria-label="Attach file"
+                >
+                  <Paperclip
+                    size={18}
+                  />
+                </button>
+
+                <div className="min-w-0 flex-1">
+                  <textarea
+                    value={message}
+                    onChange={(event) =>
+                      setMessage(
+                        event.target.value
+                      )
+                    }
+                    onKeyDown={(
+                      event
+                    ) => {
+                      if (
+                        event.key ===
+                          "Enter" &&
+                        !event.shiftKey
+                      ) {
+                        event.preventDefault();
+
+                        if (
+                          (message.trim() || selectedFiles.length > 0) &&
+                          selectedConversation &&
+                          !sending
+                        ) {
+                          handleSendMessage(
+                            event
+                          );
+                        }
+                      }
+                    }}
+                    placeholder={
+                      selectedConversation
+                        ? `Message ${selectedName} or attach files...`
+                        : "Select a user first..."
+                    }
+                    rows={1}
                     disabled={
                       !selectedConversation ||
                       sending
                     }
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 hover:text-[#2563EB] disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-300"
-                    aria-label="Attach file"
-                  >
-                    <Paperclip
+                    className="min-h-11 max-h-32 w-full resize-y rounded-xl border border-slate-200 bg-[#F8FAFC] px-4 py-3 text-sm text-[#26344D] outline-none placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-70"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={
+                    (!message.trim() && selectedFiles.length === 0) ||
+                    !selectedConversation ||
+                    sending
+                  }
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#2563EB] text-white transition hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+                  aria-label="Send message"
+                >
+                  {sending ? (
+                    <Loader2
+                      size={18}
+                      className="animate-spin"
+                    />
+                  ) : (
+                    <Send
                       size={18}
                     />
-                  </button>
+                  )}
+                </button>
+              </form>
 
-                  <div className="min-w-0 flex-1">
-                    <textarea
-                      value={message}
-                      onChange={(event) =>
-                        setMessage(
-                          event.target.value
-                        )
-                      }
-                      onKeyDown={(
-                        event
-                      ) => {
-                        if (
-                          event.key ===
-                            "Enter" &&
-                          !event.shiftKey
-                        ) {
-                          event.preventDefault();
-
-                          if (
-                            (message.trim() || selectedFiles.length > 0) &&
-                            selectedConversation &&
-                            !sending
-                          ) {
-                            handleSendMessage(
-                              event
-                            );
-                          }
-                        }
-                      }}
-                      placeholder={
-                        selectedConversation
-                          ? `Message ${selectedName} or attach files...`
-                          : "Select a user first..."
-                      }
-                      rows={1}
-                      disabled={
-                        !selectedConversation ||
-                        sending
-                      }
-                      className="min-h-11 max-h-32 w-full resize-y rounded-xl border border-slate-200 bg-[#F8FAFC] px-4 py-3 text-sm text-[#26344D] outline-none placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-70"
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={
-                      (!message.trim() && selectedFiles.length === 0) ||
-                      !selectedConversation ||
-                      sending
-                    }
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#2563EB] text-white transition hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
-                    aria-label="Send message"
-                  >
-                    {sending ? (
-                      <Loader2
-                        size={18}
-                        className="animate-spin"
-                      />
-                    ) : (
-                      <Send
-                        size={18}
-                      />
-                    )}
-                  </button>
-                </form>
-
-                <p className="mt-2 px-1 text-[10px] text-[#64748B]">
-                  Enter to send • Shift +
-                  Enter for a new line • Click Paperclip to add files
-                </p>
-              </div>
+              <p className="mt-2 px-1 text-[10px] text-[#64748B]">
+                Enter to send • Shift +
+                Enter for a new line • Click Paperclip to add files
+              </p>
             </div>
-          </section>
-        </main>
-      </div>
+          </div>
+        </section>
+      </main>
 
       {/* =======================================================
           DELETE MESSAGE CONFIRMATION MODAL
@@ -1584,7 +1586,6 @@ export default function ManagerConversationsPage() {
             </div>
 
             <div className="mt-6 flex flex-col gap-2.5">
-              {/* Delete for Everyone option (Manager role can delete any message for everyone) */}
               {!messageToDelete?.isDeletedForEveryone && (
                 <button
                   type="button"
@@ -1601,7 +1602,6 @@ export default function ManagerConversationsPage() {
                 </button>
               )}
 
-              {/* Delete for Me option */}
               <button
                 type="button"
                 disabled={deletingMessage}
@@ -1679,7 +1679,6 @@ function MessageBubble({
     message?.from?.name ||
     "";
 
-  // Close popup menu on clicking outside
   useEffect(() => {
     function handleClickOutside(e) {
       if (menuRef.current && !menuRef.current.contains(e.target)) {
@@ -1702,7 +1701,6 @@ function MessageBubble({
           : "justify-start"
       }`}
     >
-      {/* 3-DOTS ACTION TRIGGER FOR OUTGOING MESSAGES (Left side of bubble) */}
       {isOutgoing && !isDeleted && (
         <div className="relative opacity-0 transition-opacity group-hover:opacity-100" ref={menuRef}>
           <button
@@ -1732,7 +1730,6 @@ function MessageBubble({
         </div>
       )}
 
-      {/* BUBBLE */}
       <div
         className={`max-w-[85%] rounded-2xl px-4 py-3 shadow-sm sm:max-w-[75%] ${
           isDeleted
@@ -1763,7 +1760,6 @@ function MessageBubble({
           )
         )}
 
-        {/* ATTACHMENTS RENDERING */}
         {!isDeleted && Array.isArray(message?.attachments) && message.attachments.length > 0 && (
           <div className="mt-2 space-y-1.5">
             {message.attachments.map((attachment, attachmentIndex) => {
@@ -1838,7 +1834,6 @@ function MessageBubble({
         </div>
       </div>
 
-      {/* 3-DOTS ACTION TRIGGER FOR INCOMING MESSAGES (Right side of bubble) */}
       {!isOutgoing && !isDeleted && (
         <div className="relative opacity-0 transition-opacity group-hover:opacity-100" ref={menuRef}>
           <button
@@ -2341,6 +2336,15 @@ async function apiRequest(
   endpoint,
   options = {}
 ) {
+  let token = null;
+  try {
+    if (typeof authService.getToken === "function") {
+      token = authService.getToken();
+    }
+  } catch (e) {}
+
+  const isFormData = options.body instanceof FormData;
+
   const response =
     await fetch(
       `${API_URL}${endpoint}`,
@@ -2350,11 +2354,10 @@ async function apiRequest(
         credentials: "include",
 
         headers: {
-          "Content-Type":
-            "application/json",
-
-          ...(options.headers ||
-            {}),
+          ...(isFormData ? {} : { "Content-Type": "application/json" }),
+          Accept: "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(options.headers || {}),
         },
       }
     );

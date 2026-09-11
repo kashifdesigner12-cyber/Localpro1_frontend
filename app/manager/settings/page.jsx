@@ -270,7 +270,7 @@ export default function ManagerSettingsPage() {
   }
 
   /* =====================================================
-     SAVE SETTINGS
+     SAVE SETTINGS (USING authService.updateProfile)
   ===================================================== */
 
   async function handleSave(event) {
@@ -281,42 +281,48 @@ export default function ManagerSettingsPage() {
       setSaved(false);
       setError("");
 
-      const response =
-        await authService.updateProfile({
-          name: profile.name.trim(),
-          email: profile.email.trim(),
-          avatar: profile.avatar || "",
-        });
+      const response = await authService.updateProfile({
+        name: profile.name.trim(),
+        email: profile.email.trim(),
+        avatar: profile.avatar || "",
+      });
 
       const updatedUser =
         response?.user ||
         response?.data?.user ||
         response?.data ||
-        null;
+        response;
 
       if (updatedUser) {
-        setProfile((previous) => ({
-          ...previous,
+        const newAvatar =
+          updatedUser?.avatar ||
+          updatedUser?.profileImage ||
+          updatedUser?.profilePicture ||
+          updatedUser?.image ||
+          profile.avatar;
 
-          name:
-            updatedUser?.name ||
-            updatedUser?.fullName ||
-            previous.name,
+        const newName =
+          updatedUser?.name ||
+          updatedUser?.fullName ||
+          profile.name;
 
-          email:
-            updatedUser?.email ||
-            previous.email,
+        const newEmail =
+          updatedUser?.email ||
+          profile.email;
 
-          avatar:
-            updatedUser?.avatar ||
-            updatedUser?.profileImage ||
-            updatedUser?.profilePicture ||
-            updatedUser?.image ||
-            previous.avatar,
-        }));
+        setProfile({
+          name: newName,
+          email: newEmail,
+          avatar: newAvatar,
+        });
       }
 
       setSaved(true);
+      
+      // Refresh the page or trigger layout sync after a short delay so the header updates instantly
+      setTimeout(() => {
+        window.location.reload();
+      }, 600);
     } catch (err) {
       if (err?.message === "UNAUTHORIZED") {
         router.replace("/login");
@@ -667,37 +673,6 @@ export default function ManagerSettingsPage() {
             </div>
 
           </form>
-        )}
-
-        {/* =================================================
-            BACKEND STATUS
-        ================================================= */}
-
-        {!loading && (
-          <section className="w-full rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6 lg:p-8">
-
-            <div className="flex items-start gap-3">
-
-              <div className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-green-500" />
-
-              <div className="min-w-0">
-
-                <h2 className="text-sm font-bold text-[#171B3A]">
-                  
-                </h2>
-
-                <p className="mt-1 text-xs leading-5 text-[#64748B]">
-                  Manager profile is loaded from the
-                  authenticated backend account. Name,
-                  email and profile picture are saved
-                  through the authenticated profile API.
-                </p>
-
-              </div>
-
-            </div>
-
-          </section>
         )}
 
       </div>

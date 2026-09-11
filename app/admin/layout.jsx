@@ -70,6 +70,12 @@ const navigation = [
   },
 ];
 
+// Global persistent cache for admin layout user state so it only checks/loads ONCE per session
+let globalAdminUserCache = {
+  user: null,
+  loaded: false,
+};
+
 export default function AdminLayout({ children }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -79,9 +85,11 @@ export default function AdminLayout({ children }) {
   const redirectingRef = useRef(false);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
+  
+  // Initialize loading state to false if we already have a cached admin user session
+  const [loading, setLoading] = useState(!globalAdminUserCache.loaded);
   const [loggingOut, setLoggingOut] = useState(false);
-  const [currentUser, setCurrentUser] = useState(null);
+  const [currentUser, setCurrentUser] = useState(globalAdminUserCache.user);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -92,6 +100,12 @@ export default function AdminLayout({ children }) {
   }, []);
 
   useEffect(() => {
+    // If layout already verified the admin user once, completely skip checking again on internal navigation
+    if (globalAdminUserCache.loaded) {
+      setLoading(false);
+      return;
+    }
+
     if (checkingAuthRef.current) {
       return;
     }
@@ -101,8 +115,6 @@ export default function AdminLayout({ children }) {
 
     const checkAdmin = async () => {
       try {
-        // OPTIMIZATION: authService.me() already utilizes memory caching and request 
-        // deduplication inside authService, preventing duplicate concurrent /auth/me calls.
         const response = await authService.me();
 
         if (cancelled || !mountedRef.current) {
@@ -125,10 +137,18 @@ export default function AdminLayout({ children }) {
           return;
         }
 
-        setCurrentUser({
+        const formattedUser = {
           ...user,
           avatar: user?.avatar || null,
-        });
+        };
+
+        // Save into global layout cache so other pages / re-visits don't trigger layout reload
+        globalAdminUserCache = {
+          user: formattedUser,
+          loaded: true,
+        };
+
+        setCurrentUser(formattedUser);
       } catch (error) {
         if (!cancelled && mountedRef.current) {
           console.error(
@@ -156,6 +176,9 @@ export default function AdminLayout({ children }) {
   }, []);
 
   function redirectToLogin() {
+    // Clear global cache on explicit logout/unauthorized
+    globalAdminUserCache = { user: null, loaded: false };
+
     if (redirectingRef.current) {
       return;
     }
@@ -193,6 +216,9 @@ export default function AdminLayout({ children }) {
         error
       );
     } finally {
+      // Clear global cache on logout
+      globalAdminUserCache = { user: null, loaded: false };
+
       try {
         if (typeof authService.clearToken === "function") {
           authService.clearToken();
