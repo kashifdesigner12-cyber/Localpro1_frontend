@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import {
   Activity,
@@ -16,15 +16,34 @@ import {
   LogOut,
   Menu,
   MessageSquare,
+  RefreshCw,
   Settings,
   ShieldCheck,
   UserRound,
   X,
+  Sparkles,
 } from "lucide-react";
+
+import { authService } from "@/services/authService";
+
+const navigation = [
+  { label: "Dashboard", href: "/user", icon: LayoutDashboard },
+  { label: "My Tasks", href: "/user/tasks", icon: ClipboardList },
+  { label: "Calendar", href: "/user/calendar", icon: CalendarDays },
+  { label: "Attendance", href: "/user/attendance", icon: Clock3 },
+  { label: "Messages", href: "/user/messages", icon: MessageSquare },
+  { label: "Notifications", href: "/user/notifications", icon: Bell },
+  { label: "Leave Requests", href: "/user/leave-requests", icon: FileText },
+  { label: "Profile", href: "/user/profile", icon: UserRound },
+  { label: "Settings", href: "/user/settings", icon: Settings },
+  { label: "Policies", href: "/user/policies", icon: ShieldCheck },
+];
 
 export default function PoliciesPage() {
   const pathname = usePathname();
+  const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
 
   const policies = [
     "Employees should be entitled to 8 Casual Leaves and 8 Sick Leaves annually.",
@@ -36,333 +55,184 @@ export default function PoliciesPage() {
     "Employees should inform HR in case of emergency leave as soon as possible.",
   ];
 
-  const navItems = [
-    {
-      label: "Dashboard",
-      href: "/user",
-      icon: LayoutDashboard,
-    },
-    {
-      label: "My Tasks",
-      href: "/user/tasks",
-      icon: ClipboardList,
-    },
-    {
-      label: "Calendar",
-      href: "/user/calendar",
-      icon: CalendarDays,
-    },
-    {
-      label: "Attendance",
-      href: "/user/attendance",
-      icon: Clock3,
-    },
-    {
-      label: "Messages",
-      href: "/user/messages",
-      icon: MessageSquare,
-    },
-    {
-      label: "Notifications",
-      href: "/user/notifications",
-      icon: Bell,
-    },
-    {
-      label: "Leave Requests",
-      href: "/user/leave-requests",
-      icon: FileText,
-    },
-    {
-      label: "Activity",
-      href: "/user/activity",
-      icon: Activity,
-    },
-    {
-      label: "Profile",
-      href: "/user/profile",
-      icon: UserRound,
-    },
-    {
-      label: "Settings",
-      href: "/user/settings",
-      icon: Settings,
-    },
-    {
-      label: "Policies",
-      href: "/user/policies",
-      icon: ShieldCheck,
-    },
-  ];
-
-  const isActive = (href) => {
-    if (href === "/user") {
-      return pathname === "/user";
+  async function handleLogout() {
+    if (loggingOut) return;
+    try {
+      setLoggingOut(true);
+      if (typeof authService?.logout === "function") {
+        await authService.logout();
+      }
+    } catch {} finally {
+      setLoggingOut(false);
+      router.replace("/login");
     }
-
-    return pathname === href || pathname.startsWith(`${href}/`);
-  };
-
-  const closeSidebar = () => {
-    setSidebarOpen(false);
-  };
+  }
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC]">
-      {/* =====================================================
-          MOBILE OVERLAY
-      ===================================================== */}
+    <div className="relative min-h-screen w-full bg-[#f7f8fc] text-slate-900 animate-fadeIn">
+      {/* Background ambient lighting */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute -left-32 -top-32 h-72 w-72 rounded-full bg-violet-400/10 blur-3xl animate-pulse" />
+        <div className="absolute right-0 top-20 h-80 w-80 rounded-full bg-pink-400/10 blur-3xl" />
+        <div className="absolute bottom-0 left-1/3 h-72 w-72 rounded-full bg-orange-300/10 blur-3xl" />
+      </div>
+
+      {/* MOBILE OVERLAY */}
       {sidebarOpen && (
         <button
           type="button"
           aria-label="Close sidebar"
-          onClick={closeSidebar}
-          className="fixed inset-0 z-40 bg-slate-950/40 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+          className="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-sm lg:hidden"
         />
       )}
 
-      {/* =====================================================
-          SIDEBAR
-      ===================================================== */}
+      {/* SIDEBAR (Matching Admin Dark Theme & Animations) */}
       <aside
-        className={`fixed left-0 top-0 z-50 flex h-screen w-[270px] flex-col bg-[#171B3A] shadow-xl transition-transform duration-300 lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-[#171B3A] text-white shadow-2xl transition-transform duration-300 ease-in-out lg:translate-x-0 ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        {/* Logo */}
-        <div className="flex h-[82px] shrink-0 items-center justify-between border-b border-white/10 px-5">
+        <div className="flex h-20 shrink-0 items-center justify-between border-b border-white/10 px-5">
           <Link
             href="/user"
-            onClick={closeSidebar}
-            className="flex items-center gap-3"
+            onClick={() => setSidebarOpen(false)}
+            className="flex items-center gap-3 text-white"
           >
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#2563EB] text-white shadow-lg shadow-blue-950/20">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-purple-600 text-white shadow-md shadow-purple-600/20">
               <ShieldCheck size={22} />
             </div>
 
             <div>
-              <p className="text-sm font-bold leading-none text-white">
-                Local Pro 1
-              </p>
-
-              <p className="mt-1.5 text-[10px] font-medium text-white/60">
-                Business Workspace
+              <h1 className="text-sm font-bold text-white">Local Pro 1</h1>
+              <p className="text-[11px] font-semibold text-violet-400">
+                User Workspace
               </p>
             </div>
           </Link>
 
           <button
             type="button"
-            onClick={closeSidebar}
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-white transition hover:bg-white/15 lg:hidden"
+            onClick={() => setSidebarOpen(false)}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-white/10 hover:text-white lg:hidden"
             aria-label="Close sidebar"
           >
-            <X size={20} />
+            <X size={19} />
           </button>
         </div>
 
-        {/* Navigation */}
-        <div className="flex-1 overflow-y-auto px-4 py-6">
-          <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.12em] text-white/40">
+        <nav className="flex-1 overflow-y-auto px-3 py-5">
+          <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
             Workspace
           </p>
 
-          <nav className="space-y-1.5">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const active = isActive(item.href);
+          <div className="space-y-1.5">
+            {navigation.map((item) => (
+              <UserNavItem
+                key={item.href}
+                item={item}
+                pathname={pathname}
+                onNavigate={() => setSidebarOpen(false)}
+              />
+            ))}
+          </div>
+        </nav>
 
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={closeSidebar}
-                  className={`group flex min-h-[44px] items-center gap-3 rounded-xl px-3.5 text-sm font-semibold transition ${
-                    active
-                      ? "bg-[#2563EB] text-white shadow-lg shadow-blue-950/20"
-                      : "text-white hover:bg-white/10 hover:text-white"
-                  }`}
-                >
-                  <Icon
-                    size={18}
-                    className={`shrink-0 ${
-                      active
-                        ? "text-white"
-                        : "text-white group-hover:text-white"
-                    }`}
-                  />
-
-                  <span className="text-white">{item.label}</span>
-                </Link>
-              );
-            })}
-          </nav>
-        </div>
-
-        {/* Bottom */}
-        <div className="shrink-0 border-t border-white/10 p-4">
-          <Link
-            href="/login"
-            className="flex min-h-[44px] items-center gap-3 rounded-xl px-3.5 text-sm font-semibold text-white transition hover:bg-white/10"
+        <div className="shrink-0 border-t border-white/10 p-3">
+          <button
+            type="button"
+            onClick={handleLogout}
+            disabled={loggingOut}
+            className="flex w-full items-center gap-3 rounded-2xl px-3.5 py-3 text-sm font-bold text-rose-400 transition hover:bg-rose-500/10 hover:text-rose-300 disabled:opacity-60"
           >
-            <LogOut size={18} className="text-white" />
-            <span className="text-white">Logout</span>
-          </Link>
+            {loggingOut ? <Loader2 size={18} className="animate-spin" /> : <LogOut size={18} />}
+            <span>Sign Out</span>
+          </button>
         </div>
       </aside>
 
-      {/* =====================================================
-          MAIN AREA
-      ===================================================== */}
-      <div className="min-h-screen lg:pl-[270px]">
-        {/* ===================================================
-            HEADER
-        =================================================== */}
-        <header className="sticky top-0 z-30 h-[82px] border-b border-slate-200 bg-white/95 backdrop-blur">
-          <div className="flex h-full items-center justify-between px-5 sm:px-6 lg:px-8">
-            {/* Mobile Menu */}
+      {/* MAIN CONTAINER */}
+      <div className="min-h-screen w-full lg:pl-64">
+        {/* TOP BAR */}
+        <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200/80 bg-white/95 px-5 backdrop-blur-sm sm:px-6 lg:px-8">
+          <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={() => setSidebarOpen(true)}
-              className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-[#26344D] transition hover:border-blue-200 hover:bg-[#EEF4FF] hover:text-[#2563EB] lg:hidden"
+              className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50 lg:hidden"
               aria-label="Open sidebar"
             >
-              <Menu size={21} />
+              <Menu size={20} />
             </button>
 
-            {/* Page title */}
-            <div className="hidden lg:block">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-[#64748B]">
-                Employee Workspace
-              </p>
-
-              <h2 className="mt-0.5 text-lg font-bold text-[#171B3A]">
-                Policies
-              </h2>
+            <div>
+              <p className="text-xs font-semibold text-slate-400">Workspace</p>
+              <p className="text-sm font-bold text-slate-900">Policies</p>
             </div>
+          </div>
 
-            {/* Mobile title */}
-            <div className="lg:hidden">
-              <p className="text-sm font-bold text-[#171B3A]">
-                Policies
-              </p>
-
-              <p className="text-[10px] font-medium text-[#64748B]">
-                Local Pro 1
-              </p>
-            </div>
-
-            {/* Back */}
+          <div className="flex items-center gap-3">
             <Link
               href="/user"
-              className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 text-xs font-bold text-[#26344D] transition hover:border-blue-200 hover:bg-[#EEF4FF] hover:text-[#2563EB] sm:px-4"
+              className="inline-flex h-9 items-center gap-1.5 rounded-2xl border border-slate-200/90 bg-white px-3.5 text-xs font-bold text-slate-700 shadow-xs transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700"
             >
-              <ArrowLeft size={16} />
-              <span className="hidden sm:inline">
-                Back to Dashboard
-              </span>
-              <span className="sm:hidden">Back</span>
+              <ArrowLeft size={15} />
+              <span>Back to Dashboard</span>
             </Link>
           </div>
         </header>
 
-        {/* ===================================================
-            PAGE CONTENT
-        =================================================== */}
-        <main className="px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10">
-          <div className="mx-auto w-full max-w-6xl">
-            {/* =================================================
-                HERO
-            ================================================= */}
-            <section className="relative overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-              {/* Decorative elements */}
-              <div className="pointer-events-none absolute -right-10 -top-16 h-64 w-64 rounded-full bg-[#EEF4FF] blur-3xl" />
+        {/* CONTENT */}
+        <main className="min-h-[calc(100vh-4rem)] p-4 sm:p-6 lg:p-8 animate-slideUp">
+          <div className="mx-auto w-full max-w-5xl space-y-6">
 
-              <div className="pointer-events-none absolute bottom-0 left-1/3 h-32 w-32 rounded-full bg-blue-50 blur-3xl" />
-
-              <div className="relative px-6 py-9 sm:px-8 sm:py-11 lg:px-12 lg:py-12">
-                <div className="max-w-3xl">
-                  {/* Badge */}
-                  <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-blue-100 bg-[#EEF4FF] px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[#2563EB]">
-                    <FileText size={13} />
-                    Employee Policy
-                  </div>
-
-                  {/* Title */}
-                  <h1 className="text-3xl font-bold tracking-tight text-[#171B3A] sm:text-4xl lg:text-[44px]">
-                    Employee&apos;s Leave Policy
-                  </h1>
-
-                  <p className="mt-3 text-base font-bold text-[#2563EB]">
-                    Localpro1 2026
-                  </p>
-
-                  <p className="mt-4 max-w-2xl text-sm leading-7 text-[#64748B] sm:text-[15px]">
-                    Please review the following employee leave
-                    policy applicable to Localpro1 for 2026.
-                  </p>
-
-                  {/* Meta */}
-                  <div className="mt-6 flex flex-wrap gap-3">
-                    <div className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-xs font-semibold text-[#64748B]">
-                      <FileText
-                        size={14}
-                        className="text-[#2563EB]"
-                      />
-                      Effective: 2026
-                    </div>
-
-                    <div className="inline-flex items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-3.5 py-2.5 text-xs font-semibold text-emerald-700">
-                      <CheckCircle2 size={14} />
-                      Employee Guidelines
-                    </div>
-                  </div>
+            {/* HERO SECTION */}
+            <section className="relative overflow-hidden rounded-[30px] bg-gradient-to-br from-[#4211b8] via-[#6414d8] to-[#a617c8] p-6 text-white shadow-[0_25px_70px_rgba(93,36,190,0.25)] sm:p-8">
+              <div className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-fuchsia-400/20 blur-2xl" />
+              <div className="relative z-10">
+                <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold backdrop-blur-md">
+                  <Sparkles size={13} />
+                  Employee Guidelines
                 </div>
+                <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl lg:text-4xl">
+                  Employee&apos;s Leave Policy
+                </h1>
+                <p className="mt-2 text-sm text-white/80 max-w-xl">
+                  Localpro1 2026 Guidelines. Please review the official leave rules and policies.
+                </p>
               </div>
             </section>
 
-            {/* =================================================
-                POLICY CARD
-            ================================================= */}
-            <section className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-              {/* Card Header */}
-              <div className="border-b border-slate-100 px-6 py-5 sm:px-8">
+            {/* POLICY LIST CONTAINER */}
+            <section className="overflow-hidden rounded-[26px] border border-slate-200/80 bg-white shadow-[0_10px_35px_rgba(45,35,100,0.05)]">
+              <div className="border-b border-slate-100 bg-slate-50/50 px-6 py-4.5">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#EEF4FF] text-[#2563EB]">
-                    <FileText size={20} />
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
+                    <FileText size={18} />
                   </div>
-
                   <div>
-                    <h2 className="text-base font-bold text-[#171B3A] sm:text-lg">
-                      Employee&apos;s Leave Policy Localpro1 2026
-                    </h2>
-
-                    <p className="mt-1 text-xs text-[#64748B]">
-                      Leave and attendance guidelines
-                    </p>
+                    <h2 className="text-base font-bold text-slate-900">Official Regulations</h2>
+                    <p className="text-xs text-slate-500">Effective for 2026 operations.</p>
                   </div>
                 </div>
               </div>
 
-              {/* Policy List */}
-              <div className="px-5 py-6 sm:px-8 sm:py-8">
+              <div className="p-6 sm:p-8">
                 <div className="space-y-4">
                   {policies.map((policy, index) => (
                     <div
                       key={index}
-                      className="group flex gap-4 rounded-2xl border border-slate-100 bg-slate-50/70 p-5 transition duration-200 hover:border-blue-100 hover:bg-[#F8FAFF] hover:shadow-sm"
+                      className="group flex gap-4 rounded-2xl border border-slate-200/80 bg-slate-50/50 p-5 transition duration-150 hover:border-violet-200 hover:bg-violet-50/30"
                     >
-                      {/* Number/Icon */}
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#EEF4FF] text-[#2563EB] transition group-hover:bg-[#2563EB] group-hover:text-white">
-                        <CheckCircle2 size={18} />
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-600 transition group-hover:bg-violet-600 group-hover:text-white">
+                        <CheckCircle2 size={17} />
                       </div>
 
-                      {/* Text */}
                       <div className="min-w-0 flex-1">
-                        <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-[#2563EB]">
-                          Policy {index + 1}
+                        <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-violet-600">
+                          Policy Rule {index + 1}
                         </p>
-
-                        <p className="text-sm leading-7 text-[#26344D] sm:text-[15px]">
+                        <p className="text-xs font-medium leading-relaxed text-slate-700 sm:text-sm">
                           {policy}
                         </p>
                       </div>
@@ -372,33 +242,31 @@ export default function PoliciesPage() {
               </div>
             </section>
 
-            {/* =================================================
-                FOOTER
-            ================================================= */}
-            <footer className="mt-8 border-t border-slate-200 pt-6">
-              <div className="flex flex-col gap-3 text-xs text-[#64748B] sm:flex-row sm:items-center sm:justify-between">
-                <p>
-                  © {new Date().getFullYear()} Local Pro 1. All
-                  rights reserved.
-                </p>
-
-                <div className="flex items-center gap-4">
-                  <span>Employee Policy</span>
-
-                  <span className="text-slate-300">•</span>
-
-                  <Link
-                    href="/user"
-                    className="font-semibold text-[#2563EB] hover:underline"
-                  >
-                    Back to Dashboard
-                  </Link>
-                </div>
-              </div>
-            </footer>
           </div>
         </main>
       </div>
     </div>
+  );
+}
+
+function UserNavItem({ item, pathname, onNavigate }) {
+  const Icon = item.icon;
+  const isActive =
+    pathname === item.href ||
+    (item.href !== "/user" && pathname.startsWith(`${item.href}/`));
+
+  return (
+    <Link
+      href={item.href}
+      onClick={onNavigate}
+      className={`group flex items-center gap-3 rounded-2xl px-3.5 py-3 text-sm font-bold transition duration-150 ${
+        isActive
+          ? "bg-violet-600 text-white shadow-md shadow-violet-600/30"
+          : "text-slate-300 hover:bg-white/10 hover:text-white"
+      }`}
+    >
+      <Icon size={18} className={`transition duration-150 ${isActive ? "text-white" : "text-slate-400 group-hover:text-white"}`} />
+      <span>{item.label}</span>
+    </Link>
   );
 }

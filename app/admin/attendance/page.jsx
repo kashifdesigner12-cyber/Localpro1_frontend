@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import {
   CalendarDays,
   Search,
@@ -19,12 +19,17 @@ import {
   UserCog,
   Save,
   Power,
+  ShieldCheck,
+  Sparkles,
+  SlidersHorizontal,
+  Loader2,
 } from "lucide-react";
 
 const API_URL = (
-  process.env.NEXT_PUBLIC_API_URL ||
-  "https://api.localpro1.net/api"
+  process.env.NEXT_PUBLIC_API_URL || "https://api.localpro1.net/api"
 ).replace(/\/+$/, "");
+
+const CACHE_TIME = 30 * 1000;
 
 // ==========================================================
 // HELPERS
@@ -32,23 +37,16 @@ const API_URL = (
 
 const getTodayString = () => {
   const now = new Date();
-
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, "0");
   const day = String(now.getDate()).padStart(2, "0");
-
   return `${year}-${month}-${day}`;
 };
 
 const formatTime = (date) => {
-  if (!date) return "-";
-
+  if (!date) return "—";
   const parsed = new Date(date);
-
-  if (Number.isNaN(parsed.getTime())) {
-    return "-";
-  }
-
+  if (Number.isNaN(parsed.getTime())) return "—";
   return parsed.toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
@@ -56,14 +54,9 @@ const formatTime = (date) => {
 };
 
 const formatDate = (date) => {
-  if (!date) return "-";
-
+  if (!date) return "—";
   const parsed = new Date(date);
-
-  if (Number.isNaN(parsed.getTime())) {
-    return "-";
-  }
-
+  if (Number.isNaN(parsed.getTime())) return "—";
   return parsed.toLocaleDateString([], {
     year: "numeric",
     month: "short",
@@ -92,171 +85,202 @@ const getAuthHeaders = () => {
 
   return {
     "Content-Type": "application/json",
-    ...(token
-      ? {
-          Authorization: `Bearer ${token}`,
-        }
-      : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 };
 
+function StatCard({ title, value, subtitle, icon: Icon, gradient }) {
+  return (
+    <div className="group relative overflow-hidden rounded-[24px] border border-slate-200/80 bg-white p-5 shadow-[0_10px_35px_rgba(45,35,100,0.06)] transition duration-200 hover:-translate-y-1 hover:shadow-[0_18px_45px_rgba(45,35,100,0.10)]">
+      <div
+        className={`absolute -right-10 -top-10 h-28 w-28 rounded-full bg-gradient-to-br ${gradient} opacity-[0.08] transition duration-300 group-hover:scale-125`}
+      />
+      <div className="relative flex items-start justify-between">
+        <div>
+          <p className="text-[13px] font-semibold text-slate-500">{title}</p>
+          <h3 className="mt-2 text-[28px] font-bold tracking-tight text-slate-900">
+            {value}
+          </h3>
+          <p className="mt-2 text-[11px] font-medium text-slate-400">
+            {subtitle}
+          </p>
+        </div>
+        <div
+          className={`flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br ${gradient} text-white shadow-lg`}
+        >
+          <Icon size={21} strokeWidth={2.2} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SkeletonCard() {
+  return (
+    <div className="animate-pulse rounded-[24px] border border-slate-200/80 bg-white p-5 shadow-sm">
+      <div className="flex justify-between">
+        <div>
+          <div className="h-3 w-24 rounded bg-slate-200" />
+          <div className="mt-3 h-8 w-20 rounded bg-slate-200" />
+          <div className="mt-3 h-3 w-28 rounded bg-slate-100" />
+        </div>
+        <div className="h-12 w-12 rounded-2xl bg-slate-200" />
+      </div>
+    </div>
+  );
+}
+
+function StatusBadge({ status }) {
+  const classes = {
+    Present: "bg-emerald-50 text-emerald-600 border-emerald-100",
+    Absent: "bg-rose-50 text-rose-600 border-rose-100",
+    Late: "bg-orange-50 text-orange-600 border-orange-100",
+    Pending: "bg-amber-50 text-amber-600 border-amber-100",
+    "Half Day": "bg-purple-50 text-purple-600 border-purple-100",
+    Leave: "bg-violet-50 text-violet-600 border-violet-100",
+  };
+
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-bold ${
+        classes[status] || "border-slate-200 bg-slate-100 text-slate-600"
+      }`}
+    >
+      {status || "Pending"}
+    </span>
+  );
+}
+
 // ==========================================================
-// MAIN
+// MAIN COMPONENT
 // ==========================================================
 
 export default function AdminAttendancePage() {
   const [attendance, setAttendance] = useState([]);
-
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Instant render enabled
   const [refreshing, setRefreshing] = useState(false);
-
   const [error, setError] = useState("");
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
+  const [selectedDate, setSelectedDate] = useState(getTodayString());
 
-  const [selectedDate, setSelectedDate] =
-    useState(getTodayString());
-
-  // ========================================================
-  // EDIT ATTENDANCE
-  // ========================================================
-
-  const [editingAttendance, setEditingAttendance] =
-    useState(null);
-
-  const [editStatus, setEditStatus] =
-    useState("Pending");
-
-  const [editNotes, setEditNotes] =
-    useState("");
-
+  // Edit attendance state
+  const [editingAttendance, setEditingAttendance] = useState(null);
+  const [editStatus, setEditStatus] = useState("Pending");
+  const [editNotes, setEditNotes] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // ========================================================
-  // SCHEDULE MODAL
-  // ========================================================
+  // Schedule modal state
+  const [scheduleUser, setScheduleUser] = useState(null);
+  const [scheduleEnabled, setScheduleEnabled] = useState(true);
+  const [scheduleTime, setScheduleTime] = useState("10:00");
+  const [gracePeriod, setGracePeriod] = useState("10");
+  const [scheduleTimezone, setScheduleTimezone] = useState("Asia/Karachi");
+  const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [scheduleSaving, setScheduleSaving] = useState(false);
 
-  const [scheduleUser, setScheduleUser] =
-    useState(null);
-
-  const [scheduleEnabled, setScheduleEnabled] =
-    useState(true);
-
-  const [scheduleTime, setScheduleTime] =
-    useState("10:00");
-
-  const [gracePeriod, setGracePeriod] =
-    useState("10");
-
-  const [scheduleTimezone, setScheduleTimezone] =
-    useState("Asia/Karachi");
-
-  const [scheduleLoading, setScheduleLoading] =
-    useState(false);
-
-  const [scheduleSaving, setScheduleSaving] =
-    useState(false);
+  const cacheRef = useRef({});
+  const loadingRef = useRef(false);
 
   // ========================================================
-  // FETCH ATTENDANCE
+  // FETCH ATTENDANCE (SPEED + CACHE OPTIMIZED)
   // ========================================================
 
-  const fetchAttendance = async (
-    showRefresh = false
-  ) => {
-    try {
-      if (showRefresh) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
+  const fetchAttendance = useCallback(
+    async (force = false) => {
+      if (loadingRef.current) return;
+
+      const now = Date.now();
+      const cached = cacheRef.current[selectedDate];
+
+      if (!force && cached && now - cached.timestamp < CACHE_TIME) {
+        setAttendance(cached.data);
+        return;
       }
 
+      loadingRef.current = true;
+      if (force) {
+        setRefreshing(true);
+      }
       setError("");
 
-      const response = await fetch(
-        `${API_URL}/attendance?startDate=${selectedDate}&endDate=${selectedDate}&limit=100`,
-        {
-          method: "GET",
-          headers: getAuthHeaders(),
-          credentials: "include",
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data?.message ||
-            "Failed to load attendance."
+      try {
+        const response = await fetch(
+          `${API_URL}/attendance?startDate=${selectedDate}&endDate=${selectedDate}&limit=100`,
+          {
+            method: "GET",
+            headers: getAuthHeaders(),
+            credentials: "include",
+            cache: "no-store",
+          }
         );
-      }
 
-      setAttendance(
-        Array.isArray(data?.attendance)
+        let data = null;
+        try {
+          data = await response.json();
+        } catch {
+          data = null;
+        }
+
+        if (response.status === 401) {
+          window.location.replace("/login");
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error(data?.message || "Failed to load attendance.");
+        }
+
+        const records = Array.isArray(data?.attendance)
           ? data.attendance
           : Array.isArray(data?.data)
           ? data.data
-          : []
-      );
-    } catch (err) {
-      console.error(
-        "fetchAttendance error:",
-        err
-      );
+          : [];
 
-      setError(
-        err.message ||
-          "Unable to load attendance."
-      );
-
-      setAttendance([]);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
+        setAttendance(records);
+        cacheRef.current[selectedDate] = {
+          timestamp: Date.now(),
+          data: records,
+        };
+      } catch (err) {
+        console.error("fetchAttendance error:", err);
+        setError(err.message || "Unable to load attendance.");
+        setAttendance([]);
+      } finally {
+        loadingRef.current = false;
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [selectedDate]
+  );
 
   useEffect(() => {
-    fetchAttendance();
-  }, [selectedDate]);
+    fetchAttendance(false);
+  }, [fetchAttendance]);
 
   // ========================================================
   // FILTER
   // ========================================================
 
   const filteredAttendance = useMemo(() => {
+    const searchValue = search.toLowerCase().trim();
+
     return attendance.filter((item) => {
       const user = item?.user;
-
-      const name =
-        user?.name?.toLowerCase() || "";
-
-      const email =
-        user?.email?.toLowerCase() || "";
-
-      const searchValue =
-        search.toLowerCase().trim();
+      const name = user?.name?.toLowerCase() || "";
+      const email = user?.email?.toLowerCase() || "";
 
       const matchesSearch =
-        !searchValue ||
-        name.includes(searchValue) ||
-        email.includes(searchValue);
+        !searchValue || name.includes(searchValue) || email.includes(searchValue);
 
       const matchesStatus =
-        statusFilter === "All" ||
-        item?.status === statusFilter;
+        statusFilter === "All" || item?.status === statusFilter;
 
-      return (
-        matchesSearch &&
-        matchesStatus
-      );
+      return matchesSearch && matchesStatus;
     });
-  }, [
-    attendance,
-    search,
-    statusFilter,
-  ]);
+  }, [attendance, search, statusFilter]);
 
   // ========================================================
   // SUMMARY
@@ -269,8 +293,6 @@ export default function AdminAttendancePage() {
       absent: 0,
       late: 0,
       pending: 0,
-      halfDay: 0,
-      leave: 0,
     };
 
     attendance.forEach((item) => {
@@ -278,27 +300,15 @@ export default function AdminAttendancePage() {
         case "Present":
           result.present++;
           break;
-
         case "Absent":
           result.absent++;
           break;
-
         case "Late":
           result.late++;
           break;
-
         case "Pending":
           result.pending++;
           break;
-
-        case "Half Day":
-          result.halfDay++;
-          break;
-
-        case "Leave":
-          result.leave++;
-          break;
-
         default:
           break;
       }
@@ -308,37 +318,24 @@ export default function AdminAttendancePage() {
   }, [attendance]);
 
   // ========================================================
-  // EDIT ATTENDANCE
+  // EDIT ATTENDANCE MODAL
   // ========================================================
 
   const openEdit = (item) => {
     setEditingAttendance(item);
-
-    setEditStatus(
-      item?.status || "Pending"
-    );
-
-    setEditNotes(
-      item?.notes || ""
-    );
+    setEditStatus(item?.status || "Pending");
+    setEditNotes(item?.notes || "");
   };
 
   const closeEdit = () => {
     if (saving) return;
-
     setEditingAttendance(null);
     setEditStatus("Pending");
     setEditNotes("");
   };
 
-  // ========================================================
-  // UPDATE ATTENDANCE
-  // ========================================================
-
   const updateAttendance = async () => {
-    if (!editingAttendance?.id) {
-      return;
-    }
+    if (!editingAttendance?.id) return;
 
     try {
       setSaving(true);
@@ -359,39 +356,29 @@ export default function AdminAttendancePage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(
-          data?.message ||
-            "Failed to update attendance."
-        );
+        throw new Error(data?.message || "Failed to update attendance.");
       }
 
-      const updated =
-        data?.attendance ||
-        data?.data;
+      const updated = data?.attendance || data?.data;
 
       if (updated) {
-        setAttendance((prev) =>
-          prev.map((item) =>
-            item.id === updated.id
-              ? updated
-              : item
-          )
-        );
+        setAttendance((prev) => {
+          const next = prev.map((item) =>
+            item.id === updated.id ? updated : item
+          );
+          if (cacheRef.current[selectedDate]) {
+            cacheRef.current[selectedDate].data = next;
+          }
+          return next;
+        });
       } else {
         await fetchAttendance(true);
       }
 
       closeEdit();
     } catch (err) {
-      console.error(
-        "updateAttendance error:",
-        err
-      );
-
-      alert(
-        err.message ||
-          "Failed to update attendance."
-      );
+      console.error("updateAttendance error:", err);
+      alert(err.message || "Failed to update attendance.");
     } finally {
       setSaving(false);
     }
@@ -404,66 +391,48 @@ export default function AdminAttendancePage() {
   const deleteAttendance = async (item) => {
     if (!item?.id) return;
 
-    const userName =
-      item?.user?.name ||
-      "this user";
-
-    const confirmed =
-      window.confirm(
-        `Are you sure you want to delete attendance for ${userName}?`
-      );
+    const userName = item?.user?.name || "this user";
+    const confirmed = window.confirm(
+      `Are you sure you want to delete attendance for ${userName}?`
+    );
 
     if (!confirmed) return;
 
     try {
-      const response = await fetch(
-        `${API_URL}/attendance/${item.id}`,
-        {
-          method: "DELETE",
-          headers: getAuthHeaders(),
-          credentials: "include",
-        }
-      );
+      const response = await fetch(`${API_URL}/attendance/${item.id}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+        credentials: "include",
+      });
 
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(
-          data?.message ||
-            "Failed to delete attendance."
-        );
+        throw new Error(data?.message || "Failed to delete attendance.");
       }
 
-      setAttendance((prev) =>
-        prev.filter(
-          (record) =>
-            record.id !== item.id
-        )
-      );
+      setAttendance((prev) => {
+        const next = prev.filter((record) => record.id !== item.id);
+        if (cacheRef.current[selectedDate]) {
+          cacheRef.current[selectedDate].data = next;
+        }
+        return next;
+      });
     } catch (err) {
-      console.error(
-        "deleteAttendance error:",
-        err
-      );
-
-      alert(
-        err.message ||
-          "Failed to delete attendance."
-      );
+      console.error("deleteAttendance error:", err);
+      alert(err.message || "Failed to delete attendance.");
     }
   };
 
   // ========================================================
-  // OPEN SCHEDULE
+  // SCHEDULE MODAL
   // ========================================================
 
   const openSchedule = async (user) => {
     if (!user?.id) return;
 
     setScheduleUser(user);
-
     setScheduleLoading(true);
-
     setScheduleEnabled(true);
     setScheduleTime("10:00");
     setGracePeriod("10");
@@ -483,44 +452,18 @@ export default function AdminAttendancePage() {
 
       if (!response.ok) {
         throw new Error(
-          data?.message ||
-            "Failed to load attendance schedule."
+          data?.message || "Failed to load attendance schedule."
         );
       }
 
-      const settings =
-        data?.attendanceSettings || {};
-
-      setScheduleEnabled(
-        settings.enabled !== false
-      );
-
-      setScheduleTime(
-        settings.attendanceTime ||
-          "10:00"
-      );
-
-      setGracePeriod(
-        String(
-          settings.gracePeriodMinutes ??
-            10
-        )
-      );
-
-      setScheduleTimezone(
-        settings.timezone ||
-          "Asia/Karachi"
-      );
+      const settings = data?.attendanceSettings || {};
+      setScheduleEnabled(settings.enabled !== false);
+      setScheduleTime(settings.attendanceTime || "10:00");
+      setGracePeriod(String(settings.gracePeriodMinutes ?? 10));
+      setScheduleTimezone(settings.timezone || "Asia/Karachi");
     } catch (err) {
-      console.error(
-        "openSchedule error:",
-        err
-      );
-
-      alert(
-        err.message ||
-          "Failed to load user schedule."
-      );
+      console.error("openSchedule error:", err);
+      alert(err.message || "Failed to load user schedule.");
     } finally {
       setScheduleLoading(false);
     }
@@ -528,43 +471,21 @@ export default function AdminAttendancePage() {
 
   const closeSchedule = () => {
     if (scheduleSaving) return;
-
     setScheduleUser(null);
     setScheduleLoading(false);
   };
 
-  // ========================================================
-  // SAVE USER SCHEDULE
-  // ========================================================
-
   const saveSchedule = async () => {
-    if (!scheduleUser?.id) {
+    if (!scheduleUser?.id) return;
+
+    if (scheduleEnabled && !scheduleTime) {
+      alert("Please select attendance time.");
       return;
     }
 
-    if (
-      scheduleEnabled &&
-      !scheduleTime
-    ) {
-      alert(
-        "Please select attendance time."
-      );
-
-      return;
-    }
-
-    const grace =
-      Number(gracePeriod);
-
-    if (
-      !Number.isInteger(grace) ||
-      grace < 1 ||
-      grace > 60
-    ) {
-      alert(
-        "Grace period must be between 1 and 60 minutes."
-      );
-
+    const grace = Number(gracePeriod);
+    if (!Number.isInteger(grace) || grace < 1 || grace > 60) {
+      alert("Grace period must be between 1 and 60 minutes.");
       return;
     }
 
@@ -579,14 +500,9 @@ export default function AdminAttendancePage() {
           credentials: "include",
           body: JSON.stringify({
             enabled: scheduleEnabled,
-            attendanceTime:
-              scheduleEnabled
-                ? scheduleTime
-                : "",
+            attendanceTime: scheduleEnabled ? scheduleTime : "",
             gracePeriodMinutes: grace,
-            timezone:
-              scheduleTimezone ||
-              "Asia/Karachi",
+            timezone: scheduleTimezone || "Asia/Karachi",
           }),
         }
       );
@@ -595,8 +511,7 @@ export default function AdminAttendancePage() {
 
       if (!response.ok) {
         throw new Error(
-          data?.message ||
-            "Failed to save attendance schedule."
+          data?.message || "Failed to save attendance schedule."
         );
       }
 
@@ -607,1066 +522,648 @@ export default function AdminAttendancePage() {
       );
 
       closeSchedule();
-
       await fetchAttendance(true);
     } catch (err) {
-      console.error(
-        "saveSchedule error:",
-        err
-      );
-
-      alert(
-        err.message ||
-          "Failed to save attendance schedule."
-      );
+      console.error("saveSchedule error:", err);
+      alert(err.message || "Failed to save attendance schedule.");
     } finally {
       setScheduleSaving(false);
     }
   };
 
-  // ========================================================
-  // STATUS BADGE
-  // ========================================================
-
-  const statusBadge = (status) => {
-    const classes = {
-      Present:
-        "bg-green-50 text-green-700 border-green-200",
-
-      Absent:
-        "bg-red-50 text-red-700 border-red-200",
-
-      Late:
-        "bg-orange-50 text-orange-700 border-orange-200",
-
-      Pending:
-        "bg-yellow-50 text-yellow-700 border-yellow-200",
-
-      "Half Day":
-        "bg-purple-50 text-purple-700 border-purple-200",
-
-      Leave:
-        "bg-blue-50 text-blue-700 border-blue-200",
-    };
-
-    return (
-      <span
-        className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${
-          classes[status] ||
-          "bg-gray-50 text-gray-700 border-gray-200"
-        }`}
-      >
-        {status || "Pending"}
-      </span>
-    );
-  };
-
-  // ========================================================
-  // STAT CARD
-  // ========================================================
-
-  const StatCard = ({
-    title,
-    value,
-    icon: Icon,
-  }) => {
-    return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-medium text-slate-500">
-              {title}
-            </p>
-
-            <h3 className="mt-2 text-3xl font-bold text-[#171B3A]">
-              {value}
-            </h3>
-          </div>
-
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#EEF4FF]">
-            <Icon
-              size={23}
-              className="text-blue-600"
-            />
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // ========================================================
-  // RENDER
-  // ========================================================
-
   return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-6 lg:p-8">
-
-      {/* ====================================================
-          HEADER
-      ==================================================== */}
-
-      <div className="mb-7 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-[#171B3A] md:text-3xl">
-            Attendance
-          </h1>
-
-          <p className="mt-1 text-sm text-slate-500">
-            Manage employee schedules and monitor attendance.
-          </p>
-        </div>
-
-        <button
-          onClick={() =>
-            fetchAttendance(true)
-          }
-          disabled={refreshing}
-          className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 font-semibold text-white transition hover:-translate-y-0.5 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          <RefreshCw
-            size={18}
-            className={
-              refreshing
-                ? "animate-spin"
-                : ""
-            }
-          />
-
-          Refresh
-        </button>
+    <main className="min-h-screen bg-[#f7f8fc] text-slate-900 animate-fadeIn">
+      {/* Background ambient lighting */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute -left-32 -top-32 h-72 w-72 rounded-full bg-violet-400/10 blur-3xl" />
+        <div className="absolute right-0 top-20 h-80 w-80 rounded-full bg-pink-400/10 blur-3xl" />
+        <div className="absolute bottom-0 left-1/3 h-72 w-72 rounded-full bg-orange-300/10 blur-3xl" />
       </div>
 
-      {/* ====================================================
-          ERROR
-      ==================================================== */}
-
-      {error && (
-        <div className="mb-6 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">
-          <AlertCircle
-            size={20}
-            className="mt-0.5 shrink-0"
-          />
-
+      <div className="relative mx-auto w-full max-w-[1600px] space-y-6 px-4 py-5 sm:px-6 lg:px-8">
+        {/* =========================================================
+            CLEAN TEXT HEADER
+        ========================================================= */}
+        <section className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div>
-            <p className="font-semibold">
-              Unable to load attendance
-            </p>
-
-            <p className="mt-1 text-sm">
-              {error}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* ====================================================
-          DATE
-      ==================================================== */}
-
-      <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center">
-          <div className="flex items-center gap-2 text-sm font-semibold text-[#26344D]">
-            <CalendarDays
-              size={19}
-              className="text-blue-600"
-            />
-
-            Attendance Date
-          </div>
-
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) =>
-              setSelectedDate(
-                e.target.value
-              )
-            }
-            className="h-11 rounded-xl border border-slate-200 px-4 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-          />
-
-          {selectedDate ===
-            getTodayString() && (
-            <span className="w-fit rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-600">
-              Today
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* ====================================================
-          SUMMARY
-      ==================================================== */}
-
-      <div className="mb-7 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <StatCard
-          title="Total"
-          value={summary.total}
-          icon={Users}
-        />
-
-        <StatCard
-          title="Present"
-          value={summary.present}
-          icon={UserCheck}
-        />
-
-        <StatCard
-          title="Absent"
-          value={summary.absent}
-          icon={UserX}
-        />
-
-        <StatCard
-          title="Late"
-          value={summary.late}
-          icon={Clock}
-        />
-
-        <StatCard
-          title="Pending"
-          value={summary.pending}
-          icon={Hourglass}
-        />
-      </div>
-
-      {/* ====================================================
-          FILTERS
-      ==================================================== */}
-
-      <div className="mb-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-col gap-3 lg:flex-row">
-          <div className="relative flex-1">
-            <Search
-              size={19}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-            />
-
-            <input
-              type="text"
-              value={search}
-              onChange={(e) =>
-                setSearch(
-                  e.target.value
-                )
-              }
-              placeholder="Search by name or email..."
-              className="h-11 w-full rounded-xl border border-slate-200 pl-10 pr-4 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-            />
-          </div>
-
-          <select
-            value={statusFilter}
-            onChange={(e) =>
-              setStatusFilter(
-                e.target.value
-              )
-            }
-            className="h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-          >
-            <option value="All">
-              All Status
-            </option>
-
-            <option value="Present">
-              Present
-            </option>
-
-            <option value="Absent">
-              Absent
-            </option>
-
-            <option value="Late">
-              Late
-            </option>
-
-            <option value="Pending">
-              Pending
-            </option>
-
-            <option value="Half Day">
-              Half Day
-            </option>
-
-            <option value="Leave">
-              Leave
-            </option>
-          </select>
-        </div>
-      </div>
-
-      {/* ====================================================
-          TABLE
-      ==================================================== */}
-
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-
-        <div className="border-b border-slate-200 px-5 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="font-bold text-[#171B3A]">
-                Attendance Records
-              </h2>
-
-              <p className="mt-1 text-xs text-slate-500">
-                {formatDate(selectedDate)} ·{" "}
-                {filteredAttendance.length} record
-                {filteredAttendance.length !== 1
-                  ? "s"
-                  : ""}
-              </p>
+            <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-violet-200/80 bg-violet-50/80 px-3 py-1 text-xs font-bold text-violet-700">
+              <ShieldCheck size={14} />
+              ADMINISTRATION
             </div>
+            <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">
+              Attendance Records
+            </h1>
+            <p className="mt-1 text-sm font-medium text-slate-500">
+              Manage employee daily sign-ins, configure schedules, and oversee grace periods.
+            </p>
           </div>
-        </div>
 
-        {loading ? (
-          <div className="flex min-h-[300px] items-center justify-center">
-            <div className="flex items-center gap-3 text-sm text-slate-500">
+          <div className="flex shrink-0 items-center gap-3">
+            <button
+              type="button"
+              onClick={() => fetchAttendance(true)}
+              disabled={refreshing}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200/90 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-violet-200 hover:bg-violet-50/50 hover:text-violet-700 disabled:opacity-60"
+            >
               <RefreshCw
-                size={20}
-                className="animate-spin text-blue-600"
+                size={16}
+                className={refreshing ? "animate-spin text-violet-600" : ""}
               />
-
-              Loading attendance...
-            </div>
+              Refresh
+            </button>
           </div>
-        ) : filteredAttendance.length ===
-          0 ? (
-          <div className="flex min-h-[300px] flex-col items-center justify-center px-5 text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-slate-100">
-              <CalendarDays
-                size={25}
-                className="text-slate-400"
-              />
+        </section>
+
+        {/* =========================================================
+            ALERTS
+        ========================================================= */}
+        {error && (
+          <div className="flex items-center justify-between gap-4 rounded-2xl border border-amber-100 bg-amber-50/90 p-4 text-amber-800 shadow-sm">
+            <div className="flex items-center gap-3">
+              <AlertCircle size={19} className="shrink-0 text-amber-600" />
+              <p className="text-sm font-medium">{error}</p>
             </div>
-
-            <h3 className="mt-4 font-semibold text-[#26344D]">
-              No attendance records
-            </h3>
-
-            <p className="mt-1 max-w-md text-sm text-slate-500">
-              There are no attendance records matching your current filters.
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1150px]">
-
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50">
-
-                  <th className="px-5 py-4 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-                    Employee
-                  </th>
-
-                  <th className="px-5 py-4 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-                    Scheduled
-                  </th>
-
-                  <th className="px-5 py-4 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-                    Check In
-                  </th>
-
-                  <th className="px-5 py-4 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-                    Check Out
-                  </th>
-
-                  <th className="px-5 py-4 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
-                    Status
-                  </th>
-
-                  <th className="px-5 py-4 text-right text-xs font-bold uppercase tracking-wide text-slate-500">
-                    Actions
-                  </th>
-
-                </tr>
-              </thead>
-
-              <tbody>
-                {filteredAttendance.map(
-                  (item) => {
-                    const user =
-                      item?.user;
-
-                    return (
-                      <tr
-                        key={item.id}
-                        className="border-b border-slate-100 transition hover:bg-slate-50"
-                      >
-
-                        {/* EMPLOYEE */}
-
-                        <td className="px-5 py-4">
-                          <div className="flex items-center gap-3">
-
-                            {user?.avatar ? (
-                              <img
-                                src={
-                                  user.avatar
-                                }
-                                alt={
-                                  user.name ||
-                                  "User"
-                                }
-                                className="h-10 w-10 rounded-full object-cover"
-                              />
-                            ) : (
-                              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#EEF4FF] font-bold text-blue-600">
-                                {(
-                                  user?.name ||
-                                  "U"
-                                )
-                                  .charAt(0)
-                                  .toUpperCase()}
-                              </div>
-                            )}
-
-                            <div>
-                              <p className="font-semibold text-[#26344D]">
-                                {user?.name ||
-                                  "Unknown User"}
-                              </p>
-
-                              <p className="text-xs text-slate-500">
-                                {user?.email ||
-                                  "-"}
-                              </p>
-                            </div>
-
-                          </div>
-                        </td>
-
-                        {/* SCHEDULED */}
-
-                        <td className="px-5 py-4">
-                          <div className="text-sm font-medium text-[#26344D]">
-                            {formatTime(
-                              item.scheduledTime
-                            )}
-                          </div>
-
-                          {item.windowStart &&
-                            item.windowEnd && (
-                              <div className="mt-1 text-xs text-slate-400">
-                                Until{" "}
-                                {formatTime(
-                                  item.windowEnd
-                                )}
-                              </div>
-                            )}
-                        </td>
-
-                        {/* CHECK IN */}
-
-                        <td className="px-5 py-4">
-                          <span className="text-sm font-medium text-[#26344D]">
-                            {formatTime(
-                              item.checkIn
-                            )}
-                          </span>
-                        </td>
-
-                        {/* CHECK OUT */}
-
-                        <td className="px-5 py-4">
-                          <span className="text-sm font-medium text-[#26344D]">
-                            {formatTime(
-                              item.checkOut
-                            )}
-                          </span>
-                        </td>
-
-                        {/* STATUS */}
-
-                        <td className="px-5 py-4">
-                          {statusBadge(
-                            item.status
-                          )}
-                        </td>
-
-                        {/* ACTIONS */}
-
-                        <td className="px-5 py-4">
-                          <div className="flex justify-end gap-2">
-
-                            {/* SET SCHEDULE */}
-
-                            {user?.id && (
-                              <button
-                                onClick={() =>
-                                  openSchedule(
-                                    user
-                                  )
-                                }
-                                title="Set attendance schedule"
-                                className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
-                              >
-                                <Settings2
-                                  size={16}
-                                />
-                              </button>
-                            )}
-
-                            {/* EDIT ATTENDANCE */}
-
-                            <button
-                              onClick={() =>
-                                openEdit(item)
-                              }
-                              title="Edit attendance"
-                              className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
-                            >
-                              <Pencil
-                                size={16}
-                              />
-                            </button>
-
-                            {/* DELETE */}
-
-                            <button
-                              onClick={() =>
-                                deleteAttendance(
-                                  item
-                                )
-                              }
-                              title="Delete attendance"
-                              className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
-                            >
-                              <Trash2
-                                size={16}
-                              />
-                            </button>
-
-                          </div>
-                        </td>
-
-                      </tr>
-                    );
-                  }
-                )}
-              </tbody>
-
-            </table>
+            <button
+              type="button"
+              onClick={() => fetchAttendance(true)}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-700"
+            >
+              <RefreshCw size={14} /> Retry
+            </button>
           </div>
         )}
-      </div>
 
-      {/* ====================================================
-          EDIT ATTENDANCE MODAL
-      ==================================================== */}
+        {/* =========================================================
+            SUMMARY / STATS
+        ========================================================= */}
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          {loading && attendance.length === 0 ? (
+            <>
+              <SkeletonCard />
+              <SkeletonCard />
+              <SkeletonCard />
+              <SkeletonCard />
+              <SkeletonCard />
+            </>
+          ) : (
+            <>
+              <StatCard
+                title="Total"
+                value={summary.total}
+                subtitle="Scheduled today"
+                icon={Users}
+                gradient="from-violet-600 to-purple-500"
+              />
+              <StatCard
+                title="Present"
+                value={summary.present}
+                subtitle="On time records"
+                icon={UserCheck}
+                gradient="from-emerald-500 to-teal-400"
+              />
+              <StatCard
+                title="Absent"
+                value={summary.absent}
+                subtitle="Missed work shift"
+                icon={UserX}
+                gradient="from-rose-500 to-red-400"
+              />
+              <StatCard
+                title="Late"
+                value={summary.late}
+                subtitle="Grace period breached"
+                icon={Clock}
+                gradient="from-orange-500 to-amber-400"
+              />
+              <StatCard
+                title="Pending"
+                value={summary.pending}
+                subtitle="Shift active / waiting"
+                icon={Hourglass}
+                gradient="from-pink-500 to-fuchsia-500"
+              />
+            </>
+          )}
+        </section>
 
-      {editingAttendance && (
-        <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/40 p-4">
+        {/* =========================================================
+            DATE & FILTERS SECTION
+        ========================================================= */}
+        <section className="rounded-[26px] border border-slate-200/80 bg-white p-5 shadow-[0_10px_35px_rgba(45,35,100,0.05)] sm:p-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
+            {/* Search Input */}
+            <div className="relative flex-1">
+              <Search
+                size={18}
+                className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+              />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search employee by name or email..."
+                className="h-11 w-full rounded-2xl border border-slate-200/90 bg-slate-50/50 pl-11 pr-4 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:bg-white focus:ring-4 focus:ring-violet-500/10"
+              />
+            </div>
 
-          <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl">
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Date Input */}
+              <div className="flex items-center gap-2 rounded-2xl border border-slate-200/90 bg-slate-50/50 px-3.5 py-1">
+                <CalendarDays size={16} className="text-violet-600" />
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="bg-transparent text-sm font-semibold text-slate-700 outline-none"
+                />
+                {selectedDate === getTodayString() ? (
+                  <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold text-violet-700">
+                    Today
+                  </span>
+                ) : null}
+              </div>
 
-            {/* HEADER */}
+              {/* Status Select */}
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="h-11 rounded-2xl border border-slate-200/90 bg-slate-50/50 px-4 text-sm font-medium text-slate-600 outline-none transition focus:border-violet-500 focus:bg-white focus:ring-4 focus:ring-violet-500/10"
+              >
+                <option value="All">All Status</option>
+                <option value="Present">Present</option>
+                <option value="Absent">Absent</option>
+                <option value="Late">Late</option>
+                <option value="Pending">Pending</option>
+                <option value="Half Day">Half Day</option>
+                <option value="Leave">Leave</option>
+              </select>
 
-            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+              {(search || statusFilter !== "All" || selectedDate !== getTodayString()) ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearch("");
+                    setStatusFilter("All");
+                    setSelectedDate(getTodayString());
+                  }}
+                  className="inline-flex h-11 items-center gap-1.5 rounded-2xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-500 transition hover:border-violet-200 hover:bg-violet-50/50 hover:text-violet-600"
+                >
+                  <SlidersHorizontal size={14} />
+                  Reset Filters
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </section>
 
+        {/* =========================================================
+            ATTENDANCE TABLE
+        ========================================================= */}
+        <section className="overflow-hidden rounded-[26px] border border-slate-200/80 bg-white shadow-[0_10px_35px_rgba(45,35,100,0.05)]">
+          <div className="border-b border-slate-100 bg-slate-50/50 px-6 py-4">
+            <div className="flex items-center justify-between">
               <div>
-                <h2 className="font-bold text-[#171B3A]">
-                  Edit Attendance
-                </h2>
-
-                <p className="mt-1 text-xs text-slate-500">
-                  {editingAttendance?.user?.name ||
-                    "User"}
+                <h2 className="text-base font-bold text-slate-900">Attendance Log</h2>
+                <p className="text-xs text-slate-500">
+                  {formatDate(selectedDate)} · {filteredAttendance.length} record
+                  {filteredAttendance.length !== 1 ? "s" : ""} found
                 </p>
               </div>
 
+              <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-bold text-violet-600">
+                {filteredAttendance.length} Entries
+              </span>
+            </div>
+          </div>
+
+          {loading && attendance.length === 0 ? (
+            <div className="flex min-h-[320px] flex-col items-center justify-center p-8">
+              <Loader2 size={32} className="animate-spin text-violet-600" />
+              <p className="mt-3 text-sm font-semibold text-slate-600">Loading daily attendance records...</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1000px] text-left">
+                <thead>
+                  <tr className="border-b border-slate-100 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    <th className="px-6 py-4">Employee</th>
+                    <th className="px-6 py-4">Scheduled Window</th>
+                    <th className="px-6 py-4">Check In</th>
+                    <th className="px-6 py-4">Check Out</th>
+                    <th className="px-6 py-4">Status</th>
+                    <th className="px-6 py-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100/80 text-sm">
+                  {filteredAttendance.length > 0 ? (
+                    filteredAttendance.map((item) => {
+                      const user = item?.user;
+                      return (
+                        <tr
+                          key={item.id}
+                          className="transition hover:bg-violet-50/30"
+                        >
+                          {/* EMPLOYEE */}
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              {user?.avatar ? (
+                                <img
+                                  src={user.avatar}
+                                  alt={user.name || "User"}
+                                  className="h-10 w-10 rounded-2xl object-cover shadow-sm"
+                                />
+                              ) : (
+                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-md shadow-purple-500/10">
+                                  {(user?.name || "U").charAt(0).toUpperCase()}
+                                </div>
+                              )}
+                              <div className="min-w-0">
+                                <p className="truncate font-bold text-slate-900">
+                                  {user?.name || "Unknown User"}
+                                </p>
+                                <p className="truncate text-xs text-slate-400">
+                                  {user?.email || "—"}
+                                </p>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* SCHEDULED */}
+                          <td className="px-6 py-4">
+                            <div className="text-xs">
+                              <span className="font-bold text-slate-800">
+                                {formatTime(item.scheduledTime)}
+                              </span>
+                              {item.windowStart && item.windowEnd ? (
+                                <span className="block text-slate-400">
+                                  Until {formatTime(item.windowEnd)}
+                                </span>
+                              ) : null}
+                            </div>
+                          </td>
+
+                          {/* CHECK IN */}
+                          <td className="whitespace-nowrap px-6 py-4 text-xs font-semibold text-slate-700">
+                            {formatTime(item.checkIn)}
+                          </td>
+
+                          {/* CHECK OUT */}
+                          <td className="whitespace-nowrap px-6 py-4 text-xs font-semibold text-slate-700">
+                            {formatTime(item.checkOut)}
+                          </td>
+
+                          {/* STATUS */}
+                          <td className="px-6 py-4">
+                            <StatusBadge status={item.status} />
+                          </td>
+
+                          {/* ACTIONS */}
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              {user?.id ? (
+                                <button
+                                  type="button"
+                                  onClick={() => openSchedule(user)}
+                                  className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200/90 bg-white text-slate-600 shadow-sm transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700"
+                                  title="Configure schedule"
+                                >
+                                  <Settings2 size={15} />
+                                </button>
+                              ) : null}
+
+                              <button
+                                type="button"
+                                onClick={() => openEdit(item)}
+                                className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200/90 bg-white text-slate-600 shadow-sm transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700"
+                                title="Edit record"
+                              >
+                                <Pencil size={15} />
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => deleteAttendance(item)}
+                                className="flex h-9 w-9 items-center justify-center rounded-xl border border-rose-100 bg-rose-50 text-rose-600 shadow-sm transition hover:bg-rose-100 hover:text-rose-700"
+                                title="Delete record"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={6} className="px-6 py-12 text-center">
+                        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-50 text-violet-500">
+                          <CalendarDays size={22} />
+                        </div>
+                        <h3 className="mt-3 text-sm font-bold text-slate-800">
+                          No attendance records found
+                        </h3>
+                        <p className="mt-1 text-xs text-slate-400">
+                          No check-ins registered for the selected date or current filter set.
+                        </p>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      </div>
+
+      {/* ========================================================
+          EDIT ATTENDANCE MODAL
+      ======================================================== */}
+      {editingAttendance && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md overflow-hidden rounded-[28px] border border-slate-200/80 bg-white shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 bg-gradient-to-r from-violet-50/50 via-purple-50/30 to-white px-6 py-5">
+              <div>
+                <h3 className="font-bold text-slate-900">Edit Attendance Record</h3>
+                <p className="text-xs text-slate-500">
+                  {editingAttendance?.user?.name || "Employee"}
+                </p>
+              </div>
               <button
+                type="button"
                 onClick={closeEdit}
                 disabled={saving}
-                className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+                className="rounded-xl p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
               >
-                <X size={19} />
+                <X size={18} />
               </button>
-
             </div>
 
-            {/* BODY */}
-
-            <div className="space-y-5 p-5">
-
+            {/* Body */}
+            <div className="space-y-4 p-6">
               <div>
-                <label className="mb-2 block text-sm font-semibold text-[#26344D]">
+                <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-600">
                   Status
                 </label>
-
                 <select
                   value={editStatus}
-                  onChange={(e) =>
-                    setEditStatus(
-                      e.target.value
-                    )
-                  }
-                  className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  onChange={(e) => setEditStatus(e.target.value)}
+                  className="h-11 w-full rounded-2xl border border-slate-200/90 bg-slate-50/50 px-4 text-sm font-medium text-slate-700 outline-none transition focus:border-violet-500 focus:bg-white focus:ring-4 focus:ring-violet-500/10"
                 >
-                  <option value="Pending">
-                    Pending
-                  </option>
-
-                  <option value="Present">
-                    Present
-                  </option>
-
-                  <option value="Absent">
-                    Absent
-                  </option>
-
-                  <option value="Late">
-                    Late
-                  </option>
-
-                  <option value="Half Day">
-                    Half Day
-                  </option>
-
-                  <option value="Leave">
-                    Leave
-                  </option>
+                  <option value="Pending">Pending</option>
+                  <option value="Present">Present</option>
+                  <option value="Absent">Absent</option>
+                  <option value="Late">Late</option>
+                  <option value="Half Day">Half Day</option>
+                  <option value="Leave">Leave</option>
                 </select>
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-semibold text-[#26344D]">
-                  Notes
+                <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-600">
+                  Notes / Observations
                 </label>
-
                 <textarea
                   value={editNotes}
-                  onChange={(e) =>
-                    setEditNotes(
-                      e.target.value
-                    )
-                  }
+                  onChange={(e) => setEditNotes(e.target.value)}
                   rows={4}
-                  placeholder="Add attendance notes..."
-                  className="w-full resize-none rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  placeholder="Reason or notes..."
+                  className="w-full resize-none rounded-2xl border border-slate-200/90 bg-slate-50/50 p-4 text-sm leading-relaxed text-slate-700 outline-none transition focus:border-violet-500 focus:bg-white focus:ring-4 focus:ring-violet-500/10"
                 />
               </div>
-
             </div>
 
-            {/* FOOTER */}
-
-            <div className="flex justify-end gap-3 border-t border-slate-200 px-5 py-4">
-
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50/50 px-6 py-4">
               <button
+                type="button"
                 onClick={closeEdit}
                 disabled={saving}
-                className="h-11 rounded-xl border border-slate-200 px-5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+                className="h-11 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-50"
               >
                 Cancel
               </button>
-
               <button
+                type="button"
                 onClick={updateAttendance}
                 disabled={saving}
-                className="inline-flex h-11 items-center gap-2 rounded-xl bg-blue-600 px-5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-11 items-center gap-2 rounded-2xl bg-violet-600 px-6 text-sm font-bold text-white shadow-md shadow-violet-600/20 transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {saving ? (
-                  <RefreshCw
-                    size={17}
-                    className="animate-spin"
-                  />
+                  <Loader2 size={16} className="animate-spin" />
                 ) : (
-                  <CheckCircle2
-                    size={17}
-                  />
+                  <CheckCircle2 size={16} />
                 )}
-
-                {saving
-                  ? "Saving..."
-                  : "Save Changes"}
+                {saving ? "Saving..." : "Save Changes"}
               </button>
-
             </div>
-
           </div>
         </div>
       )}
 
-      {/* ====================================================
-          USER SCHEDULE MODAL
-      ==================================================== */}
-
+      {/* ========================================================
+          USER SCHEDULE CONFIGURATION MODAL
+      ======================================================== */}
       {scheduleUser && (
-        <div className="fixed inset-0 z-[2100] flex items-center justify-center bg-black/40 p-4">
-
-          <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl">
-
-            {/* MODAL HEADER */}
-
-            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg overflow-hidden rounded-[28px] border border-slate-200/80 bg-white shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 bg-gradient-to-r from-violet-50/50 via-purple-50/30 to-white px-6 py-5">
               <div className="flex items-center gap-3">
-
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#EEF4FF] text-blue-600">
-                  <UserCog size={21} />
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-purple-600 text-white shadow-md shadow-purple-600/20">
+                  <UserCog size={20} />
                 </div>
-
                 <div>
-                  <h2 className="font-bold text-[#171B3A]">
-                    Attendance Schedule
-                  </h2>
-
-                  <p className="mt-1 text-xs text-slate-500">
-                    {scheduleUser.name}
-                    {scheduleUser.email
-                      ? ` · ${scheduleUser.email}`
-                      : ""}
+                  <h3 className="font-bold text-slate-900">Attendance Schedule</h3>
+                  <p className="text-xs text-slate-500">
+                    {scheduleUser.name} {scheduleUser.email ? `· ${scheduleUser.email}` : ""}
                   </p>
                 </div>
-
               </div>
-
               <button
+                type="button"
                 onClick={closeSchedule}
                 disabled={scheduleSaving}
-                className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"
+                className="rounded-xl p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
               >
-                <X size={19} />
+                <X size={18} />
               </button>
-
             </div>
 
-            {/* LOADING */}
-
+            {/* Loading */}
             {scheduleLoading ? (
-              <div className="flex min-h-[300px] items-center justify-center">
+              <div className="flex min-h-[280px] items-center justify-center">
                 <div className="flex items-center gap-3 text-sm text-slate-500">
-                  <RefreshCw
-                    size={19}
-                    className="animate-spin text-blue-600"
-                  />
-
-                  Loading schedule...
+                  <RefreshCw size={20} className="animate-spin text-violet-600" />
+                  Loading schedule settings...
                 </div>
               </div>
             ) : (
               <>
-                {/* BODY */}
-
-                <div className="space-y-5 p-5">
-
-                  {/* ENABLE */}
-
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-
+                {/* Body */}
+                <div className="space-y-5 p-6">
+                  {/* Enable Switch */}
+                  <div className="rounded-2xl border border-slate-100 bg-slate-50/60 p-4">
                     <div className="flex items-center justify-between gap-4">
-
                       <div className="flex items-center gap-3">
-
                         <div
                           className={`flex h-10 w-10 items-center justify-center rounded-xl ${
                             scheduleEnabled
-                              ? "bg-green-100 text-green-600"
+                              ? "bg-emerald-100 text-emerald-600"
                               : "bg-slate-200 text-slate-500"
                           }`}
                         >
-                          <Power size={19} />
+                          <Power size={18} />
                         </div>
-
                         <div>
-                          <p className="text-sm font-bold text-[#26344D]">
-                            Attendance Schedule
+                          <p className="text-sm font-bold text-slate-800">
+                            Automatic Attendance Schedule
                           </p>
-
-                          <p className="mt-1 text-xs text-slate-500">
+                          <p className="mt-0.5 text-xs text-slate-400">
                             {scheduleEnabled
-                              ? "User attendance schedule is active."
-                              : "User attendance schedule is disabled."}
+                              ? "Schedule is actively enforcing deadlines."
+                              : "Schedule is currently disabled."}
                           </p>
                         </div>
-
                       </div>
 
                       <button
                         type="button"
-                        onClick={() =>
-                          setScheduleEnabled(
-                            (prev) => !prev
-                          )
-                        }
+                        onClick={() => setScheduleEnabled((prev) => !prev)}
                         className={`relative h-7 w-12 rounded-full transition ${
-                          scheduleEnabled
-                            ? "bg-blue-600"
-                            : "bg-slate-300"
+                          scheduleEnabled ? "bg-violet-600" : "bg-slate-300"
                         }`}
-                        aria-label="Toggle attendance schedule"
                       >
                         <span
                           className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-sm transition ${
-                            scheduleEnabled
-                              ? "left-6"
-                              : "left-1"
+                            scheduleEnabled ? "left-6" : "left-1"
                           }`}
                         />
                       </button>
-
                     </div>
-
                   </div>
 
-                  {/* TIME */}
-
-                  <div>
-                    <label className="mb-2 block text-sm font-semibold text-[#26344D]">
-                      Check-in Time
-                    </label>
-
-                    <div className="relative">
-
-                      <Clock
-                        size={18}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                      />
-
-                      <input
-                        type="time"
-                        value={
-                          scheduleTime
-                        }
-                        disabled={
-                          !scheduleEnabled
-                        }
-                        onChange={(e) =>
-                          setScheduleTime(
-                            e.target.value
-                          )
-                        }
-                        className="h-11 w-full rounded-xl border border-slate-200 pl-10 pr-4 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100"
-                      />
-
+                  {/* Time & Grace */}
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-600">
+                        Check-in Time
+                      </label>
+                      <div className="relative">
+                        <Clock
+                          size={16}
+                          className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+                        />
+                        <input
+                          type="time"
+                          value={scheduleTime}
+                          disabled={!scheduleEnabled}
+                          onChange={(e) => setScheduleTime(e.target.value)}
+                          className="h-11 w-full rounded-2xl border border-slate-200/90 bg-slate-50/50 pl-10 pr-4 text-sm font-semibold text-slate-700 outline-none transition focus:border-violet-500 focus:bg-white focus:ring-4 focus:ring-violet-500/10 disabled:cursor-not-allowed disabled:bg-slate-100"
+                        />
+                      </div>
                     </div>
 
-                    <p className="mt-1.5 text-xs text-slate-500">
-                      Example: 10:10 AM
-                    </p>
-                  </div>
-
-                  {/* GRACE PERIOD */}
-
-                  <div>
-                    <label className="mb-2 block text-sm font-semibold text-[#26344D]">
-                      Grace Period
-                    </label>
-
-                    <div className="relative">
-
-                      <Hourglass
-                        size={18}
-                        className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                      />
-
-                      <input
-                        type="number"
-                        min="1"
-                        max="60"
-                        value={
-                          gracePeriod
-                        }
-                        disabled={
-                          !scheduleEnabled
-                        }
-                        onChange={(e) =>
-                          setGracePeriod(
-                            e.target.value
-                          )
-                        }
-                        className="h-11 w-full rounded-xl border border-slate-200 pl-10 pr-4 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100"
-                      />
-
+                    <div>
+                      <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-600">
+                        Grace Period (mins)
+                      </label>
+                      <div className="relative">
+                        <Hourglass
+                          size={16}
+                          className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+                        />
+                        <input
+                          type="number"
+                          min="1"
+                          max="60"
+                          value={gracePeriod}
+                          disabled={!scheduleEnabled}
+                          onChange={(e) => setGracePeriod(e.target.value)}
+                          className="h-11 w-full rounded-2xl border border-slate-200/90 bg-slate-50/50 pl-10 pr-4 text-sm font-semibold text-slate-700 outline-none transition focus:border-violet-500 focus:bg-white focus:ring-4 focus:ring-violet-500/10 disabled:cursor-not-allowed disabled:bg-slate-100"
+                        />
+                      </div>
                     </div>
-
-                    <p className="mt-1.5 text-xs text-slate-500">
-                      After the grace period expires, Pending attendance will automatically become Absent.
-                    </p>
                   </div>
 
-                  {/* TIMEZONE */}
-
+                  {/* Timezone */}
                   <div>
-                    <label className="mb-2 block text-sm font-semibold text-[#26344D]">
+                    <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-600">
                       Timezone
                     </label>
-
                     <select
-                      value={
-                        scheduleTimezone
-                      }
-                      onChange={(e) =>
-                        setScheduleTimezone(
-                          e.target.value
-                        )
-                      }
-                      disabled={
-                        !scheduleEnabled
-                      }
-                      className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100"
+                      value={scheduleTimezone}
+                      disabled={!scheduleEnabled}
+                      onChange={(e) => setScheduleTimezone(e.target.value)}
+                      className="h-11 w-full rounded-2xl border border-slate-200/90 bg-slate-50/50 px-4 text-sm font-medium text-slate-700 outline-none transition focus:border-violet-500 focus:bg-white focus:ring-4 focus:ring-violet-500/10 disabled:cursor-not-allowed disabled:bg-slate-100"
                     >
-                      <option value="Asia/Karachi">
-                        Asia/Karachi (Pakistan)
-                      </option>
-
-                      <option value="UTC">
-                        UTC
-                      </option>
-
-                      <option value="Asia/Dubai">
-                        Asia/Dubai
-                      </option>
-
-                      <option value="Asia/Kolkata">
-                        Asia/Kolkata
-                      </option>
-
-                      <option value="Europe/London">
-                        Europe/London
-                      </option>
-
-                      <option value="America/New_York">
-                        America/New_York
-                      </option>
-
-                      <option value="America/Los_Angeles">
-                        America/Los_Angeles
-                      </option>
+                      <option value="Asia/Karachi">Asia/Karachi (Pakistan)</option>
+                      <option value="UTC">UTC</option>
+                      <option value="Asia/Dubai">Asia/Dubai</option>
+                      <option value="Asia/Kolkata">Asia/Kolkata</option>
+                      <option value="Europe/London">Europe/London</option>
+                      <option value="America/New_York">America/New_York</option>
+                      <option value="America/Los_Angeles">America/Los_Angeles</option>
                     </select>
                   </div>
 
-                  {/* PREVIEW */}
-
-                  {scheduleEnabled && (
-                    <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
-
+                  {/* Preview Note */}
+                  {scheduleEnabled ? (
+                    <div className="rounded-2xl border border-violet-100 bg-violet-50/50 p-4">
                       <div className="flex items-start gap-3">
-
-                        <div className="mt-0.5">
-                          <CheckCircle2
-                            size={19}
-                            className="text-blue-600"
-                          />
-                        </div>
-
-                        <div>
-                          <p className="text-sm font-bold text-blue-900">
-                            Schedule Preview
-                          </p>
-
-                          <p className="mt-1 text-sm text-blue-800">
-                            {scheduleUser.name} can check in until{" "}
-                            <strong>
-                              {(() => {
-                                if (
-                                  !scheduleTime
-                                ) {
-                                  return "-";
-                                }
-
-                                const [
-                                  hours,
-                                  minutes,
-                                ] =
-                                  scheduleTime
-                                    .split(
-                                      ":"
-                                    )
-                                    .map(
-                                      Number
-                                    );
-
-                                const date =
-                                  new Date();
-
-                                date.setHours(
-                                  hours,
-                                  minutes,
-                                  0,
-                                  0
-                                );
-
-                                const grace =
-                                  Number(
-                                    gracePeriod
-                                  ) || 0;
-
-                                date.setMinutes(
-                                  date.getMinutes() +
-                                    grace
-                                );
-
-                                return date.toLocaleTimeString(
-                                  [],
-                                  {
-                                    hour: "2-digit",
-                                    minute:
-                                      "2-digit",
-                                  }
-                                );
-                              })()}
-                            </strong>
-                            . After that, the system will mark the attendance as{" "}
-                            <strong>
-                              Absent
-                            </strong>
-                            .
-                          </p>
-
-                        </div>
-
+                        <Sparkles size={17} className="mt-0.5 shrink-0 text-violet-600" />
+                        <p className="text-xs leading-5 text-slate-600">
+                          {scheduleUser.name} can sign in until{" "}
+                          <strong className="text-violet-700">
+                            {(() => {
+                              if (!scheduleTime) return "—";
+                              const [hours, minutes] = scheduleTime.split(":").map(Number);
+                              const date = new Date();
+                              date.setHours(hours, minutes, 0, 0);
+                              const grace = Number(gracePeriod) || 0;
+                              date.setMinutes(date.getMinutes() + grace);
+                              return date.toLocaleTimeString([], {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              });
+                            })()}
+                          </strong>
+                          . Unregistered check-ins after this cutoff will automatically mark as <strong>Absent</strong>.
+                        </p>
                       </div>
-
                     </div>
-                  )}
-
+                  ) : null}
                 </div>
 
-                {/* FOOTER */}
-
-                <div className="flex justify-end gap-3 border-t border-slate-200 px-5 py-4">
-
+                {/* Footer */}
+                <div className="flex items-center justify-end gap-3 border-t border-slate-100 bg-slate-50/50 px-6 py-4">
                   <button
+                    type="button"
                     onClick={closeSchedule}
-                    disabled={
-                      scheduleSaving
-                    }
-                    className="h-11 rounded-xl border border-slate-200 px-5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+                    disabled={scheduleSaving}
+                    className="h-11 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 disabled:opacity-50"
                   >
                     Cancel
                   </button>
-
                   <button
+                    type="button"
                     onClick={saveSchedule}
-                    disabled={
-                      scheduleSaving
-                    }
-                    className="inline-flex h-11 items-center gap-2 rounded-xl bg-blue-600 px-5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={scheduleSaving}
+                    className="inline-flex h-11 items-center gap-2 rounded-2xl bg-violet-600 px-6 text-sm font-bold text-white shadow-md shadow-violet-600/20 transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {scheduleSaving ? (
-                      <RefreshCw
-                        size={17}
-                        className="animate-spin"
-                      />
+                      <Loader2 size={16} className="animate-spin" />
                     ) : (
-                      <Save size={17} />
+                      <Save size={16} />
                     )}
-
-                    {scheduleSaving
-                      ? "Saving..."
-                      : "Save Schedule"}
+                    {scheduleSaving ? "Saving..." : "Save Schedule"}
                   </button>
-
                 </div>
               </>
             )}
-
           </div>
         </div>
       )}
-
-    </div>
+    </main>
   );
 }

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   Bell,
@@ -19,6 +19,7 @@ import {
   RefreshCw,
   Settings,
   ShieldCheck,
+  Sparkles,
   UserRound,
   X,
 } from "lucide-react";
@@ -26,201 +27,115 @@ import {
 import { authService } from "@/services/authService";
 
 const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  "https://api.localpro1.net/api";
+  process.env.NEXT_PUBLIC_API_URL || "https://api.localpro1.net/api";
+
+const CACHE_TIME = 60 * 1000;
 
 /* =========================================================
-   NAVIGATION
+   NAVIGATION (Sidebar items)
 ========================================================= */
 
 const navigation = [
-  {
-    label: "Dashboard",
-    href: "/user",
-    icon: LayoutDashboard,
-  },
-  {
-    label: "My Tasks",
-    href: "/user/tasks",
-    icon: ClipboardList,
-  },
-  {
-    label: "Calendar",
-    href: "/user/calendar",
-    icon: CalendarDays,
-  },
-  {
-    label: "Attendance",
-    href: "/user/attendance",
-    icon: Clock3,
-  },
-  {
-    label: "Messages",
-    href: "/user/messages",
-    icon: MessageSquare,
-  },
-  {
-    label: "Notifications",
-    href: "/user/notifications",
-    icon: Bell,
-  },
-  {
-    label: "Leave Requests",
-    href: "/user/leave-requests",
-    icon: FileText,
-  },
-  {
-    label: "Activity",
-    href: "/user/activity",
-    icon: Activity,
-  },
-  {
-    label: "Profile",
-    href: "/user/profile",
-    icon: UserRound,
-  },
-  {
-    label: "Settings",
-    href: "/user/settings",
-    icon: Settings,
-  },
-  {
-    label: "Policies",
-    href: "/user/policies",
-    icon: ShieldCheck,
-  },
+  { label: "Dashboard", href: "/user", icon: LayoutDashboard },
+  { label: "My Tasks", href: "/user/tasks", icon: ClipboardList },
+  { label: "Attendance", href: "/user/attendance", icon: Clock3 },
+  { label: "Messages", href: "/user/messages", icon: MessageSquare },
+  { label: "Notifications", href: "/user/notifications", icon: Bell },
+  { label: "Leave Requests", href: "/user/leave-requests", icon: FileText },
+  { label: "Profile", href: "/user/profile", icon: UserRound },
+  { label: "Settings", href: "/user/settings", icon: Settings },
+  { label: "Policies", href: "/user/policies", icon: ShieldCheck },
 ];
 
 /* =========================================================
-   USER DASHBOARD
+   USER DASHBOARD PAGE
 ========================================================= */
 
 export default function UserDashboardPage() {
   const router = useRouter();
+  const pathname = usePathname();
 
-  const [sidebarOpen, setSidebarOpen] =
-    useState(false);
-
-  const [user, setUser] = useState(null);
-
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [user, setUser] = useState(() => extractUser(authService?.getUser?.()));
   const [tasks, setTasks] = useState([]);
-  const [conversations, setConversations] =
-    useState([]);
-  const [notifications, setNotifications] =
-    useState([]);
+  const [conversations, setConversations] = useState([]);
+  const [notifications, setNotifications] = useState([]);
 
-  const [loading, setLoading] =
-    useState(true);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
 
-  const [refreshing, setRefreshing] =
-    useState(false);
-
-  const [error, setError] =
-    useState("");
-
-  /* =======================================================
-     LOAD DASHBOARD
-  ======================================================= */
+  const cacheRef = useRef({ timestamp: 0, data: null });
+  const loadingRef = useRef(false);
 
   const loadDashboard = useCallback(
-    async (isRefresh = false) => {
+    async (force = false) => {
+      if (loadingRef.current) return;
+
+      const now = Date.now();
+      if (
+        !force &&
+        cacheRef.current.data &&
+        now - cacheRef.current.timestamp < CACHE_TIME
+      ) {
+        return;
+      }
+
+      loadingRef.current = true;
+      if (force) setRefreshing(true);
+
       try {
-        if (isRefresh) {
-          setRefreshing(true);
-        } else {
-          setLoading(true);
-        }
-
-        setError("");
-
-        /* -----------------------------------------------
-           AUTH
-        ------------------------------------------------ */
-
-        const meResponse =
-          await authService.me();
-
-        const currentUser =
-          extractUser(meResponse);
+        const meResponse = await authService.me();
+        const currentUser = extractUser(meResponse);
 
         if (!currentUser) {
           router.replace("/login");
           return;
         }
 
-        const role = String(
-          currentUser?.role || ""
-        )
-          .trim()
-          .toLowerCase();
-
+        const role = String(currentUser?.role || "").trim().toLowerCase();
         if (role !== "user") {
-          if (role === "admin") {
-            router.replace("/admin");
-          } else if (role === "manager") {
-            router.replace("/manager");
-          } else {
-            router.replace("/login");
-          }
-
+          if (role === "admin") router.replace("/admin");
+          else if (role === "manager") router.replace("/manager");
+          else router.replace("/login");
           return;
         }
 
         setUser(currentUser);
 
-        /* -----------------------------------------------
-           LIVE BACKEND DATA
-        ------------------------------------------------ */
-
-        const [
-          tasksResponse,
-          conversationsResponse,
-          notificationsResponse,
-        ] = await Promise.all([
-          apiRequest("/tasks/my", {
-            method: "GET",
-          }),
-
-          apiRequest("/conversations", {
-            method: "GET",
-          }),
-
-          apiRequest("/notifications", {
-            method: "GET",
-          }),
+        const [tasksRes, convRes, notifRes] = await Promise.all([
+          safeApiRequest("/tasks/my", []),
+          safeApiRequest("/conversations", []),
+          safeApiRequest("/notifications", []),
         ]);
 
-        setTasks(
-          normalizeTasks(tasksResponse)
-        );
+        const nextTasks = normalizeTasks(tasksRes);
+        const nextConversations = normalizeConversations(convRes);
+        const nextNotifications = normalizeNotifications(notifRes);
 
-        setConversations(
-          normalizeConversations(
-            conversationsResponse
-          )
-        );
+        setTasks(nextTasks);
+        setConversations(nextConversations);
+        setNotifications(nextNotifications);
 
-        setNotifications(
-          normalizeNotifications(
-            notificationsResponse
-          )
-        );
+        cacheRef.current = {
+          timestamp: Date.now(),
+          data: {
+            currentUser,
+            tasks: nextTasks,
+            conversations: nextConversations,
+            notifications: nextNotifications,
+          },
+        };
       } catch (err) {
-        console.error(
-          "User dashboard load error:",
-          err
-        );
-
-        if (err?.status === 401) {
+        console.error("User dashboard load error:", err);
+        if (err?.status === 401 || err?.status === 403) {
+          try {
+            authService?.logout?.();
+          } catch {}
           router.replace("/login");
-          return;
         }
-
-        setError(
-          err?.message ||
-            "Unable to load dashboard data."
-        );
       } finally {
+        loadingRef.current = false;
         setLoading(false);
         setRefreshing(false);
       }
@@ -228,358 +143,220 @@ export default function UserDashboardPage() {
     [router]
   );
 
-  /* =======================================================
-     INITIAL LOAD
-  ======================================================= */
-
   useEffect(() => {
     loadDashboard(false);
   }, [loadDashboard]);
 
-  /* =======================================================
-     STATS
-  ======================================================= */
-
   const stats = useMemo(() => {
     const total = tasks.length;
+    const pending = tasks.filter((task) => {
+      const status = normalizeStatus(task.status);
+      return status === "pending" || status === "todo" || status === "new";
+    }).length;
 
-    const pending = tasks.filter(
-      (task) => {
-        const status =
-          normalizeStatus(task.status);
-
-        return (
-          status === "pending" ||
-          status === "todo" ||
-          status === "new"
-        );
-      }
-    ).length;
-
-    const inProgress = tasks.filter(
-      (task) => {
-        const status =
-          normalizeStatus(task.status);
-
-        return (
-          status === "in progress" ||
-          status === "in_progress" ||
-          status === "inprogress"
-        );
-      }
-    ).length;
+    const inProgress = tasks.filter((task) => {
+      const status = normalizeStatus(task.status);
+      return (
+        status === "in progress" ||
+        status === "in_progress" ||
+        status === "inprogress"
+      );
+    }).length;
 
     const completed = tasks.filter(
-      (task) =>
-        normalizeStatus(task.status) ===
-        "completed"
+      (task) => normalizeStatus(task.status) === "completed"
     ).length;
 
-    return {
-      total,
-      pending,
-      inProgress,
-      completed,
-    };
+    return { total, pending, inProgress, completed };
   }, [tasks]);
 
-  /* =======================================================
-     UNREAD NOTIFICATIONS
-  ================================================       */
+  const unreadNotifications = useMemo(() => {
+    return notifications.filter((n) => !(n?.read || n?.isRead)).length;
+  }, [notifications]);
 
-  const unreadNotifications =
-    useMemo(() => {
-      return notifications.filter(
-        (notification) => {
-          return !(
-            notification?.read ||
-            notification?.isRead
-          );
-        }
-      ).length;
-    }, [notifications]);
-
-  /* =======================================================
-     CONVERSATION COUNT
-  ================================================       */
-
-  const conversationCount =
-    conversations.length;
-
-  /* =======================================================
-     RECENT TASKS
-  ================================================       */
+  const conversationCount = conversations.length;
 
   const recentTasks = useMemo(() => {
     return [...tasks]
-      .sort((a, b) => {
-        const dateA =
-          new Date(
-            a?.updatedAt ||
-              a?.createdAt ||
-              a?.dueDate ||
-              0
-          ).getTime();
-
-        const dateB =
-          new Date(
-            b?.updatedAt ||
-              b?.createdAt ||
-              b?.dueDate ||
-              0
-          ).getTime();
-
-        return dateB - dateA;
-      })
+      .sort(
+        (a, b) =>
+          new Date(b?.updatedAt || b?.createdAt || b?.dueDate || 0) -
+          new Date(a?.updatedAt || a?.createdAt || a?.dueDate || 0)
+      )
       .slice(0, 5);
   }, [tasks]);
 
-  /* =======================================================
-     RECENT NOTIFICATIONS
-  ================================================       */
-
-  const recentNotifications =
-    useMemo(() => {
-      return [...notifications]
-        .sort((a, b) => {
-          const dateA =
-            new Date(
-              a?.createdAt ||
-                a?.updatedAt ||
-                0
-            ).getTime();
-
-          const dateB =
-            new Date(
-              b?.createdAt ||
-                b?.updatedAt ||
-                0
-            ).getTime();
-
-          return dateB - dateA;
-        })
-        .slice(0, 4);
-    }, [notifications]);
-
-  /* =======================================================
-     USER NAME
-  ================================================       */
+  const recentNotifications = useMemo(() => {
+    return [...notifications]
+      .sort(
+        (a, b) =>
+          new Date(b?.createdAt || b?.updatedAt || 0) -
+          new Date(a?.createdAt || a?.updatedAt || 0)
+      )
+      .slice(0, 4);
+  }, [notifications]);
 
   const userName =
-    user?.name ||
-    user?.fullName ||
-    user?.displayName ||
-    user?.email ||
-    "User";
-
-  /* =======================================================
-     UI
-  ================================================       */
+    user?.name || user?.fullName || user?.email?.split("@")?.[0] || "User";
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC]">
+    <div className="relative min-h-screen w-full bg-[#f7f8fc] text-slate-900">
+      {/* Background ambient lighting */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute -left-32 -top-32 h-72 w-72 rounded-full bg-violet-400/10 blur-3xl" />
+        <div className="absolute right-0 top-20 h-80 w-80 rounded-full bg-pink-400/10 blur-3xl" />
+        <div className="absolute bottom-0 left-1/3 h-72 w-72 rounded-full bg-orange-300/10 blur-3xl" />
+      </div>
 
       {/* =================================================
           MOBILE OVERLAY
       ================================================= */}
-
       {sidebarOpen && (
         <button
           type="button"
           aria-label="Close sidebar"
-          onClick={() =>
-            setSidebarOpen(false)
-          }
-          className="fixed inset-0 z-40 bg-black/40 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+          className="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-sm lg:hidden"
         />
       )}
 
       {/* =================================================
-          SIDEBAR
+          SIDEBAR (Matching Admin Dark Theme & Animations)
       ================================================= */}
-
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-[#171B3A] shadow-xl transition-transform duration-300 lg:translate-x-0 ${
-          sidebarOpen
-            ? "translate-x-0"
-            : "-translate-x-full"
+        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-[#171B3A] text-white shadow-2xl transition-transform duration-300 ease-in-out lg:translate-x-0 ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-
-        {/* =================================================
-            SIDEBAR HEADER
-        ================================================= */}
-
         <div className="flex h-20 shrink-0 items-center justify-between border-b border-white/10 px-5">
-
           <div className="flex items-center gap-3">
-
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#2563EB] text-white shadow-sm">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-purple-600 text-white shadow-md shadow-purple-600/20">
               <ShieldCheck size={22} />
             </div>
 
             <div>
-              <h1 className="text-sm font-bold text-white">
-                Local Pro 1
-              </h1>
-
-              <p className="text-[11px] font-medium text-white/70">
+              <h1 className="text-sm font-bold text-white">Local Pro 1</h1>
+              <p className="text-[11px] font-semibold text-violet-400">
                 User Workspace
               </p>
             </div>
-
           </div>
 
           <button
             type="button"
-            onClick={() =>
-              setSidebarOpen(false)
-            }
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-white/70 transition hover:bg-white/10 hover:text-white lg:hidden"
+            onClick={() => setSidebarOpen(false)}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-white/10 hover:text-white lg:hidden"
             aria-label="Close sidebar"
           >
-            <X size={18} />
+            <X size={19} />
           </button>
-
         </div>
 
-        {/* =================================================
-            NAVIGATION
-        ================================================= */}
+        <nav className="flex-1 overflow-y-auto px-3 py-5">
+          <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Workspace
+          </p>
 
-        <nav className="flex-1 space-y-1 overflow-y-auto p-4">
+          <div className="space-y-1.5">
+            {navigation.map((item) => {
+              const Icon = item.icon;
+              const isActive =
+                pathname === item.href ||
+                (item.href !== "/user" && pathname.startsWith(`${item.href}/`));
 
-          {navigation.map((item) => (
-            <UserNavItem
-              key={item.href}
-              item={item}
-              onNavigate={() =>
-                setSidebarOpen(false)
-              }
-            />
-          ))}
-
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setSidebarOpen(false)}
+                  className={`group flex items-center gap-3 rounded-2xl px-3.5 py-3 text-sm font-bold transition duration-150 ${
+                    isActive
+                      ? "bg-violet-600 text-white shadow-md shadow-violet-600/30"
+                      : "text-slate-300 hover:bg-white/10 hover:text-white"
+                  }`}
+                >
+                  <Icon
+                    size={18}
+                    className={`transition duration-150 ${
+                      isActive ? "text-white" : "text-slate-400 group-hover:text-white"
+                    }`}
+                  />
+                  <span>{item.label}</span>
+                </Link>
+              );
+            })}
+          </div>
         </nav>
 
-        {/* =================================================
-            LOGOUT
-        ================================================= */}
-
-        <div className="shrink-0 border-t border-white/10 p-4">
-
+        <div className="shrink-0 border-t border-white/10 p-3">
           <button
             type="button"
             onClick={async () => {
               try {
                 await authService.logout();
-              } catch (logoutError) {
-                console.error(
-                  "Logout error:",
-                  logoutError
-                );
-              } finally {
-                router.replace("/login");
-              }
+              } catch {}
+              router.replace("/login");
+              router.refresh();
             }}
-            className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
+            className="flex w-full items-center gap-3 rounded-2xl px-3.5 py-3 text-sm font-bold text-rose-400 transition hover:bg-rose-500/10 hover:text-rose-300"
           >
             <LogOut size={18} />
-
-            <span className="text-white">
-              Logout
-            </span>
+            <span>Logout</span>
           </button>
-
         </div>
-
       </aside>
 
       {/* =================================================
-          MAIN AREA
+          MAIN AREA CONTENT
       ================================================= */}
-
-      <div className="lg:pl-64">
-
-        {/* =================================================
-            TOP BAR
-        ================================================= */}
-
-        <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200 bg-white/95 px-5 backdrop-blur sm:px-6 lg:px-8">
-
+      <div className="min-h-screen w-full lg:pl-64">
+        {/* Top Header Bar */}
+        <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200/80 bg-white/95 px-5 backdrop-blur-sm sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
-
             <button
               type="button"
-              onClick={() =>
-                setSidebarOpen(true)
-              }
-              className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-[#26344D] transition hover:bg-slate-50 lg:hidden"
+              onClick={() => setSidebarOpen(true)}
+              className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50 lg:hidden"
               aria-label="Open sidebar"
             >
               <Menu size={20} />
             </button>
 
             <div>
-              <p className="text-xs font-medium text-[#64748B]">
-                Workspace
-              </p>
-
-              <p className="text-sm font-bold text-[#171B3A]">
-                Dashboard
-              </p>
+              <p className="text-xs font-semibold text-slate-400">Workspace</p>
+              <p className="text-sm font-bold text-slate-900">Dashboard</p>
             </div>
-
           </div>
 
           <div className="flex items-center gap-3">
-
-            {/* Refresh */}
-
             <button
               type="button"
-              onClick={() =>
-                loadDashboard(true)
-              }
-              disabled={
-                loading || refreshing
-              }
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-[#64748B] transition hover:bg-[#EEF4FF] hover:text-[#2563EB] disabled:cursor-not-allowed"
-              aria-label="Refresh dashboard"
+              onClick={() => loadDashboard(true)}
+              disabled={refreshing}
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition hover:bg-violet-50 hover:text-violet-600 disabled:opacity-50"
+              title="Refresh"
             >
               <RefreshCw
                 size={16}
-                className={
-                  refreshing
-                    ? "animate-spin"
-                    : ""
-                }
+                className={refreshing ? "animate-spin text-violet-600" : ""}
               />
             </button>
 
-            {/* Notifications */}
-
             <Link
               href="/user/notifications"
-              className="relative flex h-9 w-9 items-center justify-center rounded-full bg-[#EEF4FF] text-[#2563EB] transition hover:bg-blue-100"
-              aria-label="Notifications"
+              className="relative flex h-9 w-9 items-center justify-center rounded-full bg-violet-50 text-violet-600 transition hover:bg-violet-100"
+              title="Notifications"
             >
               <Bell size={17} />
-
               {unreadNotifications > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#2563EB] px-1 text-[9px] font-bold text-white">
-                  {unreadNotifications > 99
-                    ? "99+"
-                    : unreadNotifications}
+                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-violet-600 px-1 text-[9px] font-bold text-white shadow-sm">
+                  {unreadNotifications > 99 ? "99+" : unreadNotifications}
                 </span>
               )}
             </Link>
 
-            {/* User */}
-
-            <div className="hidden items-center gap-2 sm:flex">
-
-              <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-[#EEF4FF] text-[#2563EB]">
-
+            <div className="hidden items-center gap-2.5 border-l border-slate-200 pl-3 sm:flex">
+              <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-sm">
                 {user?.avatar ? (
                   <img
                     src={user.avatar}
@@ -587,1049 +364,422 @@ export default function UserDashboardPage() {
                     className="h-full w-full object-cover"
                   />
                 ) : (
-                  <UserRound size={17} />
+                  userName.charAt(0).toUpperCase()
                 )}
-
               </div>
-
               <div className="max-w-[150px]">
-
-                <p className="truncate text-xs font-bold text-[#171B3A]">
+                <p className="truncate text-xs font-bold text-slate-900">
                   {userName}
                 </p>
-
-                <p className="text-[10px] capitalize text-[#64748B]">
+                <p className="text-[10px] font-semibold capitalize text-violet-600">
                   {user?.role || "user"}
                 </p>
-
               </div>
-
             </div>
-
           </div>
-
         </header>
 
-        {/* =================================================
-            PAGE CONTENT
-        ================================================= */}
-
-        <main className="min-h-[calc(100vh-4rem)] p-5 sm:p-6 lg:p-8">
-
+        {/* Page Content */}
+        <main className="min-h-[calc(100vh-4rem)] p-4 sm:p-6 lg:p-8">
           <div className="mx-auto w-full max-w-7xl space-y-6">
-
-            {/* =================================================
-                HEADING
-            ================================================= */}
-
-            <section className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-
-              <div>
-
-                <p className="text-sm font-semibold text-[#2563EB]">
-                  USER WORKSPACE
-                </p>
-
-                <h1 className="mt-1 text-2xl font-bold tracking-tight text-[#171B3A] sm:text-3xl">
-                  Welcome, {userName}
-                </h1>
-
-                <p className="mt-2 text-sm text-[#64748B]">
-                  Your live workspace overview.
-                </p>
-
-              </div>
-
-              {loading && (
-                <div className="flex items-center gap-2 text-xs font-medium text-[#64748B]">
-
-                  <Loader2
-                    size={15}
-                    className="animate-spin text-[#2563EB]"
-                  />
-
-                  Loading backend data...
-
+            {/* Hero / Greeting section matching Admin style */}
+            <section className="relative overflow-hidden rounded-[30px] bg-gradient-to-br from-[#4211b8] via-[#6414d8] to-[#a617c8] p-6 text-white shadow-[0_25px_70px_rgba(93,36,190,0.25)] sm:p-8">
+              <div className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-fuchsia-400/20 blur-2xl" />
+              <div className="relative z-10">
+                <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold backdrop-blur-md">
+                  <Sparkles size={13} />
+                  User Portal
                 </div>
-              )}
-
+                <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl lg:text-4xl">
+                  Welcome back, {userName}
+                </h1>
+                <p className="mt-2 max-w-xl text-sm text-white/80">
+                  Here is a quick overview of your assigned tasks, attendance, and workspace messages.
+                </p>
+              </div>
             </section>
 
-            {/* =================================================
-                ERROR
-            ================================================= */}
-
             {error && (
-              <section className="rounded-2xl border border-red-200 bg-red-50 p-4">
-
-                <div className="flex items-start justify-between gap-4">
-
-                  <div>
-
-                    <h2 className="text-sm font-bold text-red-700">
-                      Unable to load dashboard
-                    </h2>
-
-                    <p className="mt-1 text-sm text-red-600">
-                      {error}
-                    </p>
-
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      loadDashboard(true)
-                    }
-                    className="shrink-0 rounded-lg bg-white px-3 py-2 text-xs font-bold text-red-700 shadow-sm transition hover:bg-red-100"
-                  >
-                    Retry
-                  </button>
-
-                </div>
-
+              <section className="rounded-2xl border border-rose-100 bg-rose-50 p-4 text-rose-700 shadow-sm">
+                <h2 className="text-sm font-bold">Notice</h2>
+                <p className="mt-1 text-xs">{error}</p>
               </section>
             )}
 
-            {/* =================================================
-                STATS
-            ================================================= */}
-
+            {/* Stat Cards */}
             <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-
               <StatCard
                 icon={ClipboardList}
                 label="Total Tasks"
-                value={
-                  loading
-                    ? "—"
-                    : stats.total
-                }
-                description="Tasks assigned to your account."
+                value={loading ? "—" : stats.total}
+                description="Assigned tasks"
               />
-
               <StatCard
                 icon={Clock3}
                 label="Pending"
-                value={
-                  loading
-                    ? "—"
-                    : stats.pending
-                }
-                description="Tasks waiting to be started."
+                value={loading ? "—" : stats.pending}
+                description="Waiting to start"
               />
-
               <StatCard
                 icon={Activity}
                 label="In Progress"
-                value={
-                  loading
-                    ? "—"
-                    : stats.inProgress
-                }
-                description="Tasks currently being worked on."
+                value={loading ? "—" : stats.inProgress}
+                description="Active work items"
               />
-
               <StatCard
                 icon={CheckCircle2}
                 label="Completed"
-                value={
-                  loading
-                    ? "—"
-                    : stats.completed
-                }
-                description="Tasks completed by you."
+                value={loading ? "—" : stats.completed}
+                description="Finished successfully"
               />
-
             </section>
 
-            {/* =================================================
-                WORKSPACE SUMMARY
-            ================================================= */}
-
+            {/* Summary Highlights */}
             <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
-
               <SummaryCard
                 icon={MessageSquare}
                 title="Conversations"
-                value={
-                  loading
-                    ? "—"
-                    : conversationCount
-                }
-                description="Your available conversations."
+                value={loading ? "—" : conversationCount}
+                description="Active team channels."
                 href="/user/messages"
               />
-
               <SummaryCard
                 icon={Bell}
                 title="Unread Notifications"
-                value={
-                  loading
-                    ? "—"
-                    : unreadNotifications
-                }
-                description="Notifications that still need your attention."
+                value={loading ? "—" : unreadNotifications}
+                description="Items requiring attention."
                 href="/user/notifications"
               />
-
             </section>
 
-            {/* =================================================
-                MAIN GRID
-            ================================================= */}
-
+            {/* Main Tables Grid */}
             <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-
-              {/* MY TASKS */}
-
-              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-
-                <div className="flex items-center justify-between border-b border-slate-100 px-5 py-5 sm:px-6">
-
+              {/* Recent Tasks */}
+              <div className="overflow-hidden rounded-[26px] border border-slate-200/80 bg-white shadow-[0_10px_35px_rgba(45,35,100,0.05)]">
+                <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/50 px-6 py-4.5">
                   <div>
-
-                    <h2 className="text-base font-bold text-[#171B3A]">
-                      My Tasks
-                    </h2>
-
-                    <p className="mt-1 text-sm text-[#64748B]">
-                      Tasks assigned to your account.
-                    </p>
-
+                    <h2 className="text-base font-bold text-slate-900">My Tasks</h2>
+                    <p className="text-xs text-slate-500">Recently updated tasks assigned to you.</p>
                   </div>
-
-                  <Link
-                    href="/user/tasks"
-                    className="text-xs font-bold text-[#2563EB] transition hover:underline"
-                  >
+                  <Link href="/user/tasks" className="text-xs font-bold text-violet-600 transition hover:underline">
                     View All
                   </Link>
-
                 </div>
 
-                {loading ? (
-                  <TaskListLoading />
-                ) : recentTasks.length === 0 ? (
+                {recentTasks.length === 0 ? (
                   <EmptyTasks />
                 ) : (
                   <div className="divide-y divide-slate-100">
-
-                    {recentTasks.map(
-                      (task) => (
-                        <TaskRow
-                          key={
-                            task?._id ||
-                            task?.id
-                          }
-                          task={task}
-                        />
-                      )
-                    )}
-
+                    {recentTasks.map((task) => (
+                      <TaskRow key={task?._id || task?.id} task={task} />
+                    ))}
                   </div>
                 )}
+              </div>
 
-              </section>
-
-              {/* NOTIFICATIONS */}
-
-              <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-
-                <div className="flex items-center justify-between border-b border-slate-100 px-5 py-5 sm:px-6">
-
+              {/* Notifications */}
+              <div className="overflow-hidden rounded-[26px] border border-slate-200/80 bg-white shadow-[0_10px_35px_rgba(45,35,100,0.05)]">
+                <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/50 px-6 py-4.5">
                   <div>
-
-                    <h2 className="text-base font-bold text-[#171B3A]">
-                      Recent Notifications
-                    </h2>
-
-                    <p className="mt-1 text-sm text-[#64748B]">
-                      Latest updates from your workspace.
-                    </p>
-
+                    <h2 className="text-base font-bold text-slate-900">Recent Notifications</h2>
+                    <p className="text-xs text-slate-500">Latest alerts from your workspace.</p>
                   </div>
-
-                  <Link
-                    href="/user/notifications"
-                    className="text-xs font-bold text-[#2563EB] transition hover:underline"
-                  >
+                  <Link href="/user/notifications" className="text-xs font-bold text-violet-600 transition hover:underline">
                     View All
                   </Link>
-
                 </div>
 
-                {loading ? (
-                  <NotificationLoading />
-                ) : recentNotifications.length ===
-                  0 ? (
+                {recentNotifications.length === 0 ? (
                   <EmptyNotifications />
                 ) : (
                   <div className="divide-y divide-slate-100">
-
-                    {recentNotifications.map(
-                      (notification) => (
-                        <NotificationRow
-                          key={
-                            notification?._id ||
-                            notification?.id
-                          }
-                          notification={
-                            notification
-                          }
-                        />
-                      )
-                    )}
-
+                    {recentNotifications.map((notification) => (
+                      <NotificationRow
+                        key={notification?._id || notification?.id}
+                        notification={notification}
+                      />
+                    ))}
                   </div>
                 )}
-
-              </section>
-
+              </div>
             </section>
 
-            {/* =================================================
-                UPCOMING
-            ================================================= */}
-
-            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-
-              <div className="border-b border-slate-100 px-5 py-5 sm:px-6">
-
+            {/* Upcoming Deadlines */}
+            <section className="overflow-hidden rounded-[26px] border border-slate-200/80 bg-white shadow-[0_10px_35px_rgba(45,35,100,0.05)]">
+              <div className="border-b border-slate-100 bg-slate-50/50 px-6 py-4.5">
                 <div className="flex items-center justify-between gap-4">
-
                   <div>
-
-                    <h2 className="text-base font-bold text-[#171B3A]">
-                      Upcoming Deadlines
-                    </h2>
-
-                    <p className="mt-1 text-sm text-[#64748B]">
-                      Tasks with upcoming due dates.
-                    </p>
-
+                    <h2 className="text-base font-bold text-slate-900">Upcoming Deadlines</h2>
+                    <p className="text-xs text-slate-500">Tasks with pending due dates.</p>
                   </div>
-
-                  <CalendarDays
-                    size={20}
-                    className="text-[#2563EB]"
-                  />
-
+                  <CalendarDays size={20} className="text-violet-600" />
                 </div>
-
               </div>
-
               <UpcomingTasks tasks={tasks} />
-
             </section>
 
-            {/* =================================================
-                QUICK ACCESS
-            ================================================= */}
-
+            {/* Quick Access Grid */}
             <section>
-
-              <h2 className="mb-4 text-base font-bold text-[#171B3A]">
-                Quick Access
-              </h2>
-
+              <h2 className="mb-4 text-base font-bold text-slate-900">Quick Access</h2>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-
-                <QuickLink
-                  href="/user/tasks"
-                  icon={ClipboardList}
-                  title="My Tasks"
-                  description="View your assigned tasks."
-                />
-
-                <QuickLink
-                  href="/user/messages"
-                  icon={MessageSquare}
-                  title="Messages"
-                  description="View your conversations."
-                />
-
-                <QuickLink
-                  href="/user/notifications"
-                  icon={Bell}
-                  title="Notifications"
-                  description="View your notifications."
-                />
-
-                <QuickLink
-                  href="/user/attendance"
-                  icon={Clock3}
-                  title="Attendance"
-                  description="View your attendance and work hours."
-                />
-
+                <QuickLink href="/user/tasks" icon={ClipboardList} title="My Tasks" description="View your assigned tasks." />
+                <QuickLink href="/user/messages" icon={MessageSquare} title="Messages" description="View your conversations." />
+                <QuickLink href="/user/notifications" icon={Bell} title="Notifications" description="View your notifications." />
+                <QuickLink href="/user/attendance" icon={Clock3} title="Attendance" description="View work hours and records." />
               </div>
-
             </section>
 
           </div>
-
         </main>
-
       </div>
-
     </div>
   );
 }
 
 /* =========================================================
-   SIDEBAR ITEM
+   SUB COMPONENTS (Themed)
 ========================================================= */
 
-function UserNavItem({
-  item,
-  onNavigate,
-}) {
-  const pathname = usePathname();
-
-  const Icon = item.icon;
-
-  const isActive =
-    pathname === item.href ||
-    (
-      item.href !== "/user" &&
-      pathname.startsWith(
-        `${item.href}/`
-      )
-    );
-
+function StatCard({ icon: Icon, label, value, description }) {
   return (
-    <Link
-      href={item.href}
-      onClick={onNavigate}
-      className={`group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold transition ${
-        isActive
-          ? "bg-[#2563EB] text-white shadow-sm"
-          : "bg-transparent text-white hover:bg-white/10 hover:text-white"
-      }`}
-    >
-
-      <Icon
-        size={18}
-        strokeWidth={2}
-        className="shrink-0 text-white"
-      />
-
-      <span className="text-white">
-        {item.label}
-      </span>
-
-    </Link>
-  );
-}
-
-/* =========================================================
-   STAT CARD
-========================================================= */
-
-function StatCard({
-  icon: Icon,
-  label,
-  value,
-  description,
-}) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-
+    <div className="rounded-[24px] border border-slate-200/80 bg-white p-5 shadow-[0_10px_35px_rgba(45,35,100,0.06)] transition hover:-translate-y-0.5 hover:shadow-md">
       <div className="flex items-start justify-between gap-4">
-
         <div>
-
-          <p className="text-xs font-semibold text-[#64748B]">
-            {label}
-          </p>
-
-          <p className="mt-2 text-2xl font-bold text-[#171B3A]">
-            {value}
-          </p>
-
+          <p className="text-xs font-semibold text-slate-400">{label}</p>
+          <p className="mt-2 text-2xl font-extrabold text-slate-900">{value}</p>
         </div>
-
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#EEF4FF] text-[#2563EB]">
-
+        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
           <Icon size={19} />
-
         </div>
-
       </div>
-
-      <p className="mt-4 text-xs text-[#64748B]">
-        {description}
-      </p>
-
+      <p className="mt-4 text-xs text-slate-400">{description}</p>
     </div>
   );
 }
 
-/* =========================================================
-   SUMMARY CARD
-========================================================= */
-
-function SummaryCard({
-  icon: Icon,
-  title,
-  value,
-  description,
-  href,
-}) {
+function SummaryCard({ icon: Icon, title, value, description, href }) {
   return (
     <Link
       href={href}
-      className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+      className="group rounded-[24px] border border-slate-200/80 bg-white p-5 shadow-[0_10px_35px_rgba(45,35,100,0.06)] transition hover:-translate-y-0.5 hover:shadow-md"
     >
-
       <div className="flex items-start justify-between gap-4">
-
         <div>
-
-          <p className="text-xs font-semibold text-[#64748B]">
-            {title}
-          </p>
-
-          <p className="mt-2 text-2xl font-bold text-[#171B3A]">
-            {value}
-          </p>
-
+          <p className="text-xs font-semibold text-slate-400">{title}</p>
+          <p className="mt-2 text-2xl font-extrabold text-slate-900">{value}</p>
         </div>
-
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#EEF4FF] text-[#2563EB] transition group-hover:bg-blue-100">
-
+        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-violet-50 text-violet-600 transition group-hover:bg-violet-100">
           <Icon size={19} />
-
         </div>
-
       </div>
-
-      <p className="mt-4 text-xs text-[#64748B]">
-        {description}
-      </p>
-
+      <p className="mt-4 text-xs text-slate-400">{description}</p>
     </Link>
   );
 }
 
-/* =========================================================
-   TASK ROW
-========================================================= */
-
 function TaskRow({ task }) {
-  const title =
-    task?.title ||
-    "Untitled Task";
-
-  const status =
-    task?.status ||
-    "Pending";
-
-  const priority =
-    task?.priority ||
-    "";
-
-  const dueDate =
-    task?.dueDate;
+  const title = task?.title || "Untitled Task";
+  const status = task?.status || "Pending";
+  const priority = task?.priority || "";
+  const dueDate = task?.dueDate;
 
   return (
-    <div className="flex items-center gap-4 px-5 py-4 sm:px-6">
-
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#EEF4FF] text-[#2563EB]">
+    <div className="flex items-center gap-4 px-6 py-4">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
         <ClipboardList size={18} />
       </div>
-
       <div className="min-w-0 flex-1">
-
-        <p className="truncate text-sm font-semibold text-[#171B3A]">
-          {title}
-        </p>
-
-        <div className="mt-1 flex flex-wrap items-center gap-2">
-
-          <StatusBadge
-            status={status}
-          />
-
+        <p className="truncate text-sm font-bold text-slate-900">{title}</p>
+        <div className="mt-1 flex items-center gap-2">
+          <StatusBadge status={status} />
           {priority && (
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold capitalize text-slate-600">
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-600">
               {priority}
             </span>
           )}
-
         </div>
-
       </div>
-
       <div className="hidden shrink-0 text-right sm:block">
-
-        <p className="text-[10px] font-semibold uppercase text-slate-400">
-          Due
-        </p>
-
-        <p className="mt-1 text-xs font-semibold text-[#26344D]">
-          {formatDate(dueDate) ||
-            "No date"}
-        </p>
-
+        <p className="text-[10px] font-semibold uppercase text-slate-400">Due</p>
+        <p className="mt-0.5 text-xs font-semibold text-slate-700">{formatDate(dueDate) || "No date"}</p>
       </div>
-
     </div>
   );
 }
 
-/* =========================================================
-   STATUS BADGE
-========================================================= */
-
 function StatusBadge({ status }) {
-  const normalized =
-    normalizeStatus(status);
+  const normalized = normalizeStatus(status);
+  let classes = "bg-slate-100 text-slate-600 border border-slate-200";
 
-  let classes =
-    "bg-slate-100 text-slate-600";
-
-  if (
-    normalized === "completed"
-  ) {
-    classes =
-      "bg-emerald-50 text-emerald-700";
-  } else if (
-    normalized === "in progress" ||
-    normalized === "in_progress" ||
-    normalized === "inprogress"
-  ) {
-    classes =
-      "bg-blue-50 text-blue-700";
-  } else if (
-    normalized === "pending" ||
-    normalized === "todo" ||
-    normalized === "new"
-  ) {
-    classes =
-      "bg-amber-50 text-amber-700";
+  if (normalized === "completed") {
+    classes = "bg-emerald-50 text-emerald-600 border border-emerald-100";
+  } else if (["in progress", "in_progress", "inprogress"].includes(normalized)) {
+    classes = "bg-violet-50 text-violet-600 border border-violet-100";
+  } else if (["pending", "todo", "new"].includes(normalized)) {
+    classes = "bg-amber-50 text-amber-600 border border-amber-100";
   }
 
   return (
-    <span
-      className={`rounded-full px-2 py-0.5 text-[10px] font-bold capitalize ${classes}`}
-    >
+    <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold capitalize ${classes}`}>
       {status}
     </span>
   );
 }
 
-/* =========================================================
-   NOTIFICATION ROW
-========================================================= */
-
-function NotificationRow({
-  notification,
-}) {
-  const read =
-    notification?.read ||
-    notification?.isRead;
+function NotificationRow({ notification }) {
+  const read = notification?.read || notification?.isRead;
 
   return (
     <Link
       href="/user/notifications"
-      className={`block px-5 py-4 transition hover:bg-slate-50 sm:px-6 ${
-        !read
-          ? "bg-[#F8FAFF]"
-          : ""
-      }`}
+      className={`block px-6 py-4 transition hover:bg-slate-50 ${!read ? "bg-violet-50/30" : ""}`}
     >
-
       <div className="flex gap-3">
-
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#EEF4FF] text-[#2563EB]">
-          <Bell size={16} />
+        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${
+          read ? "bg-slate-100 text-slate-500" : "bg-gradient-to-br from-pink-500 to-fuchsia-500 text-white"
+        }`}>
+          <Bell size={15} />
         </div>
-
         <div className="min-w-0 flex-1">
-
           <div className="flex items-start justify-between gap-3">
-
-            <p
-              className={`truncate text-sm ${
-                read
-                  ? "font-semibold text-[#26344D]"
-                  : "font-bold text-[#171B3A]"
-              }`}
-            >
-              {notification?.title ||
-                "Notification"}
+            <p className={`truncate text-xs ${read ? "font-semibold text-slate-700" : "font-bold text-slate-900"}`}>
+              {notification?.title || "Notification"}
             </p>
-
-            {!read && (
-              <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-[#2563EB]" />
-            )}
-
+            {!read && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-violet-600" />}
           </div>
-
-          <p className="mt-1 line-clamp-2 text-xs leading-5 text-[#64748B]">
-            {notification?.message ||
-              "You have a new notification."}
+          <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">
+            {notification?.message || "You have a new notification."}
           </p>
-
           <p className="mt-2 text-[10px] text-slate-400">
-            {formatDateTime(
-              notification?.createdAt ||
-                notification?.updatedAt
-            )}
+            {formatDateTime(notification?.createdAt || notification?.updatedAt)}
           </p>
-
         </div>
-
       </div>
-
     </Link>
   );
 }
 
-/* =========================================================
-   UPCOMING TASKS
-========================================================= */
-
 function UpcomingTasks({ tasks }) {
   const upcoming = useMemo(() => {
     const now = new Date();
-
     return tasks
       .filter((task) => {
-        if (!task?.dueDate) {
-          return false;
-        }
-
-        const due =
-          new Date(task.dueDate);
-
-        if (
-          Number.isNaN(
-            due.getTime()
-          )
-        ) {
-          return false;
-        }
-
-        return (
-          due >= now &&
-          normalizeStatus(
-            task?.status
-          ) !== "completed"
-        );
+        if (!task?.dueDate) return false;
+        const due = new Date(task.dueDate);
+        if (Number.isNaN(due.getTime())) return false;
+        return due >= now && normalizeStatus(task?.status) !== "completed";
       })
-      .sort(
-        (a, b) =>
-          new Date(a.dueDate) -
-          new Date(b.dueDate)
-      )
+      .sort((a, b) => new Date(a.dueDate) - new Date(b.dueDate))
       .slice(0, 5);
   }, [tasks]);
 
   if (upcoming.length === 0) {
     return (
-      <div className="flex min-h-[180px] flex-col items-center justify-center px-6 py-10 text-center">
-
-        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[#EEF4FF] text-[#2563EB]">
-          <CalendarDays size={22} />
+      <div className="flex min-h-[160px] flex-col items-center justify-center px-6 py-8 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
+          <CalendarDays size={20} />
         </div>
-
-        <h3 className="mt-4 text-sm font-bold text-[#171B3A]">
-          Nothing scheduled
-        </h3>
-
-        <p className="mt-2 max-w-sm text-sm text-[#64748B]">
-          No upcoming task deadlines were returned by the backend.
-        </p>
-
+        <h3 className="mt-3 text-xs font-bold text-slate-800">Nothing scheduled</h3>
+        <p className="mt-1 text-xs text-slate-400">No upcoming task deadlines assigned.</p>
       </div>
     );
   }
 
   return (
     <div className="divide-y divide-slate-100">
-
       {upcoming.map((task) => (
-        <div
-          key={
-            task?._id ||
-            task?.id
-          }
-          className="flex items-center gap-4 px-5 py-4 sm:px-6"
-        >
-
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#EEF4FF] text-[#2563EB]">
+        <div key={task?._id || task?.id} className="flex items-center gap-4 px-6 py-4">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
             <Clock3 size={18} />
           </div>
-
           <div className="min-w-0 flex-1">
-
-            <p className="truncate text-sm font-semibold text-[#171B3A]">
-              {task?.title ||
-                "Untitled Task"}
+            <p className="truncate text-sm font-bold text-slate-900">
+              {task?.title || "Untitled Task"}
             </p>
-
-            <p className="mt-1 text-xs text-[#64748B]">
-              Due{" "}
-              {formatDate(
-                task?.dueDate
-              )}
+            <p className="mt-0.5 text-xs text-slate-400">
+              Due {formatDate(task?.dueDate)}
             </p>
-
           </div>
-
-          <StatusBadge
-            status={
-              task?.status ||
-              "Pending"
-            }
-          />
-
+          <StatusBadge status={task?.status || "Pending"} />
         </div>
       ))}
-
     </div>
   );
 }
 
-/* =========================================================
-   QUICK LINK
-========================================================= */
-
-function QuickLink({
-  href,
-  icon: Icon,
-  title,
-  description,
-}) {
+function QuickLink({ href, icon: Icon, title, description }) {
   return (
     <Link
       href={href}
-      className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+      className="group rounded-[24px] border border-slate-200/80 bg-white p-5 shadow-[0_10px_35px_rgba(45,35,100,0.06)] transition hover:-translate-y-0.5 hover:shadow-md"
     >
-
-      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#EEF4FF] text-[#2563EB] transition group-hover:bg-blue-100">
+      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-violet-50 text-violet-600 transition group-hover:bg-violet-600 group-hover:text-white">
         <Icon size={19} />
       </div>
-
-      <h3 className="mt-4 text-sm font-bold text-[#171B3A]">
-        {title}
-      </h3>
-
-      <p className="mt-1 text-xs leading-5 text-[#64748B]">
-        {description}
-      </p>
-
+      <h3 className="mt-4 text-sm font-bold text-slate-900">{title}</h3>
+      <p className="mt-1 text-xs leading-5 text-slate-400">{description}</p>
     </Link>
   );
 }
 
-/* =========================================================
-   EMPTY TASKS
-========================================================= */
-
 function EmptyTasks() {
   return (
-    <div className="flex min-h-[260px] flex-col items-center justify-center px-6 py-10 text-center">
-
-      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#EEF4FF] text-[#2563EB]">
-        <ClipboardList size={25} />
+    <div className="flex min-h-[220px] flex-col items-center justify-center px-6 py-8 text-center">
+      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
+        <ClipboardList size={22} />
       </div>
-
-      <h3 className="mt-4 text-sm font-bold text-[#171B3A]">
-        No tasks available
-      </h3>
-
-      <p className="mt-2 max-w-sm text-sm leading-6 text-[#64748B]">
-        No tasks are currently assigned to your account.
-      </p>
-
-      <Link
-        href="/user/tasks"
-        className="mt-4 inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 px-4 text-xs font-bold text-[#2563EB] transition hover:bg-[#EEF4FF]"
-      >
-        Open My Tasks
-      </Link>
-
+      <h3 className="mt-3 text-xs font-bold text-slate-800">No tasks available</h3>
+      <p className="mt-1 text-xs text-slate-400">There are currently no tasks assigned to your account.</p>
     </div>
   );
 }
-
-/* =========================================================
-   EMPTY NOTIFICATIONS
-========================================================= */
 
 function EmptyNotifications() {
   return (
-    <div className="flex min-h-[260px] flex-col items-center justify-center px-6 py-10 text-center">
-
-      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#EEF4FF] text-[#2563EB]">
-        <Bell size={25} />
+    <div className="flex min-h-[220px] flex-col items-center justify-center px-6 py-8 text-center">
+      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
+        <Bell size={22} />
       </div>
-
-      <h3 className="mt-4 text-sm font-bold text-[#171B3A]">
-        You're all caught up
-      </h3>
-
-      <p className="mt-2 max-w-sm text-sm leading-6 text-[#64748B]">
-        No notifications were returned by the backend.
-      </p>
-
-      <Link
-        href="/user/notifications"
-        className="mt-4 inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 px-4 text-xs font-bold text-[#2563EB] transition hover:bg-[#EEF4FF]"
-      >
-        Open Notifications
-      </Link>
-
+      <h3 className="mt-3 text-xs font-bold text-slate-800">You're all caught up</h3>
+      <p className="mt-1 text-xs text-slate-400">No pending notifications at the moment.</p>
     </div>
   );
 }
 
 /* =========================================================
-   TASK LOADING
+   UTILS & NORMALIZERS
 ========================================================= */
 
-function TaskListLoading() {
-  return (
-    <div className="space-y-4 p-5 sm:p-6">
-
-      {[1, 2, 3, 4].map(
-        (item) => (
-          <div
-            key={item}
-            className="flex items-center gap-4"
-          >
-
-            <div className="h-10 w-10 animate-pulse rounded-xl bg-slate-100" />
-
-            <div className="min-w-0 flex-1">
-
-              <div className="h-3 w-2/3 animate-pulse rounded bg-slate-100" />
-
-              <div className="mt-2 h-2.5 w-1/3 animate-pulse rounded bg-slate-100" />
-
-            </div>
-
-          </div>
-        )
-      )}
-
-    </div>
-  );
-}
-
-/* =========================================================
-   NOTIFICATION LOADING
-========================================================= */
-
-function NotificationLoading() {
-  return (
-    <div className="space-y-5 p-5 sm:p-6">
-
-      {[1, 2, 3, 4].map(
-        (item) => (
-          <div
-            key={item}
-            className="flex gap-3"
-          >
-
-            <div className="h-9 w-9 animate-pulse rounded-xl bg-slate-100" />
-
-            <div className="flex-1">
-
-              <div className="h-3 w-1/2 animate-pulse rounded bg-slate-100" />
-
-              <div className="mt-2 h-2.5 w-full animate-pulse rounded bg-slate-100" />
-
-              <div className="mt-2 h-2.5 w-1/3 animate-pulse rounded bg-slate-100" />
-
-            </div>
-
-          </div>
-        )
-      )}
-
-    </div>
-  );
-}
-
-/* =========================================================
-   API REQUEST (FIXED WITH AUTHORIZATION BEARER TOKEN)
-========================================================= */
-
-async function apiRequest(
-  endpoint,
-  options = {}
-) {
-  let token = null;
+async function safeApiRequest(endpoint, fallback = null) {
   try {
-    if (typeof authService.getToken === "function") {
-      token = authService.getToken();
-    }
-  } catch (e) {}
+    let token = null;
+    try {
+      if (typeof authService.getToken === "function") {
+        token = authService.getToken();
+      }
+    } catch {}
 
-  const response = await fetch(
-    `${API_URL}${endpoint}`,
-    {
-      ...options,
+    const response = await fetch(`${API_URL}${endpoint}`, {
+      method: "GET",
       credentials: "include",
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(options.headers || {}),
       },
-    }
-  );
+      cache: "no-store",
+    });
 
-  let data = null;
-
-  try {
-    data =
-      await response.json();
+    if (!response.ok) return fallback;
+    return await response.json();
   } catch {
-    data = null;
+    return fallback;
   }
-
-  if (!response.ok) {
-    const error =
-      new Error(
-        data?.message ||
-          data?.error ||
-          data?.errors?.[0]
-            ?.message ||
-          `Request failed with status ${response.status}`
-      );
-
-    error.status =
-      response.status;
-
-    throw error;
-  }
-
-  return data;
 }
-
-/* =========================================================
-   USER NORMALIZER
-========================================================= */
 
 function extractUser(response) {
-  return (
-    response?.user ||
-    response?.data?.user ||
-    response?.data ||
-    response ||
-    null
-  );
+  return response?.user || response?.data?.user || response?.data || response || null;
 }
-
-/* =========================================================
-   TASK NORMALIZER
-========================================================= */
 
 function normalizeTasks(response) {
   const possible =
@@ -1640,21 +790,10 @@ function normalizeTasks(response) {
     response?.items ||
     response?.data ||
     [];
-
-  return Array.isArray(
-    possible
-  )
-    ? possible
-    : [];
+  return Array.isArray(possible) ? possible : [];
 }
 
-/* =========================================================
-   CONVERSATION NORMALIZER
-========================================================= */
-
-function normalizeConversations(
-  response
-) {
+function normalizeConversations(response) {
   const possible =
     response?.conversations ||
     response?.data?.conversations ||
@@ -1663,21 +802,10 @@ function normalizeConversations(
     response?.items ||
     response?.data ||
     [];
-
-  return Array.isArray(
-    possible
-  )
-    ? possible
-    : [];
+  return Array.isArray(possible) ? possible : [];
 }
 
-/* =========================================================
-   NOTIFICATION NORMALIZER
-========================================================= */
-
-function normalizeNotifications(
-  response
-) {
+function normalizeNotifications(response) {
   const possible =
     response?.notifications ||
     response?.data?.notifications ||
@@ -1686,86 +814,31 @@ function normalizeNotifications(
     response?.items ||
     response?.data ||
     [];
-
-  return Array.isArray(
-    possible
-  )
-    ? possible
-    : [];
+  return Array.isArray(possible) ? possible : [];
 }
 
-/* =========================================================
-   STATUS NORMALIZER
-========================================================= */
-
-function normalizeStatus(
-  status
-) {
-  return String(
-    status || ""
-  )
-    .trim()
-    .toLowerCase();
+function normalizeStatus(status) {
+  return String(status || "").trim().toLowerCase();
 }
-
-/* =========================================================
-   DATE
-========================================================= */
 
 function formatDate(date) {
-  if (!date) {
-    return "";
-  }
-
-  const parsed =
-    new Date(date);
-
-  if (
-    Number.isNaN(
-      parsed.getTime()
-    )
-  ) {
-    return "";
-  }
-
-  return parsed.toLocaleDateString(
-    "en-US",
-    {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    }
-  );
+  if (!date) return "";
+  const parsed = new Date(date);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
-/* =========================================================
-   DATE + TIME
-========================================================= */
-
-function formatDateTime(
-  date
-) {
-  if (!date) {
-    return "Recently";
-  }
-
-  const parsed =
-    new Date(date);
-
-  if (
-    Number.isNaN(
-      parsed.getTime()
-    )
-  ) {
-    return "Recently";
-  }
-
-  return parsed.toLocaleDateString(
-    "en-US",
-    {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    }
-  );
+function formatDateTime(date) {
+  if (!date) return "Recently";
+  const parsed = new Date(date);
+  if (Number.isNaN(parsed.getTime())) return "Recently";
+  return parsed.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }

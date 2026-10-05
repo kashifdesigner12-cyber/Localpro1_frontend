@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   Activity,
@@ -17,22 +19,21 @@ import {
   LogOut,
   Menu,
   MessageSquare,
+  RefreshCw,
+  Search,
   Settings,
   ShieldCheck,
+  SlidersHorizontal,
+  UserCheck,
   Users,
   X,
+  XCircle,
 } from "lucide-react";
 
 import { authService } from "@/services/authService";
 
 /* ============================================================
    API URL
-   Supports both:
-   https://api.localpro1.net
-   https://api.localpro1.net/api
-
-   Final result:
-   https://api.localpro1.net/api
 ============================================================ */
 
 const RAW_API_URL =
@@ -44,6 +45,8 @@ const CLEAN_API_URL = RAW_API_URL.replace(/\/+$/, "");
 const API_URL = CLEAN_API_URL.endsWith("/api")
   ? CLEAN_API_URL
   : `${CLEAN_API_URL}/api`;
+
+const CACHE_TIME = 30 * 1000;
 
 /* ============================================================
    NAVIGATION
@@ -66,6 +69,11 @@ const navigation = [
     icon: ClipboardList,
   },
   {
+    label: "Attendance",
+    href: "/admin/attendance",
+    icon: UserCheck,
+  },
+  {
     label: "Leave Requests",
     href: "/admin/leave-requests",
     icon: ClipboardCheck,
@@ -76,21 +84,69 @@ const navigation = [
     icon: MessageSquare,
   },
   {
-    label: "Calendar",
-    href: "/admin/calendar",
-    icon: CalendarDays,
-  },
-  {
-    label: "Activity",
-    href: "/admin/activity",
-    icon: Activity,
-  },
-  {
     label: "Settings",
     href: "/admin/settings",
     icon: Settings,
   },
 ];
+
+/* ============================================================
+   STAT CARD & SKELETON COMPONENTS
+============================================================ */
+
+function StatCard({
+  title,
+  value,
+  subtitle,
+  icon: Icon,
+  gradient,
+}) {
+  return (
+    <div className="group relative overflow-hidden rounded-[24px] border border-slate-200/80 bg-white p-5 shadow-[0_10px_35px_rgba(45,35,100,0.06)] transition duration-200 hover:-translate-y-1 hover:shadow-[0_18px_45px_rgba(45,35,100,0.10)]">
+      <div
+        className={`absolute -right-10 -top-10 h-28 w-28 rounded-full bg-gradient-to-br ${gradient} opacity-[0.08] transition duration-300 group-hover:scale-125`}
+      />
+
+      <div className="relative flex items-start justify-between">
+        <div>
+          <p className="text-[13px] font-semibold text-slate-500">
+            {title}
+          </p>
+
+          <h3 className="mt-2 text-[28px] font-bold tracking-tight text-slate-900">
+            {value}
+          </h3>
+
+          <p className="mt-2 text-[11px] font-medium text-slate-400">
+            {subtitle}
+          </p>
+        </div>
+
+        <div
+          className={`flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br ${gradient} text-white shadow-lg`}
+        >
+          <Icon size={21} strokeWidth={2.2} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SkeletonCard() {
+  return (
+    <div className="animate-pulse rounded-[24px] border border-slate-200/80 bg-white p-5 shadow-sm">
+      <div className="flex justify-between">
+        <div>
+          <div className="h-3 w-24 rounded bg-slate-200" />
+          <div className="mt-3 h-8 w-20 rounded bg-slate-200" />
+          <div className="mt-3 h-3 w-28 rounded bg-slate-100" />
+        </div>
+
+        <div className="h-12 w-12 rounded-2xl bg-slate-200" />
+      </div>
+    </div>
+  );
+}
 
 /* ============================================================
    MAIN PAGE
@@ -101,11 +157,14 @@ export default function AdminLeaveRequestsPage() {
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [leaveRequests, setLeaveRequests] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [actionId, setActionId] = useState(null);
   const [actionType, setActionType] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
 
   const [counts, setCounts] = useState({
     pending: 0,
@@ -115,6 +174,10 @@ export default function AdminLeaveRequestsPage() {
 
   const mountedRef = useRef(false);
   const loadingRef = useRef(false);
+  const cacheRef = useRef({
+    timestamp: 0,
+    data: null,
+  });
 
   /* ==========================================================
      MOUNT CHECK
@@ -133,20 +196,36 @@ export default function AdminLeaveRequestsPage() {
   ========================================================== */
 
   const loadLeaveRequests = useCallback(
-    async (showLoader = true) => {
+    async (force = false) => {
       if (loadingRef.current) {
+        return;
+      }
+
+      const now = Date.now();
+
+      if (
+        !force &&
+        cacheRef.current.data &&
+        now - cacheRef.current.timestamp < CACHE_TIME
+      ) {
+        setLeaveRequests(cacheRef.current.data);
+        setCounts(
+          calculateRequestCounts(cacheRef.current.data)
+        );
+        setLoading(false);
         return;
       }
 
       loadingRef.current = true;
 
       try {
-        if (showLoader && mountedRef.current) {
-          setLoading(true);
-        }
-
         if (mountedRef.current) {
+          if (force) {
+            setRefreshing(true);
+          }
+
           setError("");
+          setLoading(true);
         }
 
         const response = await fetch(
@@ -160,12 +239,6 @@ export default function AdminLeaveRequestsPage() {
         );
 
         const result = await parseResponse(response);
-
-        /* ======================================================
-           IMPORTANT:
-           Do NOT automatically logout on 401.
-           Only show an error.
-        ====================================================== */
 
         if (response.status === 401) {
           if (mountedRef.current) {
@@ -184,7 +257,10 @@ export default function AdminLeaveRequestsPage() {
           );
         }
 
-        if (!response.ok || result?.success === false) {
+        if (
+          !response.ok ||
+          result?.success === false
+        ) {
           throw new Error(
             result?.message ||
               result?.error ||
@@ -198,19 +274,19 @@ export default function AdminLeaveRequestsPage() {
           return;
         }
 
-        const safeRequests = Array.isArray(
-          requests
-        )
+        const safeRequests = Array.isArray(requests)
           ? requests
           : [];
 
         setLeaveRequests(safeRequests);
-
         setCounts(
-          calculateRequestCounts(
-            safeRequests
-          )
+          calculateRequestCounts(safeRequests)
         );
+
+        cacheRef.current = {
+          timestamp: Date.now(),
+          data: safeRequests,
+        };
       } catch (requestError) {
         console.error(
           "Load leave requests error:",
@@ -228,11 +304,9 @@ export default function AdminLeaveRequestsPage() {
       } finally {
         loadingRef.current = false;
 
-        if (
-          showLoader &&
-          mountedRef.current
-        ) {
+        if (mountedRef.current) {
           setLoading(false);
+          setRefreshing(false);
         }
       }
     },
@@ -244,7 +318,7 @@ export default function AdminLeaveRequestsPage() {
   ========================================================== */
 
   useEffect(() => {
-    loadLeaveRequests(true);
+    loadLeaveRequests(false);
   }, [loadLeaveRequests]);
 
   /* ==========================================================
@@ -275,27 +349,18 @@ export default function AdminLeaveRequestsPage() {
             ? `${API_URL}/leave-requests/${requestId}/approve`
             : `${API_URL}/leave-requests/${requestId}/reject`;
 
-        const response = await fetch(
-          endpoint,
-          {
-            method: "PUT",
-            headers: {
-              ...getAuthHeaders(),
-              "Content-Type":
-                "application/json",
-            },
-            credentials: "include",
-            cache: "no-store",
-            body: JSON.stringify({}),
-          }
-        );
+        const response = await fetch(endpoint, {
+          method: "PUT",
+          headers: {
+            ...getAuthHeaders(),
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          cache: "no-store",
+          body: JSON.stringify({}),
+        });
 
-        const result =
-          await parseResponse(response);
-
-        /* ======================================================
-           Never automatically logout on 401.
-        ====================================================== */
+        const result = await parseResponse(response);
 
         if (response.status === 401) {
           if (mountedRef.current) {
@@ -343,7 +408,15 @@ export default function AdminLeaveRequestsPage() {
             : "Leave request rejected successfully."
         );
 
-        await loadLeaveRequests(false);
+        setTimeout(() => {
+          if (mountedRef.current) {
+            setSuccess("");
+          }
+        }, 4000);
+
+        cacheRef.current.timestamp = 0;
+
+        await loadLeaveRequests(true);
       } catch (requestError) {
         console.error(
           `${type} leave request error:`,
@@ -374,29 +447,102 @@ export default function AdminLeaveRequestsPage() {
 
   /* ==========================================================
      LOGOUT
-     Only actual Sign Out button logs out.
   ========================================================== */
 
-  const handleLogout = useCallback(
-    async () => {
-      try {
-        await authService.logout();
-      } catch (logoutError) {
-        console.error(
-          "Admin logout error:",
-          logoutError
-        );
-      } finally {
-        setSidebarOpen(false);
-        router.replace("/login");
-        router.refresh();
-      }
-    },
-    [router]
-  );
+  const handleLogout = useCallback(async () => {
+    try {
+      await authService.logout();
+    } catch (logoutError) {
+      console.error(
+        "Admin logout error:",
+        logoutError
+      );
+    } finally {
+      setSidebarOpen(false);
+      router.replace("/login");
+      router.refresh();
+    }
+  }, [router]);
+
+  /* ==========================================================
+     FILTERED LEAVE REQUESTS
+  ========================================================== */
+
+  const filteredRequests = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const sf = statusFilter.trim().toLowerCase();
+
+    return leaveRequests.filter((req) => {
+      const user =
+        req?.user ||
+        req?.requestedBy ||
+        req?.employee ||
+        req?.createdBy ||
+        {};
+
+      const uName = String(
+        req?.userName ||
+          req?.fullName ||
+          req?.name ||
+          user?.name ||
+          user?.fullName ||
+          user?.username ||
+          ""
+      ).toLowerCase();
+
+      const uEmail = String(
+        req?.userEmail ||
+          req?.email ||
+          user?.email ||
+          ""
+      ).toLowerCase();
+
+      const reason = String(
+        req?.reason ||
+          req?.description ||
+          ""
+      ).toLowerCase();
+
+      const leaveType = String(
+        req?.leaveType ||
+          req?.type ||
+          ""
+      ).toLowerCase();
+
+      const status = normalizeStatus(
+        req?.status
+      );
+
+      const matchesSearch =
+        !q ||
+        uName.includes(q) ||
+        uEmail.includes(q) ||
+        reason.includes(q) ||
+        leaveType.includes(q);
+
+      const matchesStatus =
+        sf === "all" || status === sf;
+
+      return (
+        matchesSearch &&
+        matchesStatus
+      );
+    });
+  }, [
+    leaveRequests,
+    search,
+    statusFilter,
+  ]);
 
   return (
-    <div className="min-h-screen w-full bg-[#F8FAFC]">
+    <div className="relative min-h-screen w-full bg-[#f7f8fc] text-slate-900 animate-fadeIn">
+      {/* Background ambient lighting */}
+
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute -left-32 -top-32 h-72 w-72 rounded-full bg-violet-400/10 blur-3xl" />
+        <div className="absolute right-0 top-20 h-80 w-80 rounded-full bg-pink-400/10 blur-3xl" />
+        <div className="absolute bottom-0 left-1/3 h-72 w-72 rounded-full bg-orange-300/10 blur-3xl" />
+      </div>
 
       {/* ======================================================
           MOBILE SIDEBAR OVERLAY
@@ -406,10 +552,8 @@ export default function AdminLeaveRequestsPage() {
         <button
           type="button"
           aria-label="Close sidebar"
-          onClick={() =>
-            setSidebarOpen(false)
-          }
-          className="fixed inset-0 z-40 bg-black/40 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+          className="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-sm lg:hidden"
         />
       )}
 
@@ -418,35 +562,29 @@ export default function AdminLeaveRequestsPage() {
       ====================================================== */}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-[#171B3A] shadow-xl transition-transform duration-300 ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-[#171B3A] text-white shadow-2xl transition-transform duration-300 ease-in-out lg:translate-x-0 ${
           sidebarOpen
             ? "translate-x-0"
             : "-translate-x-full"
-        } lg:translate-x-0`}
+        }`}
       >
-
         {/* Sidebar Header */}
 
         <div className="flex h-20 shrink-0 items-center justify-between border-b border-white/10 px-5">
-
           <div className="flex min-w-0 items-center gap-3">
-
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#2563EB] text-white">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 to-blue-500 text-white shadow-md shadow-blue-600/20">
               <ShieldCheck size={22} />
             </div>
 
             <div className="min-w-0">
-
               <h1 className="truncate text-sm font-bold text-white">
                 Local Pro 1
               </h1>
 
-              <p className="truncate text-[11px] font-medium text-slate-300">
+              <p className="truncate text-[11px] font-semibold text-blue-400">
                 Admin Workspace
               </p>
-
             </div>
-
           </div>
 
           <button
@@ -454,24 +592,21 @@ export default function AdminLeaveRequestsPage() {
             onClick={() =>
               setSidebarOpen(false)
             }
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white hover:bg-white/10 lg:hidden"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-white/10 hover:text-white lg:hidden"
             aria-label="Close sidebar"
           >
             <X size={19} />
           </button>
-
         </div>
 
         {/* Navigation */}
 
         <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-5">
-
-          <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-300">
+          <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
             Administration
           </p>
 
           <div className="space-y-1.5">
-
             {navigation.map((item) => (
               <AdminNavItem
                 key={item.href}
@@ -481,46 +616,37 @@ export default function AdminLeaveRequestsPage() {
                 }
               />
             ))}
-
           </div>
-
         </nav>
 
         {/* Profile */}
 
         <div className="shrink-0 border-t border-white/10 p-3">
-
-          <div className="mb-1 flex items-center gap-3 rounded-xl px-3 py-3">
-
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#2563EB] text-xs font-bold text-white">
+          <div className="mb-2 flex items-center gap-3 rounded-2xl bg-white/[0.04] px-3 py-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-blue-600 text-xs font-bold text-white shadow-sm">
               A
             </div>
 
             <div className="min-w-0 flex-1">
-
-              <p className="truncate text-sm font-semibold text-white">
+              <p className="truncate text-sm font-bold text-white">
                 Administrator
               </p>
 
-              <p className="truncate text-xs font-medium text-slate-300">
+              <p className="truncate text-xs font-medium text-slate-400">
                 Admin Account
               </p>
-
             </div>
-
           </div>
 
           <button
             type="button"
             onClick={handleLogout}
-            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-white/10"
+            className="flex w-full items-center gap-3 rounded-2xl px-3.5 py-3 text-sm font-bold text-rose-400 transition hover:bg-rose-500/10 hover:text-rose-300"
           >
-            <LogOut size={17} />
+            <LogOut size={18} />
             <span>Sign Out</span>
           </button>
-
         </div>
-
       </aside>
 
       {/* ======================================================
@@ -528,246 +654,280 @@ export default function AdminLeaveRequestsPage() {
       ====================================================== */}
 
       <div className="min-h-screen w-full">
+        {/* Mobile Header */}
 
-        {/* Mobile Menu */}
-
-        <div className="flex w-full items-center border-b border-slate-200 bg-white px-5 py-3 lg:hidden">
-
+        <div className="flex w-full items-center border-b border-slate-200/80 bg-white/80 px-5 py-3 backdrop-blur-sm lg:hidden">
           <button
             type="button"
             onClick={() =>
               setSidebarOpen(true)
             }
-            className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-[#26344D] transition hover:bg-slate-50"
+            className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50"
             aria-label="Open sidebar"
           >
             <Menu size={20} />
           </button>
-
         </div>
 
-        {/* ====================================================
-            PAGE CONTENT
-        ==================================================== */}
+        {/* Page Main Content Area */}
 
-        <main className="w-full p-5 sm:p-6 lg:p-8">
-
-          <div className="w-full max-w-none space-y-6">
-
+        <main className="w-full p-4 sm:p-6 lg:p-8 animate-slideUp">
+          <div className="w-full space-y-6">
             {/* PAGE HEADER */}
 
             <section className="flex w-full flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-
               <div>
-
-                <p className="text-sm font-semibold text-[#2563EB]">
+                <div className="mb-1.5 inline-flex items-center gap-1.5 rounded-full border border-violet-200/80 bg-violet-50/80 px-2.5 py-0.5 text-[11px] font-bold tracking-wide text-violet-700">
+                  <ShieldCheck size={13} />
                   ADMINISTRATION
-                </p>
+                </div>
 
-                <h1 className="mt-1 text-2xl font-bold tracking-tight text-[#171B3A] sm:text-3xl">
+                <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">
                   Leave Requests
                 </h1>
 
-                <p className="mt-2 text-sm text-[#64748B]">
+                <p className="mt-0.5 text-xs font-medium text-slate-500">
                   Review and manage leave requests
                   submitted by workspace users.
                 </p>
-
               </div>
 
               <div className="flex flex-wrap gap-3">
-
                 <button
                   type="button"
                   onClick={() =>
                     loadLeaveRequests(true)
                   }
-                  disabled={loading}
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-[#26344D] transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={refreshing}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200/90 bg-white px-4 text-xs font-bold text-slate-700 shadow-sm transition hover:border-violet-200 hover:bg-violet-50/50 hover:text-violet-700 disabled:opacity-60"
                 >
-
-                  {loading ? (
-                    <Loader2
-                      size={17}
-                      className="animate-spin"
-                    />
-                  ) : (
-                    <Clock3 size={17} />
-                  )}
-
-                  {loading
-                    ? "Loading..."
-                    : "Refresh"}
-
+                  <RefreshCw
+                    size={15}
+                    className={
+                      refreshing
+                        ? "animate-spin text-violet-600"
+                        : ""
+                    }
+                  />
+                  Refresh
                 </button>
-
               </div>
-
             </section>
 
-            {/* SUCCESS */}
+            {/* SUCCESS ALERT */}
 
             {success && (
-              <section className="w-full rounded-2xl border border-green-100 bg-green-50 p-5">
-
-                <div className="flex items-center justify-between gap-4">
-
-                  <div className="flex items-center gap-3">
-
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-green-600 text-white">
-                      <Check size={16} />
-                    </div>
-
-                    <p className="text-sm font-semibold text-green-700">
-                      {success}
-                    </p>
-
+              <section className="flex items-center justify-between gap-4 rounded-2xl border border-emerald-100 bg-emerald-50/90 p-4 text-emerald-700 shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white shadow-sm">
+                    <Check
+                      size={15}
+                      strokeWidth={2.5}
+                    />
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setSuccess("")
-                    }
-                    className="text-green-600 transition hover:text-green-800"
-                    aria-label="Close success message"
-                  >
-                    <X size={17} />
-                  </button>
-
+                  <p className="text-xs font-bold">
+                    {success}
+                  </p>
                 </div>
 
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSuccess("")
+                  }
+                  className="rounded-lg p-1 text-emerald-600 transition hover:bg-emerald-100 hover:text-emerald-800"
+                >
+                  <X size={15} />
+                </button>
               </section>
             )}
 
-            {/* ERROR */}
+            {/* ERROR ALERT */}
 
             {error && (
-              <section className="w-full rounded-2xl border border-red-100 bg-red-50 p-5">
-
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-
-                  <div>
-
-                    <h2 className="text-sm font-bold text-red-700">
-                      Unable to process request
-                    </h2>
-
-                    <p className="mt-1 text-sm text-red-600">
-                      {error}
-                    </p>
-
+              <section className="flex items-center justify-between gap-4 rounded-2xl border border-rose-100 bg-rose-50/90 p-4 text-rose-700 shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-rose-600 text-white shadow-sm">
+                    <X
+                      size={15}
+                      strokeWidth={2.5}
+                    />
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setError("")
-                    }
-                    className="inline-flex h-9 w-fit items-center justify-center rounded-lg px-3 text-red-500 transition hover:bg-red-100 hover:text-red-700"
-                    aria-label="Close error"
-                  >
-                    <X size={17} />
-                  </button>
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold">
+                      Unable to process request
+                    </p>
 
+                    <p className="mt-0.5 break-words text-xs font-medium text-rose-600">
+                      {error}
+                    </p>
+                  </div>
                 </div>
 
+                <button
+                  type="button"
+                  onClick={() =>
+                    setError("")
+                  }
+                  className="rounded-lg p-1 text-rose-500 transition hover:bg-rose-100 hover:text-rose-700"
+                >
+                  <X size={15} />
+                </button>
               </section>
             )}
 
-            {/* SUMMARY CARDS */}
+            {/* SUMMARY STAT CARDS */}
 
             <section className="grid w-full grid-cols-1 gap-4 sm:grid-cols-3">
+              {loading &&
+              leaveRequests.length === 0 ? (
+                <>
+                  <SkeletonCard />
+                  <SkeletonCard />
+                  <SkeletonCard />
+                </>
+              ) : (
+                <>
+                  <StatCard
+                    title="Pending Requests"
+                    value={counts.pending}
+                    subtitle="Awaiting administrative action"
+                    icon={Clock3}
+                    gradient="from-amber-500 to-orange-400"
+                  />
 
-              <SummaryCard
-                icon={Clock3}
-                title="Pending Requests"
-                value={counts.pending}
-              />
+                  <StatCard
+                    title="Approved Requests"
+                    value={counts.approved}
+                    subtitle="Granted employee leaves"
+                    icon={CheckCircle2}
+                    gradient="from-emerald-500 to-teal-400"
+                  />
 
-              <SummaryCard
-                icon={CheckCircle2}
-                title="Approved Requests"
-                value={counts.approved}
-              />
+                  <StatCard
+                    title="Rejected Requests"
+                    value={counts.rejected}
+                    subtitle="Declined leave submissions"
+                    icon={XCircle}
+                    gradient="from-rose-500 to-red-400"
+                  />
+                </>
+              )}
+            </section>
 
-              <SummaryCard
-                icon={X}
-                title="Rejected Requests"
-                value={counts.rejected}
-              />
+            {/* FILTERS SECTION */}
 
+            <section className="w-full rounded-[26px] border border-slate-200/80 bg-white p-4 shadow-[0_10px_35px_rgba(45,35,100,0.05)] sm:p-5">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                <div className="relative flex-1">
+                  <Search
+                    size={16}
+                    className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
+
+                  <input
+                    type="text"
+                    value={search}
+                    onChange={(e) =>
+                      setSearch(e.target.value)
+                    }
+                    placeholder="Search by employee name, email, leave type, or reason..."
+                    className="h-11 w-full rounded-2xl border border-slate-200/90 bg-slate-50/50 pl-10 pr-4 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:bg-white focus:ring-4 focus:ring-violet-500/10"
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <select
+                    value={statusFilter}
+                    onChange={(e) =>
+                      setStatusFilter(
+                        e.target.value
+                      )
+                    }
+                    className="h-11 rounded-2xl border border-slate-200/90 bg-slate-50/50 px-4 text-xs font-bold text-slate-600 outline-none transition focus:border-violet-500 focus:bg-white"
+                  >
+                    <option value="all">
+                      All Statuses
+                    </option>
+                    <option value="pending">
+                      Pending
+                    </option>
+                    <option value="approved">
+                      Approved
+                    </option>
+                    <option value="rejected">
+                      Rejected
+                    </option>
+                  </select>
+
+                  {(search ||
+                    statusFilter !== "all") && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearch("");
+                        setStatusFilter("all");
+                      }}
+                      className="inline-flex h-11 items-center gap-1.5 rounded-2xl border border-slate-200/90 bg-white px-4 text-xs font-bold text-slate-600 shadow-sm transition hover:bg-slate-50"
+                    >
+                      <SlidersHorizontal
+                        size={15}
+                      />
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
             </section>
 
             {/* REQUEST TABLE */}
 
-            <section className="w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-
-              <div className="border-b border-slate-100 px-5 py-5 sm:px-6">
-
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-
+            <section className="w-full overflow-hidden rounded-[26px] border border-slate-200/80 bg-white shadow-[0_10px_35px_rgba(45,35,100,0.05)]">
+              <div className="border-b border-slate-100 bg-slate-50/50 px-6 py-4.5">
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-
-                    <h2 className="text-base font-bold text-[#171B3A]">
+                    <h2 className="text-base font-bold text-slate-900">
                       Workspace Leave Requests
                     </h2>
 
-                    <p className="mt-1 text-sm text-[#64748B]">
-
-                      {loading
-                        ? "Loading leave requests from backend..."
-                        : `${leaveRequests.length} request${
-                            leaveRequests.length !==
-                            1
-                              ? "s"
-                              : ""
-                          } displayed.`}
-
+                    <p className="text-xs text-slate-500">
+                      {loading &&
+                      leaveRequests.length ===
+                        0
+                        ? "Loading leave requests..."
+                        : `${filteredRequests.length} of ${leaveRequests.length} requests displayed`}
                     </p>
-
                   </div>
 
                   {!loading && (
-                    <span className="inline-flex w-fit rounded-full bg-[#EEF4FF] px-3 py-1 text-xs font-bold text-[#2563EB]">
+                    <span className="text-xs font-semibold text-slate-400">
                       {leaveRequests.length} Total
+                      Records
                     </span>
                   )}
-
                 </div>
-
               </div>
 
-              {loading ? (
-
-                <div className="flex min-h-[360px] w-full flex-col items-center justify-center px-6 text-center">
-
+              {loading &&
+              leaveRequests.length === 0 ? (
+                <div className="flex min-h-[300px] w-full flex-col items-center justify-center p-8 text-center">
                   <Loader2
-                    size={30}
-                    className="animate-spin text-[#2563EB]"
+                    size={28}
+                    className="animate-spin text-violet-600"
                   />
 
-                  <h3 className="mt-4 text-sm font-bold text-[#171B3A]">
-                    Loading leave requests
-                  </h3>
-
-                  <p className="mt-2 text-sm text-[#64748B]">
-                    Fetching real leave request
-                    records from the backend.
+                  <p className="mt-3 text-xs font-semibold text-slate-400">
+                    Loading leave requests...
                   </p>
-
                 </div>
-
-              ) : leaveRequests.length > 0 ? (
-
+              ) : filteredRequests.length >
+                0 ? (
                 <div className="w-full overflow-x-auto">
-
-                  <table className="w-full min-w-[1050px]">
-
+                  <table className="w-full min-w-[1000px] text-left">
                     <thead>
-
-                      <tr className="border-b border-slate-100 bg-slate-50/70">
-
+                      <tr className="border-b border-slate-100 bg-slate-50/30">
                         <TableHeader>
                           User
                         </TableHeader>
@@ -792,19 +952,15 @@ export default function AdminLeaveRequestsPage() {
                           Status
                         </TableHeader>
 
-                        <th className="px-5 py-3 text-right text-xs font-bold uppercase tracking-wide text-slate-400 sm:px-6">
+                        <th className="px-6 py-3.5 text-right text-[11px] font-bold uppercase tracking-wider text-slate-400">
                           Actions
                         </th>
-
                       </tr>
-
                     </thead>
 
-                    <tbody>
-
-                      {leaveRequests.map(
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredRequests.map(
                         (request, index) => {
-
                           const requestId =
                             request?._id ||
                             request?.id;
@@ -826,83 +982,48 @@ export default function AdminLeaveRequestsPage() {
                           );
                         }
                       )}
-
                     </tbody>
-
                   </table>
-
                 </div>
-
               ) : (
-
-                <div className="flex min-h-[360px] w-full flex-col items-center justify-center px-6 text-center">
-
-                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#EEF4FF] text-[#2563EB]">
-                    <ClipboardCheck size={25} />
+                <div className="flex min-h-[260px] w-full flex-col items-center justify-center px-6 py-10 text-center">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
+                    <ClipboardCheck size={22} />
                   </div>
 
-                  <h3 className="mt-4 text-sm font-bold text-[#171B3A]">
-                    No leave requests available
+                  <h3 className="mt-3 text-xs font-bold text-slate-900">
+                    {leaveRequests.length ===
+                    0
+                      ? "No leave requests available"
+                      : "No matching leave requests"}
                   </h3>
 
-                  <p className="mt-2 max-w-sm text-sm leading-6 text-[#64748B]">
-                    There are currently no leave
-                    request records available from
-                    the backend.
+                  <p className="mt-1 max-w-xs text-xs text-slate-400">
+                    {leaveRequests.length ===
+                    0
+                      ? "There are currently no leave requests submitted."
+                      : "Try clearing filters to see results."}
                   </p>
 
+                  {(search ||
+                    statusFilter !== "all") && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearch("");
+                        setStatusFilter("all");
+                      }}
+                      className="mt-4 rounded-xl bg-violet-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-violet-700"
+                    >
+                      Clear Filters
+                    </button>
+                  )}
                 </div>
-
               )}
-
             </section>
-
-            {/* RESULTS FOOTER */}
-
-            <section className="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-
-              <p className="text-xs text-slate-400">
-
-                {loading
-                  ? "Loading leave request records..."
-                  : `${leaveRequests.length} leave request${
-                      leaveRequests.length !== 1
-                        ? "s"
-                        : ""
-                    } displayed`}
-
-              </p>
-
-              <button
-                type="button"
-                onClick={() =>
-                  loadLeaveRequests(true)
-                }
-                disabled={loading}
-                className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-[#26344D] transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-
-                <Clock3
-                  size={14}
-                  className={
-                    loading
-                      ? "animate-spin"
-                      : ""
-                  }
-                />
-
-                Refresh Requests
-
-              </button>
-
-            </section>
-
           </div>
-
         </main>
-
       </div>
-
     </div>
   );
 }
@@ -947,12 +1068,7 @@ function getAuthHeaders() {
       if (token) {
         break;
       }
-    } catch (storageError) {
-      console.error(
-        `Unable to read token from ${key}:`,
-        storageError
-      );
-    }
+    } catch {}
   }
 
   if (token) {
@@ -982,12 +1098,7 @@ async function parseResponse(response) {
         message: text,
       };
     }
-  } catch (error) {
-    console.error(
-      "Response parsing error:",
-      error
-    );
-
+  } catch {
     return null;
   }
 }
@@ -1005,7 +1116,9 @@ function extractRequests(result) {
     return result.requests;
   }
 
-  if (Array.isArray(result?.leaveRequests)) {
+  if (
+    Array.isArray(result?.leaveRequests)
+  ) {
     return result.leaveRequests;
   }
 
@@ -1014,9 +1127,7 @@ function extractRequests(result) {
   }
 
   if (
-    Array.isArray(
-      result?.data?.requests
-    )
+    Array.isArray(result?.data?.requests)
   ) {
     return result.data.requests;
   }
@@ -1036,7 +1147,9 @@ function extractRequests(result) {
    CALCULATE COUNTS
 ============================================================ */
 
-function calculateRequestCounts(requests) {
+function calculateRequestCounts(
+  requests
+) {
   let pending = 0;
   let approved = 0;
   let rejected = 0;
@@ -1093,7 +1206,6 @@ function AdminNavItem({
   onNavigate,
 }) {
   const pathname = usePathname();
-
   const Icon = item.icon;
 
   const isActive =
@@ -1107,23 +1219,22 @@ function AdminNavItem({
     <Link
       href={item.href}
       onClick={onNavigate}
-      className={`group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold transition ${
+      className={`group flex items-center gap-3 rounded-2xl px-3.5 py-3 text-sm font-bold transition duration-150 ${
         isActive
-          ? "bg-[#2563EB] text-white shadow-sm"
-          : "bg-transparent text-white hover:bg-white/10"
+          ? "bg-blue-600 text-white shadow-md shadow-blue-600/30"
+          : "text-slate-300 hover:bg-white/10 hover:text-white"
       }`}
     >
-
       <Icon
         size={18}
-        strokeWidth={2}
-        className="shrink-0 text-white"
+        className={`transition duration-150 ${
+          isActive
+            ? "text-white"
+            : "text-slate-400 group-hover:text-white"
+        }`}
       />
 
-      <span className="text-white">
-        {item.label}
-      </span>
-
+      <span>{item.label}</span>
     </Link>
   );
 }
@@ -1134,49 +1245,9 @@ function AdminNavItem({
 
 function TableHeader({ children }) {
   return (
-    <th className="px-5 py-3 text-left text-xs font-bold uppercase tracking-wide text-slate-400 sm:px-6">
+    <th className="px-6 py-3.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">
       {children}
     </th>
-  );
-}
-
-/* ============================================================
-   SUMMARY CARD
-============================================================ */
-
-function SummaryCard({
-  icon: Icon,
-  title,
-  value,
-}) {
-  return (
-    <div className="w-full rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-
-      <div className="flex items-start justify-between">
-
-        <div>
-
-          <p className="text-sm font-medium text-[#64748B]">
-            {title}
-          </p>
-
-          <p className="mt-2 text-2xl font-bold text-[#171B3A]">
-            {value}
-          </p>
-
-          <p className="mt-1 text-xs text-slate-400">
-            Live backend data
-          </p>
-
-        </div>
-
-        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#EEF4FF] text-[#2563EB]">
-          <Icon size={20} />
-        </div>
-
-      </div>
-
-    </div>
   );
 }
 
@@ -1191,8 +1262,7 @@ function LeaveRequestRow({
   onAction,
 }) {
   const id =
-    request?._id ||
-    request?.id;
+    request?._id || request?.id;
 
   const user =
     request?.user ||
@@ -1243,8 +1313,7 @@ function LeaveRequestRow({
     "—";
 
   const status =
-    request?.status ||
-    "Pending";
+    request?.status || "Pending";
 
   const normalizedStatus =
     normalizeStatus(status);
@@ -1256,78 +1325,77 @@ function LeaveRequestRow({
     String(actionId) === String(id);
 
   return (
-    <tr className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50/50">
-
+    <tr className="border-b border-slate-100 last:border-b-0 transition hover:bg-slate-50/50">
       {/* User */}
 
-      <td className="px-5 py-4 sm:px-6">
+      <td className="px-6 py-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-sm">
+            {userName
+              .charAt(0)
+              .toUpperCase()}
+          </div>
 
-        <div>
-
-          <p className="text-sm font-bold text-[#171B3A]">
-            {userName}
-          </p>
-
-          {userEmail && (
-            <p className="mt-1 text-xs text-[#64748B]">
-              {userEmail}
+          <div className="min-w-0">
+            <p className="truncate text-xs font-bold text-slate-900">
+              {userName}
             </p>
-          )}
 
+            {userEmail && (
+              <p className="truncate text-[10px] text-slate-400">
+                {userEmail}
+              </p>
+            )}
+          </div>
         </div>
-
       </td>
 
       {/* Leave Type */}
 
-      <td className="px-5 py-4 text-sm text-[#26344D]">
-        {leaveType}
+      <td className="px-6 py-4">
+        <span className="inline-flex rounded-full bg-violet-50 px-2.5 py-0.5 text-[10px] font-bold text-violet-700">
+          {leaveType}
+        </span>
       </td>
 
       {/* Start Date */}
 
-      <td className="px-5 py-4 text-sm text-[#26344D]">
+      <td className="whitespace-nowrap px-6 py-4 text-xs font-medium text-slate-600">
         {formatDate(startDate)}
       </td>
 
       {/* End Date */}
 
-      <td className="px-5 py-4 text-sm text-[#26344D]">
+      <td className="whitespace-nowrap px-6 py-4 text-xs font-medium text-slate-600">
         {formatDate(endDate)}
       </td>
 
       {/* Reason */}
 
-      <td className="max-w-xs px-5 py-4 text-sm text-[#64748B]">
-
+      <td className="max-w-xs px-6 py-4 text-xs text-slate-500">
         <p
           className="max-w-xs truncate"
           title={String(reason)}
         >
           {reason}
         </p>
-
       </td>
 
       {/* Status */}
 
-      <td className="px-5 py-4">
+      <td className="px-6 py-4">
         <StatusBadge status={status} />
       </td>
 
       {/* Actions */}
 
-      <td className="px-5 py-4 text-right">
-
+      <td className="px-6 py-4 text-right sm:pr-6">
         {isPending ? (
-
-          <div className="flex justify-end gap-2">
-
+          <div className="flex items-center justify-end gap-2">
             <button
               type="button"
               disabled={
-                Boolean(actionId) ||
-                !id
+                Boolean(actionId) || !id
               }
               onClick={() =>
                 onAction(
@@ -1335,33 +1403,35 @@ function LeaveRequestRow({
                   "approve"
                 )
               }
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[#2563EB] px-3 py-2 text-xs font-bold text-white transition hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex h-8 items-center gap-1 rounded-xl bg-violet-600 px-3 text-xs font-bold text-white shadow-sm hover:bg-violet-700 disabled:opacity-50"
             >
-
               {isProcessing &&
               actionType ===
                 "approve" ? (
                 <Loader2
-                  size={14}
+                  size={13}
                   className="animate-spin"
                 />
               ) : (
-                <Check size={14} />
+                <Check
+                  size={13}
+                  strokeWidth={2.5}
+                />
               )}
 
-              {isProcessing &&
-              actionType ===
-                "approve"
-                ? "Approving..."
-                : "Approve"}
-
+              <span>
+                {isProcessing &&
+                actionType ===
+                  "approve"
+                  ? "Approving..."
+                  : "Approve"}
+              </span>
             </button>
 
             <button
               type="button"
               disabled={
-                Boolean(actionId) ||
-                !id
+                Boolean(actionId) || !id
               }
               onClick={() =>
                 onAction(
@@ -1369,40 +1439,37 @@ function LeaveRequestRow({
                   "reject"
                 )
               }
-              className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-bold text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex h-8 items-center gap-1 rounded-xl border border-rose-100 bg-rose-50 px-3 text-xs font-bold text-rose-600 transition hover:bg-rose-100 disabled:opacity-50"
             >
-
               {isProcessing &&
               actionType ===
                 "reject" ? (
                 <Loader2
-                  size={14}
+                  size={13}
                   className="animate-spin"
                 />
               ) : (
-                <X size={14} />
+                <X
+                  size={13}
+                  strokeWidth={2.5}
+                />
               )}
 
-              {isProcessing &&
-              actionType ===
-                "reject"
-                ? "Rejecting..."
-                : "Reject"}
-
+              <span>
+                {isProcessing &&
+                actionType ===
+                  "reject"
+                  ? "Rejecting..."
+                  : "Reject"}
+              </span>
             </button>
-
           </div>
-
         ) : (
-
-          <span className="text-xs font-semibold text-slate-400">
-            No action required
+          <span className="text-xs font-medium text-slate-300">
+            —
           </span>
-
         )}
-
       </td>
-
     </tr>
   );
 }
@@ -1415,24 +1482,28 @@ function StatusBadge({ status }) {
   const normalized =
     normalizeStatus(status);
 
-  if (normalized === "approved") {
-    return (
-      <span className="inline-flex rounded-full bg-green-50 px-3 py-1 text-xs font-bold text-green-700">
-        Approved
-      </span>
-    );
-  }
+  let classes =
+    "bg-slate-100 text-slate-600 border border-slate-200";
 
-  if (normalized === "rejected") {
-    return (
-      <span className="inline-flex rounded-full bg-red-50 px-3 py-1 text-xs font-bold text-red-700">
-        Rejected
-      </span>
-    );
+  if (normalized === "approved") {
+    classes =
+      "bg-emerald-50 text-emerald-700 border border-emerald-200";
+  } else if (
+    normalized === "rejected"
+  ) {
+    classes =
+      "bg-rose-50 text-rose-700 border border-rose-200";
+  } else if (
+    normalized === "pending"
+  ) {
+    classes =
+      "bg-amber-50 text-amber-700 border border-amber-200";
   }
 
   return (
-    <span className="inline-flex rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
+    <span
+      className={`inline-flex rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide ${classes}`}
+    >
       {status || "Pending"}
     </span>
   );
@@ -1454,10 +1525,10 @@ function formatDate(value) {
   }
 
   return date.toLocaleDateString(
-    undefined,
+    "en-US",
     {
       month: "short",
-      day: "2-digit",
+      day: "numeric",
       year: "numeric",
     }
   );

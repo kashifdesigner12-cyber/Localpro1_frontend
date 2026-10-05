@@ -4,8 +4,6 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
-  Activity,
-  CalendarDays,
   ClipboardCheck,
   ClipboardList,
   LayoutDashboard,
@@ -54,23 +52,12 @@ const navigation = [
     icon: MessageSquare,
   },
   {
-    label: "Calendar",
-    href: "/admin/calendar",
-    icon: CalendarDays,
-  },
-  {
-    label: "Activity",
-    href: "/admin/activity",
-    icon: Activity,
-  },
-  {
     label: "Settings",
     href: "/admin/settings",
     icon: Settings,
   },
 ];
 
-// Global persistent cache for admin layout user state so it only checks/loads ONCE per session
 let globalAdminUserCache = {
   user: null,
   loaded: false,
@@ -85,11 +72,13 @@ export default function AdminLayout({ children }) {
   const redirectingRef = useRef(false);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  
-  // Initialize loading state to false if we already have a cached admin user session
-  const [loading, setLoading] = useState(!globalAdminUserCache.loaded);
+  const [loading, setLoading] = useState(
+    !globalAdminUserCache.loaded
+  );
   const [loggingOut, setLoggingOut] = useState(false);
-  const [currentUser, setCurrentUser] = useState(globalAdminUserCache.user);
+  const [currentUser, setCurrentUser] = useState(
+    globalAdminUserCache.user
+  );
 
   useEffect(() => {
     mountedRef.current = true;
@@ -100,7 +89,6 @@ export default function AdminLayout({ children }) {
   }, []);
 
   useEffect(() => {
-    // If layout already verified the admin user once, completely skip checking again on internal navigation
     if (globalAdminUserCache.loaded) {
       setLoading(false);
       return;
@@ -121,7 +109,10 @@ export default function AdminLayout({ children }) {
           return;
         }
 
-        const user = response?.user || response?.data || response;
+        const user =
+          response?.user ||
+          response?.data ||
+          response;
 
         if (!user) {
           redirectToLogin();
@@ -142,7 +133,6 @@ export default function AdminLayout({ children }) {
           avatar: user?.avatar || null,
         };
 
-        // Save into global layout cache so other pages / re-visits don't trigger layout reload
         globalAdminUserCache = {
           user: formattedUser,
           loaded: true,
@@ -176,8 +166,10 @@ export default function AdminLayout({ children }) {
   }, []);
 
   function redirectToLogin() {
-    // Clear global cache on explicit logout/unauthorized
-    globalAdminUserCache = { user: null, loaded: false };
+    globalAdminUserCache = {
+      user: null,
+      loaded: false,
+    };
 
     if (redirectingRef.current) {
       return;
@@ -216,8 +208,10 @@ export default function AdminLayout({ children }) {
         error
       );
     } finally {
-      // Clear global cache on logout
-      globalAdminUserCache = { user: null, loaded: false };
+      globalAdminUserCache = {
+        user: null,
+        loaded: false,
+      };
 
       try {
         if (typeof authService.clearToken === "function") {
@@ -239,11 +233,20 @@ export default function AdminLayout({ children }) {
     }
   }
 
+  if (loading) {
+    return (
+      <div className="flex min-h-screen w-full items-center justify-center bg-[#F8FAFC]">
+        <Loader2
+          size={30}
+          className="animate-spin text-[#2563EB]"
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen w-full overflow-x-hidden bg-[#F8FAFC]">
-      {/* =====================================================
-          MOBILE OVERLAY
-      ===================================================== */}
+      {/* MOBILE OVERLAY */}
 
       {sidebarOpen && (
         <button
@@ -254,9 +257,7 @@ export default function AdminLayout({ children }) {
         />
       )}
 
-      {/* =====================================================
-          SIDEBAR
-      ===================================================== */}
+      {/* SIDEBAR */}
 
       <aside
         className={`
@@ -411,19 +412,13 @@ export default function AdminLayout({ children }) {
         </div>
       </aside>
 
-      {/* =====================================================
-          MAIN AREA
-      ===================================================== */}
+      {/* MAIN AREA */}
 
       <div className="min-h-screen w-full lg:pl-64">
         {/* Header */}
 
         <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-slate-200 bg-white/95 px-5 backdrop-blur sm:px-6 lg:px-8">
-          {/* Left */}
-
           <div className="flex min-w-0 items-center gap-3">
-            {/* Mobile Menu */}
-
             <button
               type="button"
               onClick={() => setSidebarOpen(true)}
@@ -444,29 +439,25 @@ export default function AdminLayout({ children }) {
             </div>
           </div>
 
-          {/* Header Profile */}
-
           <ProfileAvatar
             user={currentUser}
             size="header"
           />
         </header>
 
-        {/* =================================================
-            CHILD PAGE
-        ================================================= */}
+        {/* CHILD PAGE */}
 
         <main className="min-h-[calc(100vh-4rem)] w-full">
-          {children}
+          <div className="w-full max-w-none">
+            {children}
+          </div>
         </main>
       </div>
     </div>
   );
 }
 
-/* =========================================================
-   PROFILE AVATAR
-========================================================= */
+/* PROFILE AVATAR */
 
 function ProfileAvatar({
   user,
@@ -510,9 +501,7 @@ function ProfileAvatar({
   );
 }
 
-/* =========================================================
-   PAGE TITLE
-========================================================= */
+/* PAGE TITLE */
 
 function getPageTitle(pathname) {
   if (pathname === "/admin") {
@@ -531,37 +520,15 @@ function getPageTitle(pathname) {
     return "Attendance";
   }
 
-  if (
-    pathname.startsWith(
-      "/admin/leave-requests"
-    )
-  ) {
+  if (pathname.startsWith("/admin/leave-requests")) {
     return "Leave Requests";
   }
 
-  if (
-    pathname.startsWith(
-      "/admin/conversations"
-    )
-  ) {
+  if (pathname.startsWith("/admin/conversations")) {
     return "Conversations";
   }
 
-  if (
-    pathname.startsWith("/admin/calendar")
-  ) {
-    return "Calendar";
-  }
-
-  if (
-    pathname.startsWith("/admin/activity")
-  ) {
-    return "Activity";
-  }
-
-  if (
-    pathname.startsWith("/admin/settings")
-  ) {
+  if (pathname.startsWith("/admin/settings")) {
     return "Settings";
   }
 

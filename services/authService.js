@@ -1,4 +1,40 @@
-const API_URL = "https://api.localpro1.net/api";
+"use client";
+
+// ==========================================
+// API URL
+// ==========================================
+
+const ENV_API_URL = process.env.NEXT_PUBLIC_API_URL?.trim();
+
+const PRODUCTION_API = "https://api.localpro1.net/api";
+const LOCAL_API = "http://localhost:5000/api";
+
+const getApiUrl = () => {
+  if (typeof window === "undefined") {
+    return ENV_API_URL || PRODUCTION_API;
+  }
+
+  const hostname = window.location.hostname;
+
+  const isLocalFrontend =
+    hostname === "localhost" ||
+    hostname === "127.0.0.1";
+
+  // Never use localhost API from deployed frontend.
+  if (!isLocalFrontend) {
+    if (
+      !ENV_API_URL ||
+      ENV_API_URL.includes("localhost") ||
+      ENV_API_URL.includes("127.0.0.1")
+    ) {
+      return PRODUCTION_API;
+    }
+
+    return ENV_API_URL.replace(/\/+$/, "");
+  }
+
+  return (ENV_API_URL || LOCAL_API).replace(/\/+$/, "");
+};
 
 // ==========================================
 // AUTH USER CACHE / REQUEST DEDUPLICATION
@@ -8,7 +44,8 @@ let cachedUser = null;
 let cachedUserAt = 0;
 let cachedUserPromise = null;
 
-// Keep the authenticated user briefly in memory (increased slightly to 10s for better performance across layout/navbar/dashboard mounts).
+// Keep the authenticated user briefly in memory
+// for better performance across layout/navbar/dashboard mounts.
 const USER_CACHE_TTL = 10000;
 
 // ==========================================
@@ -66,11 +103,15 @@ const getStoredToken = () => {
     return null;
   }
 
-  return normalizeToken(
-    localStorage.getItem("token") ||
-      localStorage.getItem("authToken") ||
-      sessionStorage.getItem("token")
-  );
+  try {
+    return normalizeToken(
+      localStorage.getItem("token") ||
+        localStorage.getItem("authToken") ||
+        sessionStorage.getItem("token")
+    );
+  } catch {
+    return null;
+  }
 };
 
 // ==========================================
@@ -167,8 +208,10 @@ const safeFetch = async (url, options = {}) => {
 // ==========================================
 
 const fetchCurrentUser = async () => {
+  const apiUrl = getApiUrl();
+
   const response = await safeFetch(
-    `${API_URL}/auth/me`,
+    `${apiUrl}/auth/me`,
     {
       method: "GET",
       headers: getAuthHeaders(false),
@@ -179,11 +222,13 @@ const fetchCurrentUser = async () => {
 
   const data = await parseResponse(response);
 
+  // Session/token expired
   if (response.status === 401) {
     clearUserCache();
     return null;
   }
 
+  // User authenticated but not allowed
   if (response.status === 403) {
     const error = new Error(
       getErrorMessage(
@@ -193,20 +238,23 @@ const fetchCurrentUser = async () => {
     );
 
     error.code = "AUTH_FORBIDDEN";
+    error.status = 403;
 
     throw error;
   }
 
+  // Other API/server errors
   if (!response.ok || data?.success === false) {
     const error = new Error(
       getErrorMessage(
         data,
-        "Unable to load your account."
+        `Unable to load your account. Server returned ${response.status}.`
       )
     );
 
     error.code = "AUTH_SERVER_ERROR";
     error.status = response.status;
+    error.data = data;
 
     throw error;
   }
@@ -222,11 +270,17 @@ const fetchCurrentUser = async () => {
 // ==========================================
 
 export const authService = {
+  // ========================================
+  // LOGIN
+  // ========================================
+
   async login(email, password) {
     clearUserCache();
 
+    const apiUrl = getApiUrl();
+
     const response = await safeFetch(
-      `${API_URL}/auth/login`,
+      `${apiUrl}/auth/login`,
       {
         method: "POST",
         headers: {
@@ -252,6 +306,7 @@ export const authService = {
       );
     }
 
+    // Store JWT token if backend returns one
     if (
       typeof window !== "undefined" &&
       (data?.token || data?.data?.token)
@@ -261,9 +316,13 @@ export const authService = {
       );
 
       if (token) {
-        localStorage.setItem("token", token);
-        localStorage.removeItem("authToken");
-        sessionStorage.removeItem("token");
+        try {
+          localStorage.setItem("token", token);
+          localStorage.removeItem("authToken");
+          sessionStorage.removeItem("token");
+        } catch {
+          // Ignore storage errors.
+        }
       }
     }
 
@@ -272,9 +331,14 @@ export const authService = {
     return data;
   },
 
+  // ========================================
+  // CURRENT USER
+  // ========================================
+
   async me() {
     const now = Date.now();
 
+    // Return cached user if still valid
     if (
       cachedUser &&
       now - cachedUserAt < USER_CACHE_TTL
@@ -282,6 +346,7 @@ export const authService = {
       return cachedUser;
     }
 
+    // Prevent duplicate simultaneous requests
     if (cachedUserPromise) {
       return cachedUserPromise;
     }
@@ -294,6 +359,10 @@ export const authService = {
       cachedUserPromise = null;
     }
   },
+
+  // ========================================
+  // UPDATE PROFILE
+  // ========================================
 
   async updateProfile(profileData = {}) {
     const payload = {
@@ -340,8 +409,10 @@ export const authService = {
           : undefined,
     };
 
+    const apiUrl = getApiUrl();
+
     let response = await safeFetch(
-      `${API_URL}/auth/me`,
+      `${apiUrl}/auth/me`,
       {
         method: "PUT",
         headers: getAuthHeaders(),
@@ -352,9 +423,10 @@ export const authService = {
 
     let data = await parseResponse(response);
 
+    // Fallback endpoint
     if (response.status === 404) {
       response = await safeFetch(
-        `${API_URL}/users/profile`,
+        `${apiUrl}/users/profile`,
         {
           method: "PUT",
           headers: getAuthHeaders(),
@@ -366,6 +438,7 @@ export const authService = {
       data = await parseResponse(response);
     }
 
+    // Session expired
     if (response.status === 401) {
       clearUserCache();
 
@@ -374,10 +447,12 @@ export const authService = {
       );
 
       error.code = "AUTH_EXPIRED";
+      error.status = 401;
 
       throw error;
     }
 
+    // Forbidden
     if (response.status === 403) {
       throw new Error(
         getErrorMessage(
@@ -387,6 +462,7 @@ export const authService = {
       );
     }
 
+    // Other errors
     if (!response.ok || data?.success === false) {
       throw new Error(
         getErrorMessage(
@@ -397,8 +473,8 @@ export const authService = {
     }
 
     clearUserCache();
-    
-    // Immediately prime cache with updated profile response so subsequent me() calls instantly reflect new avatar
+
+    // Immediately prime cache with updated profile
     if (data) {
       cachedUser = data;
       cachedUserAt = Date.now();
@@ -407,12 +483,18 @@ export const authService = {
     return data;
   },
 
+  // ========================================
+  // CHANGE PASSWORD
+  // ========================================
+
   async changePassword(
     currentPassword,
     newPassword
   ) {
+    const apiUrl = getApiUrl();
+
     const response = await safeFetch(
-      `${API_URL}/auth/change-password`,
+      `${apiUrl}/auth/change-password`,
       {
         method: "PATCH",
         headers: getAuthHeaders(),
@@ -434,6 +516,7 @@ export const authService = {
       );
 
       error.code = "AUTH_EXPIRED";
+      error.status = 401;
 
       throw error;
     }
@@ -450,20 +533,29 @@ export const authService = {
     return data;
   },
 
+  // ========================================
+  // LOGOUT
+  // ========================================
+
   async logout() {
     const token = getStoredToken();
+    const apiUrl = getApiUrl();
 
     clearUserCache();
 
     if (typeof window !== "undefined") {
-      localStorage.removeItem("token");
-      localStorage.removeItem("authToken");
-      sessionStorage.removeItem("token");
+      try {
+        localStorage.removeItem("token");
+        localStorage.removeItem("authToken");
+        sessionStorage.removeItem("token");
+      } catch {
+        // Ignore storage errors.
+      }
     }
 
     try {
       const response = await safeFetch(
-        `${API_URL}/auth/logout`,
+        `${apiUrl}/auth/logout`,
         {
           method: "POST",
           headers: {
@@ -507,12 +599,20 @@ export const authService = {
       }
 
       throw error;
-    }s
+    }
   },
+
+  // ========================================
+  // GET TOKEN
+  // ========================================
 
   getToken() {
     return getStoredToken();
   },
+
+  // ========================================
+  // CLEAR TOKEN
+  // ========================================
 
   clearToken() {
     clearUserCache();
@@ -521,10 +621,18 @@ export const authService = {
       return;
     }
 
-    localStorage.removeItem("token");
-    localStorage.removeItem("authToken");
-    sessionStorage.removeItem("token");
+    try {
+      localStorage.removeItem("token");
+      localStorage.removeItem("authToken");
+      sessionStorage.removeItem("token");
+    } catch {
+      // Ignore storage errors.
+    }
   },
+
+  // ========================================
+  // CLEAR USER CACHE
+  // ========================================
 
   clearUserCache() {
     clearUserCache();

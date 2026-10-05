@@ -7,23 +7,32 @@ import {
   useState,
   useCallback,
 } from "react";
-
 import {
-  AlertTriangle,
   FileText,
-  File,
-  Image as ImageIcon,
   MessageSquare,
   MoreVertical,
   Paperclip,
   Search,
   Send,
-  Users,
   RefreshCw,
   Trash2,
   X,
   Loader2,
+  ShieldCheck,
+  LogOut,
+  LayoutDashboard,
+  Users,
+  ClipboardList,
+  ClipboardCheck,
+  CalendarDays,
+  Activity,
+  Settings,
+  Menu,
+  UserCheck,
 } from "lucide-react";
+import Link from "next/link";
+import { authService } from "@/services/authService";
+import { usePathname, useRouter } from "next/navigation";
 
 /* ============================================================
    API CONFIG
@@ -53,14 +62,8 @@ const getApiUrl = (path = "") => {
   return `${API_BASE_URL}${cleanPath}`;
 };
 
-/* ============================================================
-   FILE URL
-============================================================ */
-
 const getFileUrl = (url) => {
-  if (!url) {
-    return "#";
-  }
+  if (!url) return "#";
 
   const value = String(url);
 
@@ -81,15 +84,11 @@ const getFileUrl = (url) => {
 ============================================================ */
 
 const normalizeTokenValue = (value) => {
-  if (!value) {
-    return null;
-  }
+  if (!value) return null;
 
   let rawValue = String(value).trim();
 
-  if (!rawValue) {
-    return null;
-  }
+  if (!rawValue) return null;
 
   if (/^Bearer\s+/i.test(rawValue)) {
     rawValue = rawValue
@@ -122,17 +121,13 @@ const normalizeTokenValue = (value) => {
         );
       }
     }
-  } catch {
-    // Raw token.
-  }
+  } catch {}
 
   return rawValue || null;
 };
 
 const getStoredToken = () => {
-  if (typeof window === "undefined") {
-    return null;
-  }
+  if (typeof window === "undefined") return null;
 
   const tokenKeys = [
     "token",
@@ -149,36 +144,22 @@ const getStoredToken = () => {
         window.localStorage.getItem(key)
       );
 
-      if (localToken) {
-        return localToken;
-      }
-    } catch {
-      // Ignore storage errors.
-    }
+      if (localToken) return localToken;
+    } catch {}
 
     try {
       const sessionToken = normalizeTokenValue(
         window.sessionStorage.getItem(key)
       );
 
-      if (sessionToken) {
-        return sessionToken;
-      }
-    } catch {
-      // Ignore storage errors.
-    }
+      if (sessionToken) return sessionToken;
+    } catch {}
   }
 
   return null;
 };
 
-/* ============================================================
-   AUTH HEADERS
-============================================================ */
-
-const getAuthHeaders = (
-  includeContentType = true
-) => {
+const getAuthHeaders = (includeContentType = true) => {
   const headers = {
     Accept: "application/json",
   };
@@ -204,9 +185,7 @@ const parseResponse = async (response) => {
   try {
     const text = await response.text();
 
-    if (!text) {
-      return null;
-    }
+    if (!text) return null;
 
     try {
       return JSON.parse(text);
@@ -218,80 +197,6 @@ const parseResponse = async (response) => {
     }
   } catch {
     return null;
-  }
-};
-
-/* ============================================================
-   AUDIO
-============================================================ */
-
-const playNotificationChime = () => {
-  try {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    const AudioCtx =
-      window.AudioContext ||
-      window.webkitAudioContext;
-
-    if (!AudioCtx) {
-      return;
-    }
-
-    const ctx = new AudioCtx();
-    const now = ctx.currentTime;
-
-    const createNote = (
-      frequency,
-      startTime,
-      duration
-    ) => {
-      const oscillator =
-        ctx.createOscillator();
-
-      const gain =
-        ctx.createGain();
-
-      oscillator.type = "sine";
-
-      oscillator.frequency.setValueAtTime(
-        frequency,
-        startTime
-      );
-
-      gain.gain.setValueAtTime(
-        0.18,
-        startTime
-      );
-
-      gain.gain.exponentialRampToValueAtTime(
-        0.001,
-        startTime + duration
-      );
-
-      oscillator.connect(gain);
-      gain.connect(ctx.destination);
-
-      oscillator.start(startTime);
-      oscillator.stop(
-        startTime + duration
-      );
-    };
-
-    createNote(
-      1318.51,
-      now,
-      0.12
-    );
-
-    createNote(
-      1760,
-      now + 0.08,
-      0.32
-    );
-  } catch {
-    // Audio is optional.
   }
 };
 
@@ -314,9 +219,7 @@ const getUserName = (user) =>
   "Unknown User";
 
 const getRole = (user) => {
-  if (!user?.role) {
-    return "";
-  }
+  if (!user?.role) return "";
 
   return (
     String(user.role).charAt(0).toUpperCase() +
@@ -325,9 +228,7 @@ const getRole = (user) => {
 };
 
 const getInitials = (name) => {
-  if (!name) {
-    return "U";
-  }
+  if (!name) return "U";
 
   return String(name)
     .split(" ")
@@ -340,15 +241,11 @@ const getInitials = (name) => {
 };
 
 const formatMessageTime = (dateValue) => {
-  if (!dateValue) {
-    return "";
-  }
+  if (!dateValue) return "";
 
   const date = new Date(dateValue);
 
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
+  if (Number.isNaN(date.getTime())) return "";
 
   return date.toLocaleTimeString([], {
     hour: "2-digit",
@@ -356,25 +253,16 @@ const formatMessageTime = (dateValue) => {
   });
 };
 
-const formatConversationTime = (
-  dateValue
-) => {
-  if (!dateValue) {
-    return "";
-  }
+const formatConversationTime = (dateValue) => {
+  if (!dateValue) return "";
 
   const date = new Date(dateValue);
 
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
+  if (Number.isNaN(date.getTime())) return "";
 
   const now = new Date();
 
-  if (
-    date.toDateString() ===
-    now.toDateString()
-  ) {
+  if (date.toDateString() === now.toDateString()) {
     return date.toLocaleTimeString([], {
       hour: "2-digit",
       minute: "2-digit",
@@ -388,9 +276,7 @@ const formatConversationTime = (
 };
 
 const normalizeUsers = (data) => {
-  if (Array.isArray(data)) {
-    return data;
-  }
+  if (Array.isArray(data)) return data;
 
   if (Array.isArray(data?.users)) {
     return data.users;
@@ -408,9 +294,7 @@ const normalizeUsers = (data) => {
 };
 
 const normalizeConversations = (data) => {
-  if (Array.isArray(data)) {
-    return data;
-  }
+  if (Array.isArray(data)) return data;
 
   if (Array.isArray(data?.conversations)) {
     return data.conversations;
@@ -420,35 +304,132 @@ const normalizeConversations = (data) => {
     return data.data;
   }
 
-  if (
-    Array.isArray(
-      data?.data?.conversations
-    )
-  ) {
+  if (Array.isArray(data?.data?.conversations)) {
     return data.data.conversations;
   }
 
   return [];
 };
 
+const getUnreadCount = (conversation) => {
+  if (!conversation) return 0;
+
+  const possibleValues = [
+    conversation?.unreadCount,
+    conversation?.unreadMessages,
+    conversation?.unread,
+    conversation?.unreadMessageCount,
+  ];
+
+  for (const value of possibleValues) {
+    if (
+      typeof value === "number" &&
+      value > 0
+    ) {
+      return value;
+    }
+
+    if (
+      typeof value === "string" &&
+      !Number.isNaN(Number(value))
+    ) {
+      const number = Number(value);
+
+      if (number > 0) return number;
+    }
+  }
+
+  return 0;
+};
+
+const getConversationLastMessage = (
+  conversation
+) => {
+  if (!conversation) return "";
+
+  return (
+    conversation?.lastMessage ||
+    conversation?.lastMessageText ||
+    conversation?.latestMessage?.body ||
+    conversation?.latestMessage?.message ||
+    ""
+  );
+};
+
+const getConversationLastDate = (
+  conversation
+) => {
+  if (!conversation) return null;
+
+  return (
+    conversation?.lastMessageAt ||
+    conversation?.lastMessage?.createdAt ||
+    conversation?.latestMessage?.createdAt ||
+    conversation?.updatedAt ||
+    conversation?.createdAt ||
+    null
+  );
+};
+
 /* ============================================================
-   MAIN PAGE
+   NAVIGATION
+============================================================ */
+
+const navigation = [
+  {
+    label: "Dashboard",
+    href: "/admin",
+    icon: LayoutDashboard,
+  },
+  {
+    label: "Users",
+    href: "/admin/users",
+    icon: Users,
+  },
+  {
+    label: "Tasks",
+    href: "/admin/tasks",
+    icon: ClipboardList,
+  },
+  {
+    label: "Attendance",
+    href: "/admin/attendance",
+    icon: UserCheck,
+  },
+  {
+    label: "Leave Requests",
+    href: "/admin/leave-requests",
+    icon: ClipboardCheck,
+  },
+  {
+    label: "Conversations",
+    href: "/admin/conversations",
+    icon: MessageSquare,
+  },
+  {
+    label: "Settings",
+    href: "/admin/settings",
+    icon: Settings,
+  },
+];
+
+/* ============================================================
+   MAIN COMPONENT
 ============================================================ */
 
 export default function AdminConversationsPage() {
+  const router = useRouter();
+
+  const [sidebarOpen, setSidebarOpen] =
+    useState(false);
+
   const [search, setSearch] = useState("");
-
   const [users, setUsers] = useState([]);
+  const [conversations, setConversations] =
+    useState([]);
 
-  const [
-    conversations,
-    setConversations,
-  ] = useState([]);
-
-  const [
-    selectedUser,
-    setSelectedUser,
-  ] = useState(null);
+  const [selectedUser, setSelectedUser] =
+    useState(null);
 
   const [
     selectedConversationId,
@@ -460,26 +441,18 @@ export default function AdminConversationsPage() {
     setSelectedConversation,
   ] = useState(null);
 
-  const [messages, setMessages] =
+  const [messages, setMessages] = useState([]);
+  const [message, setMessage] = useState("");
+  const [selectedFiles, setSelectedFiles] =
     useState([]);
 
-  const [message, setMessage] =
-    useState("");
-
-  const [
-    selectedFiles,
-    setSelectedFiles,
-  ] = useState([]);
-
-  const [
-    loadingUsers,
-    setLoadingUsers,
-  ] = useState(true);
+  const [loadingUsers, setLoadingUsers] =
+    useState(false);
 
   const [
     loadingConversations,
     setLoadingConversations,
-  ] = useState(true);
+  ] = useState(false);
 
   const [
     loadingMessages,
@@ -496,23 +469,13 @@ export default function AdminConversationsPage() {
     setSendingMessage,
   ] = useState(false);
 
-  const [error, setError] =
-    useState("");
-
   const [
     messagesError,
     setMessagesError,
   ] = useState("");
 
-  const [
-    refreshing,
-    setRefreshing,
-  ] = useState(false);
-
-  const [
-    soundEnabled,
-    setSoundEnabled,
-  ] = useState(true);
+  const [refreshing, setRefreshing] =
+    useState(false);
 
   const [
     deleteModalOpen,
@@ -529,66 +492,16 @@ export default function AdminConversationsPage() {
     setDeletingMessage,
   ] = useState(false);
 
-  const fileInputRef =
-    useRef(null);
-
-  const messagesEndRef =
-    useRef(null);
+  const fileInputRef = useRef(null);
+  const messagesEndRef = useRef(null);
 
   const selectedConversationIdRef =
     useRef(null);
 
-  const conversationsRef =
-    useRef([]);
-
-  const usersRef =
-    useRef([]);
-
-  const mountedRef =
-    useRef(false);
-
-  const usersLoadedRef =
-    useRef(false);
-
-  const usersRequestRef =
-    useRef(false);
-
-  const conversationsRequestRef =
-    useRef(false);
-
-  const messagesRequestRef =
-    useRef(false);
-
-  const startingConversationRef =
-    useRef(false);
-
-  const pollingRequestRef =
-    useRef(false);
-
-  const soundEnabledRef =
-    useRef(soundEnabled);
-
-  const lastMessageIdRef =
-    useRef(null);
-
-  const pollingInitializedRef =
-    useRef(false);
-
-  /* ==========================================================
-     MOUNT
-  ========================================================== */
-
-  useEffect(() => {
-    mountedRef.current = true;
-
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
-  /* ==========================================================
-     SYNC REFS
-  ========================================================== */
+  const conversationsRef = useRef([]);
+  const usersRef = useRef([]);
+  const messagesRef = useRef([]);
+  const messagesCache = useRef({});
 
   useEffect(() => {
     usersRef.current = users;
@@ -600,654 +513,258 @@ export default function AdminConversationsPage() {
   }, [conversations]);
 
   useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
     selectedConversationIdRef.current =
       selectedConversationId;
   }, [selectedConversationId]);
 
-  useEffect(() => {
-    soundEnabledRef.current =
-      soundEnabled;
-  }, [soundEnabled]);
-
-  /* ==========================================================
-     AUTO SCROLL
-  ========================================================== */
-
   const scrollToBottom = useCallback(
-    () => {
-      messagesEndRef.current?.scrollIntoView(
-        {
-          behavior: "smooth",
-        }
-      );
+    (instant = false) => {
+      if (!messagesEndRef.current) return;
+
+      messagesEndRef.current.scrollIntoView({
+        behavior: instant ? "auto" : "smooth",
+      });
     },
     []
   );
 
   useEffect(() => {
-    scrollToBottom();
+    if (messages.length > 0) {
+      scrollToBottom(false);
+    }
   }, [messages, scrollToBottom]);
 
   /* ==========================================================
-     FETCH USERS
-     ONLY ONCE
+     FETCH USERS & CONVERSATIONS
   ========================================================== */
 
-  const fetchUsers = useCallback(
-    async () => {
-      if (usersLoadedRef.current) {
-        return usersRef.current;
-      }
-
-      if (usersRequestRef.current) {
-        return usersRef.current;
-      }
-
-      usersRequestRef.current = true;
-
+  const fetchData = useCallback(
+    async (force = false) => {
       try {
-        if (mountedRef.current) {
-          setLoadingUsers(true);
-        }
-
-        const response =
-          await fetch(
-            getApiUrl("/users"),
-            {
-              method: "GET",
-              credentials: "include",
-              headers:
-                getAuthHeaders(),
-              cache: "no-store",
-            }
-          );
-
-        const data =
-          await parseResponse(
-            response
-          );
+        const response = await fetch(
+          getApiUrl("/users"),
+          {
+            method: "GET",
+            credentials: "include",
+            headers: getAuthHeaders(),
+          }
+        );
 
         if (response.status === 401) {
-          if (mountedRef.current) {
-            setError(
-              "Authentication failed. Please sign in again if the problem continues."
-            );
+          router.replace("/login");
+          return;
+        }
+
+        const data =
+          await parseResponse(response);
+
+        if (response.ok) {
+          const userData =
+            normalizeUsers(data);
+
+          const availableUsers =
+            userData.filter((user) => {
+              if (!user) return false;
+
+              const role = String(
+                user?.role || ""
+              ).toLowerCase();
+
+              return (
+                role === "user" ||
+                role === "manager"
+              );
+            });
+
+          setUsers(availableUsers);
+        }
+      } catch {}
+
+      try {
+        const response = await fetch(
+          getApiUrl("/conversations"),
+          {
+            method: "GET",
+            credentials: "include",
+            headers: getAuthHeaders(),
+            cache: "no-store",
           }
+        );
 
-          return usersRef.current;
-        }
+        const data =
+          await parseResponse(response);
 
-        if (response.status === 403) {
-          throw new Error(
-            data?.message ||
-              "You do not have permission to load users."
+        if (response.ok) {
+          const conversationData =
+            normalizeConversations(data);
+
+          setConversations(
+            conversationData
           );
+
+          conversationsRef.current =
+            conversationData;
         }
+      } catch {}
+    },
+    [router]
+  );
+
+  useEffect(() => {
+    fetchData(false);
+  }, [fetchData]);
+
+  const findConversationForUser =
+    useCallback((userId, list) => {
+      if (!userId) return null;
+
+      const convList = Array.isArray(list)
+        ? list
+        : conversationsRef.current;
+
+      return (
+        convList.find((conversation) => {
+          const participants =
+            Array.isArray(
+              conversation?.participants
+            )
+              ? conversation.participants
+              : [];
+
+          return participants.some(
+            (participant) => {
+              const participantId =
+                getId(participant);
+
+              return (
+                participantId &&
+                String(participantId) ===
+                  String(userId)
+              );
+            }
+          );
+        }) || null
+      );
+    }, []);
+
+  const extractMessages = (data) => {
+    if (Array.isArray(data)) return data;
+
+    if (Array.isArray(data?.messages)) {
+      return data.messages;
+    }
+
+    if (Array.isArray(data?.data)) {
+      return data.data;
+    }
+
+    if (
+      Array.isArray(
+        data?.data?.messages
+      )
+    ) {
+      return data.data.messages;
+    }
+
+    if (
+      Array.isArray(
+        data?.conversation?.messages
+      )
+    ) {
+      return data.conversation.messages;
+    }
+
+    return [];
+  };
+
+  const fetchMessages = useCallback(
+    async (
+      conversationId,
+      silent = false
+    ) => {
+      if (!conversationId) return [];
+
+      if (
+        !silent &&
+        messagesCache.current[
+          conversationId
+        ]
+      ) {
+        setMessages(
+          messagesCache.current[
+            conversationId
+          ]
+        );
+
+        setLoadingMessages(false);
+      } else if (!silent) {
+        setLoadingMessages(true);
+      }
+
+      if (!silent) {
+        setMessagesError("");
+      }
+
+      try {
+        const response = await fetch(
+          getApiUrl(
+            `/conversations/${conversationId}/messages?limit=100`
+          ),
+          {
+            method: "GET",
+            credentials: "include",
+            headers: getAuthHeaders(),
+            cache: "no-store",
+          }
+        );
+
+        const data =
+          await parseResponse(response);
 
         if (!response.ok) {
           throw new Error(
-            data?.message ||
-              "Failed to load users."
+            "Failed to load messages."
           );
         }
 
-        const userData =
-          normalizeUsers(data);
+        const messageData =
+          extractMessages(data);
 
-        const availableUsers =
-          userData.filter((user) => {
-            if (!user) {
-              return false;
-            }
+        if (
+          String(conversationId) ===
+          String(
+            selectedConversationIdRef.current
+          )
+        ) {
+          messagesCache.current[
+            conversationId
+          ] = messageData;
 
-            const role = String(
-              user?.role || ""
-            ).toLowerCase();
+          setMessages(messageData);
+        }
 
-            return (
-              role === "user" ||
-              role === "manager"
-            );
-          });
-
-        usersRef.current =
-          availableUsers;
-
-        usersLoadedRef.current =
-          true;
-
-        if (mountedRef.current) {
-          setUsers(
-            availableUsers
+        return messageData;
+      } catch (err) {
+        if (!silent) {
+          setMessagesError(
+            err?.message ||
+              "Unable to load messages."
           );
         }
 
-        return availableUsers;
-      } catch (fetchError) {
-        console.error(
-          "Admin users fetch error:",
-          fetchError
-        );
-
-        if (mountedRef.current) {
-          setError(
-            fetchError?.message ||
-              "Unable to load users."
-          );
-        }
-
-        return usersRef.current;
+        return [];
       } finally {
-        usersRequestRef.current =
-          false;
-
-        if (mountedRef.current) {
-          setLoadingUsers(false);
+        if (!silent) {
+          setLoadingMessages(false);
         }
       }
     },
     []
   );
-
-  /* ==========================================================
-     FETCH CONVERSATIONS
-  ========================================================== */
-
-  const fetchConversations =
-    useCallback(
-      async ({
-        silent = false,
-      } = {}) => {
-        if (
-          conversationsRequestRef.current
-        ) {
-          return conversationsRef.current;
-        }
-
-        conversationsRequestRef.current =
-          true;
-
-        try {
-          if (mountedRef.current) {
-            if (silent) {
-              setRefreshing(true);
-            } else {
-              setLoadingConversations(
-                true
-              );
-            }
-          }
-
-          const response =
-            await fetch(
-              getApiUrl(
-                "/conversations"
-              ),
-              {
-                method: "GET",
-                credentials: "include",
-                headers:
-                  getAuthHeaders(),
-                cache: "no-store",
-              }
-            );
-
-          const data =
-            await parseResponse(
-              response
-            );
-
-          if (response.status === 401) {
-            if (mountedRef.current) {
-              setError(
-                "Authentication failed. Please sign in again if the problem continues."
-              );
-            }
-
-            return conversationsRef.current;
-          }
-
-          if (response.status === 403) {
-            throw new Error(
-              data?.message ||
-                "You do not have permission to load conversations."
-            );
-          }
-
-          if (!response.ok) {
-            throw new Error(
-              data?.message ||
-                "Failed to load conversations."
-            );
-          }
-
-          const conversationData =
-            normalizeConversations(
-              data
-            );
-
-          conversationsRef.current =
-            conversationData;
-
-          if (mountedRef.current) {
-            setConversations(
-              conversationData
-            );
-          }
-
-          return conversationData;
-        } catch (fetchError) {
-          console.error(
-            "Admin conversations fetch error:",
-            fetchError
-          );
-
-          if (mountedRef.current) {
-            setError(
-              fetchError?.message ||
-                "Unable to load conversations."
-            );
-          }
-
-          return conversationsRef.current;
-        } finally {
-          conversationsRequestRef.current =
-            false;
-
-          if (mountedRef.current) {
-            setLoadingConversations(
-              false
-            );
-            setRefreshing(false);
-          }
-        }
-      },
-      []
-    );
-
-  /* ==========================================================
-     INITIAL LOAD
-  ========================================================== */
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadInitialData =
-      async () => {
-        if (cancelled) {
-          return;
-        }
-
-        await Promise.all([
-          fetchUsers(),
-          fetchConversations(),
-        ]);
-      };
-
-    loadInitialData();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    fetchUsers,
-    fetchConversations,
-  ]);
-
-  /* ==========================================================
-     MESSAGE POLLING
-  ========================================================== */
-
-  useEffect(() => {
-    const pollMessages =
-      async () => {
-        const activeConvId =
-          selectedConversationIdRef.current;
-
-        if (!activeConvId) {
-          return;
-        }
-
-        if (
-          pollingRequestRef.current
-        ) {
-          return;
-        }
-
-        if (
-          typeof document !==
-            "undefined" &&
-          document.visibilityState !==
-            "visible"
-        ) {
-          return;
-        }
-
-        pollingRequestRef.current =
-          true;
-
-        try {
-          const response =
-            await fetch(
-              getApiUrl(
-                `/conversations/${activeConvId}/messages?limit=100`
-              ),
-              {
-                method: "GET",
-                credentials: "include",
-                headers:
-                  getAuthHeaders(),
-                cache: "no-store",
-              }
-            );
-
-          if (!response.ok) {
-            return;
-          }
-
-          const data =
-            await parseResponse(
-              response
-            );
-
-          if (
-            activeConvId !==
-            selectedConversationIdRef.current
-          ) {
-            return;
-          }
-
-          const fetchedMessages =
-            Array.isArray(
-              data?.messages
-            )
-              ? data.messages
-              : Array.isArray(
-                    data?.data
-                  )
-              ? data.data
-              : [];
-
-          if (!mountedRef.current) {
-            return;
-          }
-
-          const latestMessage =
-            fetchedMessages[
-              fetchedMessages.length - 1
-            ];
-
-          const latestMessageId =
-            latestMessage
-              ? getId(latestMessage)
-              : null;
-
-          const previousLastId =
-            lastMessageIdRef.current;
-
-          const hasNewMessage =
-            pollingInitializedRef.current &&
-            Boolean(
-              latestMessageId &&
-                previousLastId &&
-                String(
-                  latestMessageId
-                ) !==
-                  String(
-                    previousLastId
-                  )
-            );
-
-          lastMessageIdRef.current =
-            latestMessageId;
-
-          pollingInitializedRef.current =
-            true;
-
-          setMessages(
-            (previousMessages) => {
-              if (
-                fetchedMessages.length ===
-                  previousMessages.length &&
-                !hasNewMessage
-              ) {
-                return previousMessages;
-              }
-
-              if (
-                hasNewMessage &&
-                soundEnabledRef.current
-              ) {
-                const senderRole =
-                  String(
-                    latestMessage?.sender
-                      ?.role || ""
-                  ).toLowerCase();
-
-                if (
-                  senderRole !==
-                  "admin"
-                ) {
-                  playNotificationChime();
-                }
-              }
-
-              return fetchedMessages;
-            }
-          );
-        } catch {
-          // Silent polling failure.
-        } finally {
-          pollingRequestRef.current =
-            false;
-        }
-      };
-
-    pollMessages();
-
-    const interval =
-      setInterval(
-        pollMessages,
-        5000
-      );
-
-    return () => {
-      clearInterval(interval);
-    };
-  }, []);
-
-  /* ==========================================================
-     FIND CONVERSATION
-  ========================================================== */
-
-  const findConversationForUser =
-    useCallback(
-      (
-        userId,
-        conversationList
-      ) => {
-        if (!userId) {
-          return null;
-        }
-
-        const list =
-          Array.isArray(
-            conversationList
-          )
-            ? conversationList
-            : conversationsRef.current;
-
-        return (
-          list.find(
-            (conversation) => {
-              const participants =
-                Array.isArray(
-                  conversation?.participants
-                )
-                  ? conversation.participants
-                  : [];
-
-              return participants.some(
-                (participant) => {
-                  const participantId =
-                    getId(
-                      participant
-                    );
-
-                  return (
-                    participantId &&
-                    String(
-                      participantId
-                    ) ===
-                      String(userId)
-                  );
-                }
-              );
-            }
-          ) || null
-        );
-      },
-      []
-    );
-
-  /* ==========================================================
-     FETCH MESSAGES
-  ========================================================== */
-
-  const fetchMessages =
-    useCallback(
-      async (conversationId) => {
-        if (!conversationId) {
-          return [];
-        }
-
-        if (
-          messagesRequestRef.current
-        ) {
-          return [];
-        }
-
-        messagesRequestRef.current =
-          true;
-
-        try {
-          if (mountedRef.current) {
-            setLoadingMessages(true);
-            setMessagesError("");
-          }
-
-          const response =
-            await fetch(
-              getApiUrl(
-                `/conversations/${conversationId}/messages?limit=100`
-              ),
-              {
-                method: "GET",
-                credentials: "include",
-                headers:
-                  getAuthHeaders(),
-                cache: "no-store",
-              }
-            );
-
-          const data =
-            await parseResponse(
-              response
-            );
-
-          if (response.status === 401) {
-            if (mountedRef.current) {
-              setMessagesError(
-                "Authentication failed. Please sign in again if the problem continues."
-              );
-            }
-
-            return [];
-          }
-
-          if (response.status === 403) {
-            throw new Error(
-              data?.message ||
-                "You do not have permission to view these messages."
-            );
-          }
-
-          if (!response.ok) {
-            throw new Error(
-              data?.message ||
-                "Failed to load messages."
-            );
-          }
-
-          const messageData =
-            Array.isArray(
-              data?.messages
-            )
-              ? data.messages
-              : Array.isArray(
-                    data?.data
-                  )
-              ? data.data
-              : [];
-
-          if (
-            conversationId !==
-            selectedConversationIdRef.current
-          ) {
-            return [];
-          }
-
-          const lastMessage =
-            messageData[
-              messageData.length - 1
-            ];
-
-          lastMessageIdRef.current =
-            lastMessage
-              ? getId(lastMessage)
-              : null;
-
-          pollingInitializedRef.current =
-            false;
-
-          if (mountedRef.current) {
-            setMessages(
-              messageData
-            );
-          }
-
-          return messageData;
-        } catch (fetchError) {
-          console.error(
-            "Conversation messages fetch error:",
-            fetchError
-          );
-
-          if (mountedRef.current) {
-            setMessagesError(
-              fetchError?.message ||
-                "Unable to load messages."
-            );
-
-            setMessages([]);
-          }
-
-          return [];
-        } finally {
-          messagesRequestRef.current =
-            false;
-
-          if (mountedRef.current) {
-            setLoadingMessages(false);
-          }
-        }
-      },
-      []
-    );
-
-  /* ==========================================================
-     OPEN CONVERSATION
-  ========================================================== */
 
   const openConversation =
     useCallback(
@@ -1259,334 +776,61 @@ export default function AdminConversationsPage() {
           conversation?.id ||
           conversation?._id;
 
-        if (!conversationId) {
-          return;
-        }
+        if (!conversationId) return;
 
         selectedConversationIdRef.current =
           conversationId;
 
-        setSelectedUser(user);
         setSelectedConversationId(
           conversationId
         );
+
         setSelectedConversation(
           conversation
         );
-        setMessages([]);
+
+        if (user) {
+          setSelectedUser(user);
+        }
+
         setMessagesError("");
         setSelectedFiles([]);
 
-        lastMessageIdRef.current =
-          null;
-
-        pollingInitializedRef.current =
-          false;
-
         await fetchMessages(
-          conversationId
+          conversationId,
+          false
         );
 
-        if (
-          conversationId !==
-          selectedConversationIdRef.current
-        ) {
-          return;
-        }
-
         try {
-          const response =
-            await fetch(
-              getApiUrl(
-                `/conversations/${conversationId}/read`
-              ),
-              {
-                method: "PUT",
-                credentials: "include",
-                headers:
-                  getAuthHeaders(),
-                cache: "no-store",
-              }
-            );
-
-          if (!response.ok) {
-            const data =
-              await parseResponse(
-                response
-              );
-
-            console.warn(
-              "Mark conversation read failed:",
-              data?.message ||
-                `HTTP ${response.status}`
-            );
-
-            return;
-          }
-
-          if (!mountedRef.current) {
-            return;
-          }
-
-          setConversations(
-            (current) => {
-              const updated =
-                current.map(
-                  (item) => {
-                    const id =
-                      item?.id ||
-                      item?._id;
-
-                    if (
-                      String(id) ===
-                      String(
-                        conversationId
-                      )
-                    ) {
-                      return {
-                        ...item,
-                        unreadCount: 0,
-                      };
-                    }
-
-                    return item;
-                  }
-                );
-
-              conversationsRef.current =
-                updated;
-
-              return updated;
+          await fetch(
+            getApiUrl(
+              `/conversations/${conversationId}/read`
+            ),
+            {
+              method: "PUT",
+              credentials: "include",
+              headers: getAuthHeaders(),
             }
           );
-        } catch (readError) {
-          console.warn(
-            "Mark conversation read error:",
-            readError
-          );
-        }
+        } catch {}
       },
       [fetchMessages]
     );
-
-  /* ==========================================================
-     CREATE CONVERSATION
-  ========================================================== */
-
-  const createNewConversation =
-    useCallback(
-      async (user) => {
-        const userId = getId(user);
-
-        if (
-          !userId ||
-          startingConversationRef.current
-        ) {
-          return;
-        }
-
-        startingConversationRef.current =
-          true;
-
-        try {
-          setStartingConversation(
-            true
-          );
-
-          setMessagesError("");
-          setError("");
-
-          const latestConversations =
-            await fetchConversations({
-              silent: true,
-            });
-
-          const existingConversation =
-            findConversationForUser(
-              userId,
-              latestConversations
-            );
-
-          if (existingConversation) {
-            await openConversation(
-              existingConversation,
-              user
-            );
-
-            return;
-          }
-
-          const response =
-            await fetch(
-              getApiUrl(
-                "/conversations"
-              ),
-              {
-                method: "POST",
-                credentials: "include",
-                headers:
-                  getAuthHeaders(),
-                cache: "no-store",
-                body: JSON.stringify({
-                  recipientId:
-                    userId,
-                }),
-              }
-            );
-
-          const data =
-            await parseResponse(
-              response
-            );
-
-          if (response.status === 401) {
-            throw new Error(
-              "Authentication failed. Please sign in again if the problem continues."
-            );
-          }
-
-          if (response.status === 403) {
-            throw new Error(
-              data?.message ||
-                "You do not have permission to create conversations."
-            );
-          }
-
-          if (!response.ok) {
-            throw new Error(
-              data?.message ||
-                "Failed to create conversation."
-            );
-          }
-
-          const newConversation =
-            data?.conversation ||
-            data?.data ||
-            data;
-
-          const newConversationId =
-            newConversation?.id ||
-            newConversation?._id;
-
-          if (!newConversationId) {
-            const refreshedConversations =
-              await fetchConversations({
-                silent: true,
-              });
-
-            const refreshedConversation =
-              findConversationForUser(
-                userId,
-                refreshedConversations
-              );
-
-            if (
-              refreshedConversation
-            ) {
-              await openConversation(
-                refreshedConversation,
-                user
-              );
-
-              return;
-            }
-
-            throw new Error(
-              "Conversation was created but no conversation ID was returned."
-            );
-          }
-
-          if (mountedRef.current) {
-            setConversations(
-              (current) => {
-                const alreadyExists =
-                  current.some(
-                    (item) =>
-                      String(
-                        item?.id ||
-                          item?._id
-                      ) ===
-                      String(
-                        newConversationId
-                      )
-                  );
-
-                if (
-                  alreadyExists
-                ) {
-                  return current;
-                }
-
-                const updated = [
-                  newConversation,
-                  ...current,
-                ];
-
-                conversationsRef.current =
-                  updated;
-
-                return updated;
-              }
-            );
-          }
-
-          await openConversation(
-            newConversation,
-            user
-          );
-        } catch (createError) {
-          console.error(
-            "Create conversation error:",
-            createError
-          );
-
-          if (mountedRef.current) {
-            setMessagesError(
-              createError?.message ||
-                "Unable to start conversation."
-            );
-          }
-        } finally {
-          startingConversationRef.current =
-            false;
-
-          if (mountedRef.current) {
-            setStartingConversation(
-              false
-            );
-          }
-        }
-      },
-      [
-        fetchConversations,
-        findConversationForUser,
-        openConversation,
-      ]
-    );
-
-  /* ==========================================================
-     SELECT USER
-  ========================================================== */
 
   const handleSelectUser =
     useCallback(
       async (user) => {
         const userId = getId(user);
 
-        if (!userId) {
-          setMessagesError(
-            "Selected user does not have a valid user ID."
-          );
-
-          return;
-        }
+        if (!userId) return;
 
         setSelectedUser(user);
         setMessagesError("");
 
         const existingConversation =
           findConversationForUser(
-            userId
+            userId,
+            conversationsRef.current
           );
 
         if (existingConversation) {
@@ -1598,281 +842,293 @@ export default function AdminConversationsPage() {
           return;
         }
 
-        await createNewConversation(
-          user
-        );
-      },
-      [
-        findConversationForUser,
-        openConversation,
-        createNewConversation,
-      ]
-    );
+        setStartingConversation(true);
 
-  /* ==========================================================
-     FILTER USERS
-  ========================================================== */
-
-  const filteredUsers =
-    useMemo(() => {
-      const searchText =
-        search.trim().toLowerCase();
-
-      if (!searchText) {
-        return users;
-      }
-
-      return users.filter(
-        (user) => {
-          const text = `
-            ${user?.name || ""}
-            ${user?.fullName || ""}
-            ${user?.email || ""}
-            ${user?.phone || ""}
-            ${user?.role || ""}
-            ${user?.status || ""}
-          `.toLowerCase();
-
-          return text.includes(
-            searchText
-          );
-        }
-      );
-    }, [users, search]);
-
-  /* ==========================================================
-     FILE HANDLING
-  ========================================================== */
-
-  const handleFileChange = (
-    event
-  ) => {
-    const files = Array.from(
-      event.target.files || []
-    );
-
-    if (files.length === 0) {
-      return;
-    }
-
-    setSelectedFiles(
-      (previous) =>
-        [
-          ...previous,
-          ...files,
-        ].slice(0, 5)
-    );
-
-    if (fileInputRef.current) {
-      fileInputRef.current.value =
-        "";
-    }
-  };
-
-  const removeSelectedFile = (
-    index
-  ) => {
-    setSelectedFiles(
-      (previous) =>
-        previous.filter(
-          (_, currentIndex) =>
-            currentIndex !== index
-        )
-    );
-  };
-
-  /* ==========================================================
-     SEND MESSAGE
-  ========================================================== */
-
-  const handleSendMessage =
-    async (event) => {
-      event.preventDefault();
-
-      const cleanMessage =
-        message.trim();
-
-      if (
-        (!cleanMessage &&
-          selectedFiles.length ===
-            0) ||
-        !selectedConversationId ||
-        !selectedUser ||
-        sendingMessage
-      ) {
-        return;
-      }
-
-      const recipientId =
-        getId(selectedUser);
-
-      if (!recipientId) {
-        setMessagesError(
-          "No valid recipient was found."
-        );
-
-        return;
-      }
-
-      try {
-        setSendingMessage(true);
-        setMessagesError("");
-
-        let response;
-
-        if (
-          selectedFiles.length > 0
-        ) {
-          const formData =
-            new FormData();
-
-          formData.append(
-            "body",
-            cleanMessage
-          );
-
-          formData.append(
-            "recipientId",
-            recipientId
-          );
-
-          formData.append(
-            "conversationId",
-            selectedConversationId
-          );
-
-          selectedFiles.forEach(
-            (file) => {
-              formData.append(
-                "files",
-                file
-              );
-            }
-          );
-
-          const token =
-            getStoredToken();
-
-          const headers = {
-            Accept:
-              "application/json",
-          };
-
-          if (token) {
-            headers.Authorization =
-              `Bearer ${token}`;
-          }
-
-          response = await fetch(
-            getApiUrl("/messages"),
-            {
-              method: "POST",
-              credentials: "include",
-              headers,
-              body: formData,
-            }
-          );
-        } else {
-          response = await fetch(
+        try {
+          const response = await fetch(
             getApiUrl(
-              `/conversations/${selectedConversationId}/messages`
+              "/conversations"
             ),
             {
               method: "POST",
               credentials: "include",
-              headers:
-                getAuthHeaders(),
-              cache: "no-store",
+              headers: getAuthHeaders(),
               body: JSON.stringify({
-                body: cleanMessage,
-                recipientId,
+                recipientId: userId,
               }),
             }
           );
-        }
 
-        const data =
-          await parseResponse(
-            response
-          );
-
-        if (response.status === 401) {
-          throw new Error(
-            "Authentication failed. Please sign in again if the problem continues."
-          );
-        }
-
-        if (response.status === 403) {
-          throw new Error(
-            data?.message ||
-              "You do not have permission to send this message."
-          );
-        }
-
-        if (!response.ok) {
-          throw new Error(
-            data?.message ||
-              "Failed to send message."
-          );
-        }
-
-        const newMessage =
-          data?.data ||
-          data?.messageData ||
-          data?.message;
-
-        if (
-          newMessage &&
-          typeof newMessage ===
-            "object"
-        ) {
-          if (mountedRef.current) {
-            setMessages(
-              (current) => [
-                ...current,
-                newMessage,
-              ]
+          const data =
+            await parseResponse(
+              response
             );
 
-            lastMessageIdRef.current =
-              getId(newMessage);
+          if (!response.ok) {
+            throw new Error(
+              "Failed to start conversation."
+            );
           }
-        } else {
-          await fetchMessages(
-            selectedConversationId
-          );
-        }
 
-        if (mountedRef.current) {
-          setMessage("");
-          setSelectedFiles([]);
-        }
+          const newConversation =
+            data?.conversation ||
+            data?.data?.conversation ||
+            data?.data ||
+            data;
 
-        await fetchConversations({
-          silent: true,
-        });
-      } catch (sendError) {
-        console.error(
-          "Send admin message error:",
-          sendError
-        );
+          const newConversationId =
+            newConversation?.id ||
+            newConversation?._id;
 
-        if (mountedRef.current) {
+          if (newConversationId) {
+            setConversations(
+              (prev) => {
+                const exists =
+                  prev.some(
+                    (item) =>
+                      String(
+                        item?.id ||
+                          item?._id
+                      ) ===
+                      String(
+                        newConversationId
+                      )
+                  );
+
+                return exists
+                  ? prev
+                  : [
+                      newConversation,
+                      ...prev,
+                    ];
+              }
+            );
+
+            conversationsRef.current =
+              [
+                newConversation,
+                ...conversationsRef.current,
+              ];
+
+            await openConversation(
+              newConversation,
+              user
+            );
+          }
+        } catch (err) {
           setMessagesError(
-            sendError?.message ||
-              "Unable to send message."
+            err?.message ||
+              "Failed to start conversation."
+          );
+        } finally {
+          setStartingConversation(
+            false
           );
         }
-      } finally {
-        if (mountedRef.current) {
-          setSendingMessage(false);
-        }
-      }
+      },
+      [
+        findConversationForUser,
+        openConversation,
+      ]
+    );
+
+  const filteredUsers = useMemo(() => {
+    const query =
+      search.trim().toLowerCase();
+
+    if (!query) return users;
+
+    return users.filter((user) => {
+      const full =
+        `${user?.name || ""} ${
+          user?.email || ""
+        }`.toLowerCase();
+
+      return full.includes(query);
+    });
+  }, [users, search]);
+
+  const handleSendMessage = async (e) => {
+    e?.preventDefault();
+
+    const cleanBody = message.trim();
+
+    if (
+      (!cleanBody &&
+        selectedFiles.length === 0) ||
+      !selectedConversationId ||
+      !selectedUser
+    ) {
+      return;
+    }
+
+    const recipientId =
+      getId(selectedUser);
+
+    if (!recipientId) return;
+
+    const tempId =
+      `temp-${Date.now()}`;
+
+    const filesToSend = [
+      ...selectedFiles,
+    ];
+
+    const optimisticMessage = {
+      _id: tempId,
+      id: tempId,
+      body: cleanBody,
+      sender: {
+        role: "admin",
+        name: "You",
+      },
+      createdAt:
+        new Date().toISOString(),
+      attachments:
+        filesToSend.map((file) => ({
+          filename: file.name,
+          originalName: file.name,
+          mimeType: file.type,
+        })),
     };
 
-  /* ==========================================================
-     DELETE MESSAGE
-  ========================================================== */
+    setMessages((prev) => [
+      ...prev,
+      optimisticMessage,
+    ]);
+
+    setMessage("");
+    setSelectedFiles([]);
+    scrollToBottom(true);
+
+    try {
+      setSendingMessage(true);
+
+      let response;
+
+      if (filesToSend.length > 0) {
+        const formData =
+          new FormData();
+
+        formData.append(
+          "body",
+          cleanBody
+        );
+
+        formData.append(
+          "recipientId",
+          recipientId
+        );
+
+        formData.append(
+          "conversationId",
+          selectedConversationId
+        );
+
+        filesToSend.forEach(
+          (file) =>
+            formData.append(
+              "files",
+              file
+            )
+        );
+
+        const token =
+          getStoredToken();
+
+        const headers = {
+          Accept:
+            "application/json",
+        };
+
+        if (token) {
+          headers.Authorization =
+            `Bearer ${token}`;
+        }
+
+        response = await fetch(
+          getApiUrl("/messages"),
+          {
+            method: "POST",
+            credentials:
+              "include",
+            headers,
+            body: formData,
+          }
+        );
+      } else {
+        response = await fetch(
+          getApiUrl(
+            `/conversations/${selectedConversationId}/messages`
+          ),
+          {
+            method: "POST",
+            credentials:
+              "include",
+            headers:
+              getAuthHeaders(),
+            body: JSON.stringify({
+              body: cleanBody,
+              recipientId,
+            }),
+          }
+        );
+      }
+
+      const data =
+        await parseResponse(
+          response
+        );
+
+      if (!response.ok) {
+        throw new Error(
+          "Failed to send message."
+        );
+      }
+
+      const confirmedMessage =
+        data?.message ||
+        data?.data?.message ||
+        data?.data;
+
+      if (
+        confirmedMessage &&
+        typeof confirmedMessage ===
+          "object"
+      ) {
+        setMessages((prev) =>
+          prev.map((item) =>
+            String(
+              item?.id ||
+                item?._id
+            ) ===
+            String(tempId)
+              ? confirmedMessage
+              : item
+          )
+        );
+      }
+    } catch (err) {
+      setMessagesError(
+        "Message failed to sync: " +
+          (err?.message ||
+            "Error")
+      );
+
+      setMessages((prev) =>
+        prev.filter(
+          (item) =>
+            String(
+              item?.id ||
+                item?._id
+            ) !==
+            String(tempId)
+        )
+      );
+    } finally {
+      setSendingMessage(false);
+    }
+  };
 
   const promptDeleteMessage = (
     msg
@@ -1883,17 +1139,14 @@ export default function AdminConversationsPage() {
 
   const executeDeleteMessage =
     async (type) => {
-      if (!messageToDelete) {
+      if (!messageToDelete)
         return;
-      }
 
       const messageId =
-        messageToDelete._id ||
-        messageToDelete.id;
+        messageToDelete?._id ||
+        messageToDelete?.id;
 
-      if (!messageId) {
-        return;
-      }
+      if (!messageId) return;
 
       try {
         setDeletingMessage(true);
@@ -1908,151 +1161,77 @@ export default function AdminConversationsPage() {
             getApiUrl(endpoint),
             {
               method: "POST",
-              credentials: "include",
+              credentials:
+                "include",
               headers:
                 getAuthHeaders(),
-              cache: "no-store",
             }
           );
 
-        const data =
-          await parseResponse(
-            response
-          );
-
-        if (response.status === 401) {
-          throw new Error(
-            "Authentication failed. Please sign in again if the problem continues."
-          );
-        }
-
         if (!response.ok) {
           throw new Error(
-            data?.message ||
-              "Failed to delete message."
+            "Delete failed."
           );
         }
 
         if (type === "me") {
-          if (mountedRef.current) {
-            setMessages(
-              (previous) =>
-                previous.filter(
-                  (item) =>
-                    String(
-                      item?._id ||
-                        item?.id
-                    ) !==
-                    String(messageId)
-                )
-            );
-          }
+          setMessages((prev) =>
+            prev.filter(
+              (item) =>
+                String(
+                  item?._id ||
+                    item?.id
+                ) !==
+                String(messageId)
+            )
+          );
         } else {
-          const updatedMessage =
-            data?.data ||
-            data?.message;
-
-          if (mountedRef.current) {
-            setMessages(
-              (previous) =>
-                previous.map(
-                  (item) => {
-                    if (
-                      String(
-                        item?._id ||
-                          item?.id
-                      ) ===
-                      String(messageId)
-                    ) {
-                      return {
-                        ...item,
-                        ...(updatedMessage ||
-                          {}),
-                        body:
-                          "This message was deleted",
-                        message:
-                          "This message was deleted",
-                        isDeletedForEveryone:
-                          true,
-                        attachments: [],
-                      };
-                    }
-
-                    return item;
+          setMessages((prev) =>
+            prev.map((item) =>
+              String(
+                item?._id ||
+                  item?.id
+              ) ===
+              String(messageId)
+                ? {
+                    ...item,
+                    body:
+                      "This message was deleted",
+                    isDeletedForEveryone:
+                      true,
                   }
-                )
-            );
-          }
-        }
-
-        if (mountedRef.current) {
-          setDeleteModalOpen(false);
-          setMessageToDelete(null);
-        }
-
-        if (selectedConversationId) {
-          await fetchConversations({
-            silent: true,
-          });
-        }
-      } catch (deleteError) {
-        console.error(
-          "Delete message failed:",
-          deleteError
-        );
-
-        if (mountedRef.current) {
-          setMessagesError(
-            deleteError?.message ||
-              "Failed to delete message."
+                : item
+            )
           );
         }
+
+        setDeleteModalOpen(
+          false
+        );
+
+        setMessageToDelete(null);
+      } catch (err) {
+        setMessagesError(
+          err?.message ||
+            "Could not delete message."
+        );
       } finally {
-        if (mountedRef.current) {
-          setDeletingMessage(false);
-        }
-      }
-    };
-
-  /* ==========================================================
-     REFRESH
-  ========================================================== */
-
-  const handleRefresh =
-    async () => {
-      if (refreshing) {
-        return;
-      }
-
-      await fetchConversations({
-        silent: true,
-      });
-
-      if (
-        selectedConversationId
-      ) {
-        await fetchMessages(
-          selectedConversationId
+        setDeletingMessage(
+          false
         );
       }
     };
-
-  /* ==========================================================
-     DELETE CONVERSATION
-  ========================================================== */
 
   const handleDeleteConversation =
     async () => {
-      if (!selectedConversationId) {
+      if (!selectedConversationId)
         return;
-      }
 
-      const confirmed =
-        window.confirm(
-          "Are you sure you want to delete this conversation and all of its messages?"
-        );
-
-      if (!confirmed) {
+      if (
+        !window.confirm(
+          "Are you sure you want to delete this entire conversation?"
+        )
+      ) {
         return;
       }
 
@@ -2064,274 +1243,239 @@ export default function AdminConversationsPage() {
             ),
             {
               method: "DELETE",
-              credentials: "include",
+              credentials:
+                "include",
               headers:
                 getAuthHeaders(),
-              cache: "no-store",
             }
           );
-
-        const data =
-          await parseResponse(
-            response
-          );
-
-        if (response.status === 401) {
-          throw new Error(
-            "Authentication failed. Please sign in again if the problem continues."
-          );
-        }
 
         if (!response.ok) {
           throw new Error(
-            data?.message ||
-              "Failed to delete conversation."
+            "Failed to delete conversation."
           );
         }
 
-        if (mountedRef.current) {
-          setConversations(
-            (current) => {
-              const updated =
-                current.filter(
-                  (conversation) => {
-                    const id =
-                      conversation?.id ||
-                      conversation?._id;
+        const deletedId =
+          selectedConversationId;
 
-                    return (
-                      String(id) !==
-                      String(
-                        selectedConversationId
-                      )
-                    );
-                  }
-                );
-
-              conversationsRef.current =
-                updated;
-
-              return updated;
-            }
-          );
-
-          selectedConversationIdRef.current =
-            null;
-
-          setSelectedConversationId(
-            null
-          );
-
-          setSelectedConversation(
-            null
-          );
-
-          setSelectedUser(null);
-
-          setMessages([]);
-
-          lastMessageIdRef.current =
-            null;
-
-          pollingInitializedRef.current =
-            false;
-
-          setMessage("");
-
-          setSelectedFiles([]);
-
-          setMessagesError("");
-        }
-      } catch (deleteError) {
-        console.error(
-          "Delete conversation error:",
-          deleteError
+        setConversations((prev) =>
+          prev.filter(
+            (c) =>
+              String(
+                c?.id ||
+                  c?._id
+              ) !==
+              String(deletedId)
+          )
         );
 
-        if (mountedRef.current) {
-          setMessagesError(
-            deleteError?.message ||
-              "Unable to delete conversation."
-          );
-        }
+        delete messagesCache
+          .current[deletedId];
+
+        selectedConversationIdRef.current =
+          null;
+
+        setSelectedConversationId(
+          null
+        );
+
+        setSelectedConversation(
+          null
+        );
+
+        setSelectedUser(null);
+        setMessages([]);
+      } catch (err) {
+        setMessagesError(
+          err?.message ||
+            "Could not delete conversation."
+        );
       }
     };
 
-  /* ============================================================
-     RENDER
-     
-     IMPORTANT:
-     - Whole page is locked to available viewport height.
-     - Whole page does NOT scroll.
-     - Contacts list scrolls independently.
-     - Chat messages scroll independently.
-     - Chat header stays fixed.
-     - Composer stays fixed.
-  ============================================================ */
+  async function handleLogout() {
+    try {
+      await authService.logout();
+    } catch {
+    } finally {
+      setSidebarOpen(false);
+      router.replace("/login");
+    }
+  }
 
   return (
-    <div
-      className="
-        flex
-        h-[calc(100dvh-4rem)]
-        max-h-[calc(100dvh-4rem)]
-        min-h-0
-        w-full
-        min-w-0
-        flex-1
-        overflow-hidden
-        overscroll-none
-        bg-[#F8FAFC]
-      "
-    >
-      <div
-        className="
-          flex
-          h-full
-          min-h-0
-          min-w-0
-          flex-1
-          flex-col
-          overflow-hidden
-        "
+    <div className="relative flex h-screen w-full overflow-hidden bg-[#f7f8fc] text-slate-950 animate-fadeIn">
+      {/* Background ambient lighting */}
+
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute -left-32 -top-32 h-72 w-72 rounded-full bg-violet-400/10 blur-3xl animate-pulse" />
+        <div className="absolute right-0 top-20 h-80 w-80 rounded-full bg-pink-400/10 blur-3xl" />
+        <div className="absolute bottom-0 left-1/3 h-72 w-72 rounded-full bg-orange-300/10 blur-3xl" />
+      </div>
+
+      {/* MOBILE OVERLAY */}
+
+      {sidebarOpen && (
+        <button
+          type="button"
+          aria-label="Close sidebar"
+          onClick={() =>
+            setSidebarOpen(false)
+          }
+          className="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-sm lg:hidden"
+        />
+      )}
+
+      {/* SIDEBAR */}
+
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-[#171B3A] text-white shadow-2xl transition-transform duration-300 ease-in-out lg:translate-x-0 ${
+          sidebarOpen
+            ? "translate-x-0"
+            : "-translate-x-full"
+        }`}
       >
-        <main
-          className="
-            flex
-            h-full
-            min-h-0
-            flex-1
-            flex-col
-            overflow-hidden
-            p-4
-            sm:p-5
-            lg:p-6
-          "
-        >
-          <section
-            className="
-              grid
-              h-full
-              min-h-0
-              w-full
-              flex-1
-              grid-rows-[minmax(0,1fr)]
-              overflow-hidden
-              rounded-2xl
-              border
-              border-slate-200
-              bg-white
-              shadow-sm
-              lg:grid-cols-[370px_minmax(0,1fr)]
-              lg:grid-rows-1
-            "
+        <div className="flex h-20 shrink-0 items-center justify-between border-b border-white/10 px-5">
+          <Link
+            href="/admin"
+            onClick={() =>
+              setSidebarOpen(false)
+            }
+            className="flex items-center gap-3 text-white"
           >
-            {/* ==================================================
-                USERS / CONTACTS
-            ================================================== */}
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/20">
+              <ShieldCheck size={22} />
+            </div>
 
-            <aside
-              className="
-                flex
-                h-full
-                min-h-0
-                min-w-0
-                flex-col
-                overflow-hidden
-                border-b
-                border-slate-200
-                lg:border-b-0
-                lg:border-r
-              "
-            >
-              {/* CONTACT HEADER - FIXED */}
+            <div>
+              <h1 className="text-sm font-bold text-white">
+                Local Pro 1
+              </h1>
 
-              <div
-                className="
-                  shrink-0
-                  border-b
-                  border-slate-100
-                  bg-white
-                  p-4
-                  sm:p-5
-                "
-              >
-                <div className="mb-4 flex items-start justify-between gap-3">
-                  <div>
-                    <h2 className="text-base font-bold text-[#171B3A]">
-                      All Users
-                    </h2>
+              <p className="text-[11px] font-semibold text-blue-400">
+                Admin Workspace
+              </p>
+            </div>
+          </Link>
 
-                    <p className="mt-1 text-xs text-[#64748B]">
-                      {users.length} user
-                      {users.length !== 1
-                        ? "s"
-                        : ""}
-                    </p>
-                  </div>
+          <button
+            type="button"
+            onClick={() =>
+              setSidebarOpen(false)
+            }
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-white/10 hover:text-white lg:hidden"
+            aria-label="Close sidebar"
+          >
+            <X size={19} />
+          </button>
+        </div>
 
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#EEF4FF] text-[#2563EB]">
-                    <Users size={18} />
-                  </div>
+        <nav className="flex-1 overflow-y-auto px-3 py-5">
+          <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Administration
+          </p>
+
+          <div className="space-y-1.5">
+            {navigation.map(
+              (item) => (
+                <AdminNavItem
+                  key={item.href}
+                  item={item}
+                  onNavigate={() =>
+                    setSidebarOpen(
+                      false
+                    )
+                  }
+                />
+              )
+            )}
+          </div>
+        </nav>
+
+        <div className="shrink-0 border-t border-white/10 p-3">
+          <div className="mb-2 flex items-center gap-3 rounded-2xl bg-white/[0.04] px-3 py-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#2563EB] text-xs font-bold text-white">
+              A
+            </div>
+
+            <div className="min-w-0">
+              <p className="truncate text-sm font-bold text-white">
+                Administrator
+              </p>
+
+              <p className="truncate text-xs font-medium text-slate-400">
+                Admin Account
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="flex w-full items-center gap-3 rounded-2xl px-3.5 py-3 text-sm font-bold text-rose-400 transition hover:bg-rose-500/10 hover:text-rose-300"
+          >
+            <LogOut size={18} />
+            <span>Sign Out</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* MAIN CONTAINER */}
+
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden w-full">
+        {/* TOP HEADER REMOVED */}
+
+        {/* WORKSPACE CHAT SECTION */}
+
+        <main className="flex h-full min-h-0 flex-1 flex-col overflow-hidden p-0 animate-slideUp">
+          <section className="grid h-full min-h-0 flex-1 w-full grid-cols-1 overflow-hidden rounded-none border-0 bg-white shadow-none lg:grid-cols-[360px_minmax(0,1fr)]">
+            {/* Left Column */}
+
+            <aside className="flex h-full min-h-0 flex-col border-b border-slate-100 lg:border-b-0 lg:border-r">
+              <div className="shrink-0 border-b border-slate-100 bg-slate-50/50 p-4 sm:p-5">
+                <div className="mb-3.5">
+                  <h2 className="text-base font-extrabold text-slate-900">
+                    Team Contacts
+                  </h2>
+
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    Select a member to chat
+                  </p>
                 </div>
 
                 <div className="relative">
                   <Search
-                    size={17}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-[#64748B]"
+                    size={16}
+                    className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
                   />
 
                   <input
                     type="text"
                     value={search}
-                    onChange={(event) =>
+                    onChange={(e) =>
                       setSearch(
-                        event.target.value
+                        e.target.value
                       )
                     }
-                    placeholder="Search users or managers..."
-                    className="
-                      h-10
-                      w-full
-                      rounded-xl
-                      border
-                      border-slate-200
-                      bg-[#F8FAFC]
-                      pl-9
-                      pr-3
-                      text-sm
-                      text-[#26344D]
-                      outline-none
-                      focus:border-[#2563EB]
-                      focus:ring-2
-                      focus:ring-blue-100
-                    "
+                    placeholder="Search contacts..."
+                    className="h-10 w-full rounded-2xl border border-slate-200/90 bg-white pl-9 pr-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10"
                   />
                 </div>
               </div>
 
-              {/* CONTACT LIST - ONLY THIS SCROLLS */}
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                {loadingUsers &&
+                users.length === 0 ? (
+                  <div className="flex min-h-[260px] flex-col items-center justify-center p-6 text-center">
+                    <Loader2
+                      size={26}
+                      className="animate-spin text-violet-600"
+                    />
 
-              <div
-                className="
-                  min-h-0
-                  min-w-0
-                  flex-1
-                  overflow-x-hidden
-                  overflow-y-auto
-                  overscroll-contain
-                  [scrollbar-gutter:stable]
-                "
-              >
-                {loadingUsers ? (
-                  <div className="flex min-h-[300px] items-center justify-center px-6 text-center">
-                    <div>
-                      <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-[#2563EB]" />
-
-                      <p className="mt-4 text-sm font-medium text-[#64748B]">
-                        Loading users...
-                      </p>
-                    </div>
+                    <p className="mt-3 text-xs font-semibold text-slate-400">
+                      Loading contacts...
+                    </p>
                   </div>
                 ) : filteredUsers.length >
                   0 ? (
@@ -2339,11 +1483,6 @@ export default function AdminConversationsPage() {
                     (user) => {
                       const userId =
                         getId(user);
-
-                      const existingConversation =
-                        findConversationForUser(
-                          userId
-                        );
 
                       const isSelected =
                         String(
@@ -2353,317 +1492,206 @@ export default function AdminConversationsPage() {
                         ) ===
                         String(userId);
 
+                      const existingConv =
+                        findConversationForUser(
+                          userId,
+                          conversations
+                        );
+
+                      const unread =
+                        getUnreadCount(
+                          existingConv
+                        );
+
                       return (
                         <button
-                          key={
-                            userId ||
-                            `${user?.email}-${user?.name}`
-                          }
+                          key={userId}
                           type="button"
                           onClick={() =>
                             handleSelectUser(
                               user
                             )
                           }
-                          disabled={
-                            startingConversation &&
+                          className={`flex w-full items-start gap-3 border-b border-slate-100/80 px-4 py-3.5 text-left transition duration-150 ${
                             isSelected
-                          }
-                          className={`flex w-full items-start gap-3 border-b border-slate-100 px-4 py-4 text-left transition ${
-                            isSelected
-                              ? "bg-[#EEF4FF]"
-                              : "hover:bg-[#F8FAFC]"
+                              ? "bg-violet-50/70 border-violet-200/60"
+                              : "hover:bg-slate-50/80"
                           }`}
                         >
-                          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#EEF4FF] text-xs font-bold text-[#2563EB]">
+                          <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-sm">
                             {getInitials(
                               getUserName(
                                 user
                               )
                             )}
+
+                            {unread > 0 &&
+                              !isSelected && (
+                                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-violet-600 px-1 text-[9px] font-bold text-white shadow-sm">
+                                  {unread >
+                                  99
+                                    ? "99+"
+                                    : unread}
+                                </span>
+                              )}
                           </div>
 
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0">
-                                <p className="truncate text-sm font-bold text-[#171B3A]">
-                                  {getUserName(
-                                    user
-                                  )}
-                                </p>
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="truncate text-xs font-bold text-slate-900">
+                                {getUserName(
+                                  user
+                                )}
+                              </p>
 
-                                <p className="mt-0.5 text-[11px] font-medium text-[#2563EB]">
-                                  {getRole(
-                                    user
-                                  )}
-                                </p>
-                              </div>
-
-                              {existingConversation && (
-                                <span className="shrink-0 text-[10px] text-[#64748B]">
+                              {existingConv && (
+                                <span className="shrink-0 text-[10px] text-slate-400">
                                   {formatConversationTime(
-                                    existingConversation.lastMessageAt ||
-                                      existingConversation.updatedAt
+                                    getConversationLastDate(
+                                      existingConv
+                                    )
                                   )}
                                 </span>
                               )}
                             </div>
 
-                            <p className="mt-1 truncate text-xs text-[#64748B]">
-                              {existingConversation?.lastMessage ||
+                            <p className="mt-1 truncate text-xs text-slate-500">
+                              {getConversationLastMessage(
+                                existingConv
+                              ) ||
                                 user?.email ||
-                                "Start a conversation"}
+                                "Click to message"}
                             </p>
-
-                            {existingConversation?.unreadCount >
-                              0 && (
-                              <span className="mt-2 inline-flex min-w-5 items-center justify-center rounded-full bg-[#2563EB] px-1.5 py-0.5 text-[10px] font-bold text-white">
-                                {
-                                  existingConversation.unreadCount
-                                }
-                              </span>
-                            )}
-
-                            {!existingConversation && (
-                              <span className="mt-2 inline-flex rounded-lg bg-[#EEF4FF] px-2 py-1 text-[10px] font-semibold text-[#2563EB]">
-                                Start conversation
-                              </span>
-                            )}
                           </div>
                         </button>
                       );
                     }
                   )
                 ) : (
-                  <div className="flex min-h-[300px] flex-col items-center justify-center px-6 py-10 text-center">
-                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[#EEF4FF] text-[#2563EB]">
-                      <Users size={28} />
-                    </div>
-
-                    <h3 className="mt-5 text-base font-bold text-[#171B3A]">
-                      {search
-                        ? "No matching users"
-                        : "No users available"}
-                    </h3>
-
-                    <p className="mt-2 max-w-xs text-sm leading-6 text-[#64748B]">
-                      {search
-                        ? "Try another name, email, phone, or role."
-                        : "No users or managers were returned by the backend."}
-                    </p>
+                  <div className="p-8 text-center text-xs text-slate-400">
+                    No contacts available.
                   </div>
                 )}
               </div>
             </aside>
 
-            {/* ==================================================
-                CHAT
-            ================================================== */}
+            {/* Right Column */}
 
-            <div
-              className="
-                flex
-                h-full
-                min-h-0
-                min-w-0
-                flex-col
-                overflow-hidden
-              "
-            >
-              {/* CHAT HEADER - FIXED */}
+            <div className="flex h-full min-h-0 min-w-0 flex-col bg-slate-50/20">
+              {/* CHAT HEADER */}
 
-              <div
-                className="
-                  flex
-                  shrink-0
-                  items-center
-                  justify-between
-                  border-b
-                  border-slate-100
-                  bg-white
-                  px-5
-                  py-4
-                  sm:px-6
-                "
-              >
-                {selectedUser ? (
-                  <div className="flex min-w-0 items-center gap-3">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#EEF4FF] text-xs font-bold text-[#2563EB]">
-                      {getInitials(
+              <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-slate-50/50 px-5 py-3.5 sm:px-6">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-md shadow-purple-500/10">
+                    {selectedUser ? (
+                      getInitials(
                         getUserName(
                           selectedUser
                         )
-                      )}
-                    </div>
+                      )
+                    ) : (
+                      <MessageSquare
+                        size={18}
+                      />
+                    )}
+                  </div>
 
-                    <div className="min-w-0">
-                      <h2 className="truncate text-sm font-bold text-[#171B3A]">
-                        {getUserName(
-                          selectedUser
-                        )}
-                      </h2>
-
-                      <div className="mt-1 flex items-center gap-2">
-                        <span className="h-2 w-2 rounded-full bg-emerald-500" />
-
-                        <p className="text-xs text-[#64748B]">
-                          {getRole(
+                  <div className="min-w-0">
+                    <h2 className="truncate text-sm font-extrabold text-slate-900">
+                      {selectedUser
+                        ? getUserName(
                             selectedUser
-                          )}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex min-w-0 items-center gap-3">
-                    <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#EEF4FF] text-[#2563EB]">
-                      <MessageSquare size={20} />
-                    </div>
-
-                    <div>
-                      <h2 className="text-sm font-bold text-[#171B3A]">
-                        Select a User
-                      </h2>
-
-                      <p className="mt-1 text-xs text-[#64748B]">
-                        Select a user or manager to start
-                        messaging.
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex items-center gap-1">
-                  {selectedConversation && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          fetchMessages(
-                            selectedConversationId
                           )
-                        }
-                        disabled={
-                          loadingMessages
-                        }
-                        className="flex h-9 items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-semibold text-[#2563EB] hover:bg-[#EEF4FF]"
-                      >
-                        <RefreshCw
-                          size={14}
-                          className={
-                            loadingMessages
-                              ? "animate-spin"
-                              : ""
-                          }
-                        />
+                        : "Select a contact"}
+                    </h2>
 
-                        Refresh
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={
-                          handleDeleteConversation
-                        }
-                        className="flex h-9 items-center justify-center gap-1.5 rounded-lg px-3 text-xs font-semibold text-red-500 hover:bg-red-50"
-                      >
-                        <Trash2 size={14} />
-                        Delete
-                      </button>
-                    </>
-                  )}
+                    <p className="truncate text-xs font-semibold text-violet-600">
+                      {selectedUser
+                        ? getRole(
+                            selectedUser
+                          ) ||
+                          "Active Member"
+                        : "Choose from list"}
+                    </p>
+                  </div>
                 </div>
+
+                {selectedConversationId && (
+                  <button
+                    onClick={
+                      handleDeleteConversation
+                    }
+                    className="flex h-8 w-8 items-center justify-center rounded-xl border border-rose-100 bg-rose-50 text-rose-600 transition hover:bg-rose-100"
+                    title="Delete Conversation"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
               </div>
 
-              {/* ==================================================
-                  CHAT MESSAGES - ONLY THIS SCROLLS
-              ================================================== */}
+              {/* Messages Container */}
 
-              <div
-                className="
-                  min-h-0
-                  min-w-0
-                  flex-1
-                  overflow-x-hidden
-                  overflow-y-auto
-                  overscroll-contain
-                  px-5
-                  py-6
-                  sm:px-6
-                  [scrollbar-gutter:stable]
-                "
-              >
+              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-6">
                 {startingConversation ? (
-                  <div className="flex min-h-[400px] items-center justify-center">
-                    <div className="text-center">
-                      <Loader2
-                        size={30}
-                        className="mx-auto animate-spin text-[#2563EB]"
-                      />
+                  <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
+                    <Loader2
+                      size={28}
+                      className="animate-spin text-violet-600"
+                    />
 
-                      <p className="mt-4 text-sm text-[#64748B]">
-                        Starting conversation...
-                      </p>
-                    </div>
+                    <p className="mt-2 text-xs font-semibold text-slate-400">
+                      Opening conversation...
+                    </p>
                   </div>
                 ) : loadingMessages ? (
-                  <div className="flex min-h-[400px] items-center justify-center">
-                    <div className="text-center">
-                      <Loader2
-                        size={30}
-                        className="mx-auto animate-spin text-[#2563EB]"
-                      />
+                  <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
+                    <Loader2
+                      size={28}
+                      className="animate-spin text-violet-600"
+                    />
 
-                      <p className="mt-4 text-sm text-[#64748B]">
-                        Loading messages...
-                      </p>
-                    </div>
-                  </div>
-                ) : messagesError ? (
-                  <div className="flex min-h-[400px] items-center justify-center">
-                    <div className="max-w-md rounded-xl border border-red-200 bg-red-50 px-5 py-4 text-center text-sm font-medium text-red-700">
-                      {messagesError}
-                    </div>
+                    <p className="mt-2 text-xs font-semibold text-slate-400">
+                      Loading messages...
+                    </p>
                   </div>
                 ) : !selectedUser ? (
-                  <div className="flex min-h-[400px] items-center justify-center">
-                    <div className="max-w-md text-center">
-                      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[#EEF4FF] text-[#2563EB]">
-                        <MessageSquare size={29} />
-                      </div>
-
-                      <h3 className="mt-5 text-base font-bold text-[#171B3A]">
-                        No user selected
-                      </h3>
-
-                      <p className="mt-2 text-sm leading-6 text-[#64748B]">
-                        Select any user or manager from
-                        the list to start a conversation.
-                      </p>
+                  <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
+                      <MessageSquare
+                        size={26}
+                      />
                     </div>
+
+                    <h3 className="mt-4 text-sm font-bold text-slate-900">
+                      No contact selected
+                    </h3>
+
+                    <p className="mt-1 text-xs text-slate-400">
+                      Pick a team member
+                      from the left list
+                      to review chat
+                      histories.
+                    </p>
                   </div>
                 ) : messages.length ===
                   0 ? (
-                  <div className="flex min-h-[400px] items-center justify-center">
-                    <div className="max-w-md text-center">
-                      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[#EEF4FF] text-[#2563EB]">
-                        <MessageSquare size={29} />
-                      </div>
+                  <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
+                    <h3 className="text-sm font-bold text-slate-800">
+                      Say Hello 👋
+                    </h3>
 
-                      <h3 className="mt-5 text-base font-bold text-[#171B3A]">
-                        No messages yet
-                      </h3>
-
-                      <p className="mt-2 text-sm leading-6 text-[#64748B]">
-                        Write a message below to start the
-                        conversation.
-                      </p>
-                    </div>
+                    <p className="mt-1 text-xs text-slate-400">
+                      Start the discussion
+                      below.
+                    </p>
                   </div>
                 ) : (
-                  <div className="space-y-4">
+                  <div className="mx-auto flex w-full max-w-5xl flex-col gap-3.5">
                     {messages.map(
-                      (item, index) => {
+                      (
+                        item,
+                        index
+                      ) => {
                         const sender =
                           item?.sender;
 
@@ -2684,7 +1712,7 @@ export default function AdminConversationsPage() {
                               item?.message ||
                               "";
 
-                        const isAdminMessage =
+                        const isAdmin =
                           String(
                             sender?.role ||
                               ""
@@ -2692,27 +1720,54 @@ export default function AdminConversationsPage() {
                           "admin";
 
                         return (
-                          <AdminMessageRow
+                          <div
                             key={
                               item?.id ||
                               item?._id ||
-                              `${item?.createdAt}-${index}`
+                              index
                             }
-                            item={item}
-                            senderName={
-                              senderName
-                            }
-                            body={body}
-                            isDeleted={
-                              isDeleted
-                            }
-                            isAdminMessage={
-                              isAdminMessage
-                            }
-                            onDeletePrompt={
-                              promptDeleteMessage
-                            }
-                          />
+                            className={`group relative flex w-full items-center gap-2.5 ${
+                              isAdmin
+                                ? "justify-end"
+                                : "justify-start"
+                            }`}
+                          >
+                            <div
+                              className={`max-w-[82%] rounded-[20px] px-4 py-3 shadow-sm sm:max-w-[72%] ${
+                                isDeleted
+                                  ? "border border-slate-200/80 bg-slate-50 italic text-slate-400"
+                                  : isAdmin
+                                  ? "rounded-tr-xs bg-violet-600 text-white shadow-violet-600/15"
+                                  : "rounded-tl-xs border border-slate-100 bg-white text-slate-800 shadow-[0_4px_20px_rgba(45,35,100,0.03)]"
+                              }`}
+                            >
+                              {!isAdmin &&
+                                senderName &&
+                                !isDeleted && (
+                                  <p className="mb-1 text-[10px] font-bold text-violet-600">
+                                    {
+                                      senderName
+                                    }
+                                  </p>
+                                )}
+
+                              <p className="whitespace-pre-wrap break-words text-xs font-medium leading-relaxed">
+                                {body}
+                              </p>
+
+                              <span
+                                className={`mt-1.5 block text-right text-[10px] ${
+                                  isAdmin
+                                    ? "text-violet-200"
+                                    : "text-slate-400"
+                                }`}
+                              >
+                                {formatMessageTime(
+                                  item?.createdAt
+                                )}
+                              </span>
+                            </div>
+                          </div>
                         );
                       }
                     )}
@@ -2726,60 +1781,51 @@ export default function AdminConversationsPage() {
                 )}
               </div>
 
-              {/* ==================================================
-                  COMPOSER - FIXED
-              ================================================== */}
+              {/* Composer */}
 
-              <div
-                className="
-                  shrink-0
-                  border-t
-                  border-slate-100
-                  bg-white
-                  p-4
-                  sm:p-5
-                "
-              >
+              <div className="shrink-0 border-t border-slate-100 bg-white p-4 sm:p-5">
                 {selectedFiles.length >
                   0 && (
                   <div className="mb-3 flex flex-wrap gap-2">
                     {selectedFiles.map(
                       (
                         file,
-                        index
+                        idx
                       ) => (
                         <div
-                          key={`${file.name}-${index}`}
-                          className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-[#F8FAFC] px-2.5 py-1 text-xs text-[#26344D]"
+                          key={idx}
+                          className="flex items-center gap-2 rounded-xl border border-violet-100 bg-violet-50/70 px-3 py-1.5 text-xs text-violet-800"
                         >
-                          {file.type.startsWith(
-                            "image/"
-                          ) ? (
-                            <ImageIcon
-                              size={13}
-                              className="text-[#2563EB]"
-                            />
-                          ) : (
-                            <File
-                              size={13}
-                              className="text-[#2563EB]"
-                            />
-                          )}
-
-                          <span className="max-w-[140px] truncate font-medium">
-                            {file.name}
+                          <span className="max-w-[150px] truncate font-semibold">
+                            {
+                              file.name
+                            }
                           </span>
 
                           <button
                             type="button"
                             onClick={() =>
-                              removeSelectedFile(
-                                index
+                              setSelectedFiles(
+                                (
+                                  prev
+                                ) =>
+                                  prev.filter(
+                                    (
+                                      _,
+                                      i
+                                    ) =>
+                                      i !==
+                                      idx
+                                  )
                               )
                             }
-                            className="ml-1 rounded text-slate-400 hover:text-red-500"
+                            className="text-violet-400 hover:text-rose-600"
                           >
-                            <X size={13} />
+                            <X
+                              size={
+                                13
+                              }
+                            />
                           </button>
                         </div>
                       )
@@ -2791,15 +1837,29 @@ export default function AdminConversationsPage() {
                   onSubmit={
                     handleSendMessage
                   }
-                  className="flex items-end gap-2"
+                  className="flex items-end gap-2.5"
                 >
                   <input
                     type="file"
                     multiple
                     ref={fileInputRef}
-                    onChange={
-                      handleFileChange
-                    }
+                    onChange={(e) => {
+                      const newFiles =
+                        Array.from(
+                          e.target
+                            .files || []
+                        );
+
+                      setSelectedFiles(
+                        (prev) => [
+                          ...prev,
+                          ...newFiles,
+                        ]
+                      );
+
+                      e.target.value =
+                        "";
+                    }}
                     className="hidden"
                   />
 
@@ -2809,497 +1869,116 @@ export default function AdminConversationsPage() {
                       fileInputRef.current?.click()
                     }
                     disabled={
-                      !selectedUser ||
-                      !selectedConversationId ||
-                      sendingMessage
+                      !selectedUser
                     }
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50 hover:text-[#2563EB] disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-300"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200/90 bg-slate-50/50 text-slate-500 shadow-sm transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-600 disabled:opacity-40"
                   >
-                    <Paperclip size={18} />
+                    <Paperclip
+                      size={18}
+                    />
                   </button>
 
-                  <div className="relative flex-1">
+                  <div className="min-w-0 flex-1">
                     <textarea
                       value={message}
-                      onChange={(event) =>
+                      onChange={(e) =>
                         setMessage(
-                          event.target.value
+                          e.target.value
                         )
                       }
                       placeholder={
                         selectedUser
-                          ? "Write a message or attach files..."
-                          : "Select a user first..."
+                          ? "Write a message..."
+                          : "Select user first..."
                       }
                       rows={1}
                       disabled={
                         !selectedUser ||
-                        !selectedConversationId ||
                         sendingMessage
                       }
-                      onKeyDown={(
-                        event
-                      ) => {
+                      onKeyDown={(e) => {
                         if (
-                          event.key ===
+                          e.key ===
                             "Enter" &&
-                          !event.shiftKey
+                          !e.shiftKey
                         ) {
-                          event.preventDefault();
+                          e.preventDefault();
 
                           handleSendMessage(
-                            event
+                            e
                           );
                         }
                       }}
-                      className="min-h-11 w-full resize-none rounded-xl border border-slate-200 bg-[#F8FAFC] px-4 py-3 text-sm text-[#26344D] outline-none placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-70"
+                      className="min-h-11 max-h-32 w-full resize-none rounded-2xl border border-slate-200/90 bg-slate-50/50 px-4 py-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:bg-white focus:ring-4 focus:ring-violet-500/10 disabled:opacity-60"
                     />
                   </div>
 
                   <button
                     type="submit"
                     disabled={
+                      !selectedUser ||
+                      sendingMessage ||
                       (!message.trim() &&
                         selectedFiles.length ===
-                          0) ||
-                      !selectedUser ||
-                      !selectedConversationId ||
-                      sendingMessage
+                          0)
                     }
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#2563EB] text-white transition hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-violet-600 text-white shadow-md shadow-violet-600/25 transition hover:bg-violet-700 disabled:bg-slate-200 disabled:text-slate-400"
                   >
                     {sendingMessage ? (
                       <Loader2
-                        size={18}
+                        size={17}
                         className="animate-spin"
                       />
                     ) : (
-                      <Send size={18} />
+                      <Send
+                        size={17}
+                      />
                     )}
                   </button>
                 </form>
-
-                <p className="mt-2 px-1 text-[10px] text-[#64748B]">
-                  Enter to send • Shift + Enter for
-                  a new line • Click Paperclip to add
-                  images/docs
-                </p>
               </div>
             </div>
           </section>
         </main>
       </div>
-
-      {/* ======================================================
-          DELETE MESSAGE MODAL
-      ====================================================== */}
-
-      {deleteModalOpen &&
-        messageToDelete && (
-          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4 backdrop-blur-xs">
-            <div className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-100 bg-white p-6 shadow-2xl">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-red-50 text-red-600">
-                  <Trash2 size={20} />
-                </div>
-
-                <div>
-                  <h3 className="text-base font-bold text-[#171B3A]">
-                    Delete Message?
-                  </h3>
-
-                  <p className="text-xs text-[#64748B]">
-                    Choose how you want to delete this
-                    message.
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 p-3 text-xs italic text-[#26344D]">
-                &ldquo;
-
-                {messageToDelete?.isDeletedForEveryone
-                  ? "This message was deleted"
-                  : messageToDelete?.body ||
-                    messageToDelete?.message ||
-                    (messageToDelete?.attachments
-                      ?.length > 0
-                      ? "Attachment"
-                      : "Message")}
-
-                &rdquo;
-              </div>
-
-              <div className="mt-6 flex flex-col gap-2.5">
-                {!messageToDelete?.isDeletedForEveryone && (
-                  <button
-                    type="button"
-                    disabled={deletingMessage}
-                    onClick={() =>
-                      executeDeleteMessage(
-                        "everyone"
-                      )
-                    }
-                    className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-red-600 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-red-700 disabled:opacity-50"
-                  >
-                    {deletingMessage ? (
-                      <Loader2
-                        size={16}
-                        className="animate-spin"
-                      />
-                    ) : (
-                      <Users size={16} />
-                    )}
-
-                    Delete for Everyone
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  disabled={deletingMessage}
-                  onClick={() =>
-                    executeDeleteMessage(
-                      "me"
-                    )
-                  }
-                  className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-[#26344D] transition hover:bg-slate-50 disabled:opacity-50"
-                >
-                  {deletingMessage ? (
-                    <Loader2
-                      size={16}
-                      className="animate-spin"
-                    />
-                  ) : (
-                    <Trash2 size={16} />
-                  )}
-
-                  Delete for Me
-                </button>
-
-                <button
-                  type="button"
-                  disabled={deletingMessage}
-                  onClick={() => {
-                    setDeleteModalOpen(
-                      false
-                    );
-
-                    setMessageToDelete(
-                      null
-                    );
-                  }}
-                  className="mt-1 h-10 w-full text-center text-xs font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
     </div>
   );
 }
 
-/* ============================================================
-   ADMIN MESSAGE ROW
-============================================================ */
-
-function AdminMessageRow({
+function AdminNavItem({
   item,
-  senderName,
-  body,
-  isDeleted,
-  isAdminMessage,
-  onDeletePrompt,
+  onNavigate,
 }) {
-  const [menuOpen, setMenuOpen] =
-    useState(false);
+  const pathname = usePathname();
+  const Icon = item.icon;
 
-  const menuRef =
-    useRef(null);
-
-  useEffect(() => {
-    function handleClickOutside(
-      event
-    ) {
-      if (
-        menuRef.current &&
-        !menuRef.current.contains(
-          event.target
-        )
-      ) {
-        setMenuOpen(false);
-      }
-    }
-
-    if (menuOpen) {
-      document.addEventListener(
-        "mousedown",
-        handleClickOutside
-      );
-    }
-
-    return () => {
-      document.removeEventListener(
-        "mousedown",
-        handleClickOutside
-      );
-    };
-  }, [menuOpen]);
+  const isActive =
+    pathname === item.href ||
+    (item.href !== "/admin" &&
+      pathname.startsWith(
+        `${item.href}/`
+      ));
 
   return (
-    <div
-      className={`group relative flex items-start gap-3 ${
-        isAdminMessage
-          ? "justify-end"
-          : ""
+    <Link
+      href={item.href}
+      onClick={onNavigate}
+      className={`group flex items-center gap-3 rounded-2xl px-3.5 py-3 text-sm font-bold transition duration-150 ${
+        isActive
+          ? "bg-[#2563EB] text-white shadow-md shadow-blue-600/30"
+          : "text-slate-300 hover:bg-white/10 hover:text-white"
       }`}
     >
-      {!isAdminMessage && (
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#EEF4FF] text-[11px] font-bold text-[#2563EB]">
-          {getInitials(
-            senderName
-          )}
-        </div>
-      )}
-
-      {isAdminMessage &&
-        !isDeleted && (
-          <div
-            className="relative self-center opacity-0 transition-opacity group-hover:opacity-100"
-            ref={menuRef}
-          >
-            <button
-              type="button"
-              onClick={() =>
-                setMenuOpen(
-                  (previous) =>
-                    !previous
-                )
-              }
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-              aria-label="Message options"
-            >
-              <MoreVertical
-                size={15}
-              />
-            </button>
-
-            {menuOpen && (
-              <div className="absolute bottom-full right-0 z-20 mb-1 w-44 rounded-xl border border-slate-100 bg-white py-1.5 shadow-xl">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
-
-                    onDeletePrompt(
-                      item
-                    );
-                  }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-red-600 transition hover:bg-red-50"
-                >
-                  <Trash2 size={13} />
-                  Delete Message
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-      <div
-        className={`min-w-0 max-w-[80%] ${
-          isAdminMessage
-            ? "items-end"
-            : ""
+      <Icon
+        size={18}
+        className={`transition duration-150 ${
+          isActive
+            ? "text-white"
+            : "text-slate-400 group-hover:text-white"
         }`}
-      >
-        <div
-          className={`mb-1 flex items-center gap-2 ${
-            isAdminMessage
-              ? "justify-end"
-              : ""
-          }`}
-        >
-          <p className="text-xs font-bold text-[#171B3A]">
-            {senderName}
-          </p>
+      />
 
-          {item?.sender?.role && (
-            <span className="text-[10px] capitalize text-[#2563EB]">
-              {item.sender.role}
-            </span>
-          )}
-
-          <span className="text-[10px] text-[#64748B]">
-            {formatMessageTime(
-              item?.createdAt
-            )}
-          </span>
-        </div>
-
-        {isDeleted ? (
-          <div className="flex items-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs italic text-slate-400">
-            <AlertTriangle
-              size={13}
-            />
-
-            <span>
-              This message was deleted
-            </span>
-          </div>
-        ) : (
-          body && (
-            <div
-              className={`rounded-2xl px-4 py-3 text-sm leading-6 ${
-                isAdminMessage
-                  ? "rounded-tr-md bg-[#2563EB] text-white"
-                  : "rounded-tl-md bg-[#F8FAFC] text-[#26344D]"
-              }`}
-            >
-              {body}
-            </div>
-          )
-        )}
-
-        {!isDeleted &&
-          Array.isArray(
-            item?.attachments
-          ) &&
-          item.attachments.length >
-            0 && (
-            <div className="mt-2 space-y-1.5">
-              {item.attachments.map(
-                (
-                  attachment,
-                  attachmentIndex
-                ) => {
-                  const mime =
-                    String(
-                      attachment?.mimeType ||
-                        attachment?.fileType ||
-                        ""
-                    ).toLowerCase();
-
-                  const isImage =
-                    mime.startsWith(
-                      "image/"
-                    );
-
-                  const fullUrl =
-                    getFileUrl(
-                      attachment?.url
-                    );
-
-                  if (
-                    isImage &&
-                    fullUrl !== "#"
-                  ) {
-                    return (
-                      <a
-                        key={
-                          attachment?.url ||
-                          attachmentIndex
-                        }
-                        href={fullUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="block overflow-hidden rounded-xl border border-slate-200 bg-white p-1 shadow-2xs hover:opacity-95"
-                      >
-                        <img
-                          src={fullUrl}
-                          alt={
-                            attachment?.originalName ||
-                            attachment?.filename ||
-                            "Attached Image"
-                          }
-                          className="max-h-60 w-auto rounded-lg object-contain"
-                        />
-                      </a>
-                    );
-                  }
-
-                  return (
-                    <a
-                      key={
-                        attachment?.url ||
-                        attachmentIndex
-                      }
-                      href={fullUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold shadow-2xs transition ${
-                        isAdminMessage
-                          ? "border-blue-200 bg-blue-50 text-[#2563EB] hover:bg-blue-100"
-                          : "border-slate-200 bg-white text-[#26344D] hover:bg-slate-50"
-                      }`}
-                    >
-                      <FileText
-                        size={15}
-                        className="shrink-0 text-[#2563EB]"
-                      />
-
-                      <span className="max-w-[220px] truncate">
-                        {attachment?.originalName ||
-                          attachment?.filename ||
-                          "Attached Document"}
-                      </span>
-                    </a>
-                  );
-                }
-              )}
-            </div>
-          )}
-      </div>
-
-      {!isAdminMessage &&
-        !isDeleted && (
-          <div
-            className="relative self-center opacity-0 transition-opacity group-hover:opacity-100"
-            ref={menuRef}
-          >
-            <button
-              type="button"
-              onClick={() =>
-                setMenuOpen(
-                  (previous) =>
-                    !previous
-                )
-              }
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-              aria-label="Message options"
-            >
-              <MoreVertical
-                size={15}
-              />
-            </button>
-
-            {menuOpen && (
-              <div className="absolute bottom-full left-0 z-20 mb-1 w-44 rounded-xl border border-slate-100 bg-white py-1.5 shadow-xl">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMenuOpen(false);
-
-                    onDeletePrompt(
-                      item
-                    );
-                  }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-red-600 transition hover:bg-red-50"
-                >
-                  <Trash2 size={13} />
-                  Delete Message
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-      {isAdminMessage && (
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#2563EB] text-[11px] font-bold text-white">
-          A
-        </div>
-      )}
-    </div>
+      <span>{item.label}</span>
+    </Link>
   );
 }

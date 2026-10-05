@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Activity,
   Bell,
@@ -16,72 +16,32 @@ import {
   Menu,
   MessageSquare,
   Phone,
+  RefreshCw,
   Save,
   Settings,
   ShieldCheck,
   Clock3,
   UserRound,
   X,
+  Sparkles,
+  Loader2,
 } from "lucide-react";
 
 import { authService } from "@/services/authService";
 
+const CACHE_TIME = 60 * 1000;
+
 const navigation = [
-  {
-    label: "Dashboard",
-    href: "/user",
-    icon: LayoutDashboard,
-  },
-  {
-    label: "My Tasks",
-    href: "/user/tasks",
-    icon: ClipboardList,
-  },
-  {
-    label: "Calendar",
-    href: "/user/calendar",
-    icon: CalendarDays,
-  },
-  {
-    label: "Attendance",
-    href: "/user/attendance",
-    icon: Clock3,
-  },
-  {
-    label: "Messages",
-    href: "/user/messages",
-    icon: MessageSquare,
-  },
-  {
-    label: "Notifications",
-    href: "/user/notifications",
-    icon: Bell,
-  },
-  {
-    label: "Leave Requests",
-    href: "/user/leave-requests",
-    icon: FileText,
-  },
-  {
-    label: "Activity",
-    href: "/user/activity",
-    icon: Activity,
-  },
-  {
-    label: "Profile",
-    href: "/user/profile",
-    icon: UserRound,
-  },
-  {
-    label: "Settings",
-    href: "/user/settings",
-    icon: Settings,
-  },
-  {
-    label: "Policies",
-    href: "/user/policies",
-    icon: ShieldCheck,
-  },
+  { label: "Dashboard", href: "/user", icon: LayoutDashboard },
+  { label: "My Tasks", href: "/user/tasks", icon: ClipboardList },
+  { label: "Calendar", href: "/user/calendar", icon: CalendarDays },
+  { label: "Attendance", href: "/user/attendance", icon: Clock3 },
+  { label: "Messages", href: "/user/messages", icon: MessageSquare },
+  { label: "Notifications", href: "/user/notifications", icon: Bell },
+  { label: "Leave Requests", href: "/user/leave-requests", icon: FileText },
+  { label: "Profile", href: "/user/profile", icon: UserRound },
+  { label: "Settings", href: "/user/settings", icon: Settings },
+  { label: "Policies", href: "/user/policies", icon: ShieldCheck },
 ];
 
 export default function UserProfilePage() {
@@ -99,116 +59,101 @@ export default function UserProfilePage() {
   const [profileImage, setProfileImage] = useState(null);
   const [imagePreview, setImagePreview] = useState("");
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Instant render
   const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
 
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  const [user, setUser] = useState(() => extractUser(authService?.getUser?.()));
 
-  const [user, setUser] = useState(null);
+  const cacheRef = useRef({ timestamp: 0, data: null });
+  const loadingRef = useRef(false);
 
-  // =====================================================
-  // LOAD CURRENT USER PROFILE
-  // GET /api/auth/me
-  // =====================================================
+  /* =========================================================
+     LOAD PROFILE (Speed Optimized & Cached)
+  ========================================================= */
 
-  useEffect(() => {
-    let mounted = true;
+  const loadProfile = useCallback(
+    async (force = false) => {
+      if (loadingRef.current) return;
 
-    const loadProfile = async () => {
+      const now = Date.now();
+      if (
+        !force &&
+        cacheRef.current.data &&
+        now - cacheRef.current.timestamp < CACHE_TIME
+      ) {
+        return;
+      }
+
+      loadingRef.current = true;
+      if (force) setRefreshing(true);
+
       try {
-        setLoading(true);
         setError("");
-
         const response = await authService.me();
+        const currentUser = extractUser(response);
 
-        if (!mounted) {
-          return;
-        }
-
-        if (!response?.user) {
+        if (!currentUser) {
           router.replace("/login");
           return;
         }
 
-        const currentUser = response.user;
-
         setUser(currentUser);
-
         setForm({
           name: currentUser.name || "",
           email: currentUser.email || "",
           phone: currentUser.phone || "",
         });
-
         setImagePreview(currentUser.avatar || "");
+
+        cacheRef.current = {
+          timestamp: Date.now(),
+          data: currentUser,
+        };
       } catch (err) {
-        if (!mounted) {
+        console.error("Profile load error:", err);
+        if (err?.status === 401 || err?.status === 403) {
+          router.replace("/login");
           return;
         }
-
-        console.error("Profile load error:", err);
-
-        setError(
-          err?.message ||
-            "Unable to load your profile."
-        );
+        setError(err?.message || "Unable to load your profile.");
       } finally {
-        if (mounted) {
-          setLoading(false);
-        }
+        loadingRef.current = false;
+        setLoading(false);
+        setRefreshing(false);
       }
-    };
+    },
+    [router]
+  );
 
-    loadProfile();
-
-    return () => {
-      mounted = false;
-    };
-  }, [router]);
-
-  // =====================================================
-  // CLEANUP IMAGE PREVIEW
-  // =====================================================
+  useEffect(() => {
+    loadProfile(false);
+  }, [loadProfile]);
 
   useEffect(() => {
     return () => {
-      if (
-        imagePreview &&
-        imagePreview.startsWith("blob:")
-      ) {
+      if (imagePreview && imagePreview.startsWith("blob:")) {
         URL.revokeObjectURL(imagePreview);
       }
     };
   }, [imagePreview]);
 
-  // =====================================================
-  // FORM CHANGE
-  // =====================================================
-
   function handleChange(event) {
     const { name, value } = event.target;
-
     setForm((previous) => ({
       ...previous,
       [name]: value,
     }));
-
     setSaved(false);
     setError("");
   }
 
-  // =====================================================
-  // IMAGE SELECT
-  // =====================================================
-
   function handleImageChange(event) {
     const file = event.target.files?.[0];
-
-    if (!file) {
-      return;
-    }
+    if (!file) return;
 
     if (!file.type.startsWith("image/")) {
       setError("Please select a valid image file.");
@@ -216,56 +161,30 @@ export default function UserProfilePage() {
     }
 
     const maxSize = 1 * 1024 * 1024;
-
     if (file.size > maxSize) {
-      setError(
-        "Profile image must be smaller than 1MB."
-      );
+      setError("Profile image must be smaller than 1MB.");
       return;
     }
 
     setProfileImage(file);
-
     const previewUrl = URL.createObjectURL(file);
-
     setImagePreview(previewUrl);
     setSaved(false);
     setError("");
   }
 
-  // =====================================================
-  // CONVERT IMAGE TO DATA URL
-  // =====================================================
-
   function fileToDataUrl(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-
-      reader.onload = () => {
-        resolve(reader.result);
-      };
-
-      reader.onerror = () => {
-        reject(
-          new Error("Unable to process profile image.")
-        );
-      };
-
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error("Unable to process profile image."));
       reader.readAsDataURL(file);
     });
   }
 
-  // =====================================================
-  // SAVE PROFILE
-  // PUT /api/auth/me
-  // =====================================================
-
   async function handleSubmit(event) {
     event.preventDefault();
-
-    if (saving) {
-      return;
-    }
+    if (saving) return;
 
     setSaving(true);
     setSaved(false);
@@ -278,23 +197,18 @@ export default function UserProfilePage() {
         avatar = await fileToDataUrl(profileImage);
       }
 
-      const response =
-        await authService.updateProfile({
-          name: form.name,
-          phone: form.phone,
-          avatar,
-        });
+      const response = await authService.updateProfile({
+        name: form.name,
+        phone: form.phone,
+        avatar,
+      });
 
-      if (!response?.user) {
-        throw new Error(
-          "Profile was saved but no updated user was returned."
-        );
+      const updatedUser = extractUser(response);
+      if (!updatedUser) {
+        throw new Error("Profile was saved but no updated user was returned.");
       }
 
-      const updatedUser = response.user;
-
       setUser(updatedUser);
-
       setForm({
         name: updatedUser.name || "",
         email: updatedUser.email || "",
@@ -303,132 +217,94 @@ export default function UserProfilePage() {
 
       setImagePreview(updatedUser.avatar || "");
       setProfileImage(null);
-
       setSaved(true);
 
-      if (
-        imagePreview &&
-        imagePreview.startsWith("blob:")
-      ) {
+      cacheRef.current.timestamp = 0; // Invalidate cache
+
+      if (imagePreview && imagePreview.startsWith("blob:")) {
         URL.revokeObjectURL(imagePreview);
       }
     } catch (err) {
       console.error("Profile save error:", err);
-
-      setError(
-        err?.message ||
-          "Unable to save profile changes."
-      );
+      setError(err?.message || "Unable to save profile changes.");
     } finally {
       setSaving(false);
     }
   }
 
-  // =====================================================
-  // LOGOUT
-  // =====================================================
-
   async function handleLogout() {
-    if (loggingOut) {
-      return;
-    }
+    if (loggingOut) return;
 
     try {
       setLoggingOut(true);
-
       await authService.logout();
-
       router.replace("/login");
     } catch (err) {
       console.error("Logout error:", err);
-
-      setError(
-        err?.message ||
-          "Unable to logout."
-      );
-
+      setError(err?.message || "Unable to logout.");
       setLoggingOut(false);
     }
   }
 
-  // =====================================================
-  // LOADING
-  // =====================================================
-
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[#F8FAFC]">
-        <div className="text-center">
-          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-[#EEF4FF] border-t-[#2563EB]" />
-
-          <p className="mt-4 text-sm font-semibold text-[#64748B]">
-            Loading your profile...
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // =====================================================
-  // PAGE
-  // =====================================================
+  const userName = user?.name || form.name || "User";
+  const userInitial = String(userName).trim().charAt(0).toUpperCase() || "U";
+  const userEmail = user?.email || form.email || "User Account";
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC]">
-      {/* Mobile Overlay */}
+    <div className="relative min-h-screen w-full bg-[#f7f8fc] text-slate-900 animate-fadeIn">
+      {/* Background ambient lighting */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute -left-32 -top-32 h-72 w-72 rounded-full bg-violet-400/10 blur-3xl animate-pulse" />
+        <div className="absolute right-0 top-20 h-80 w-80 rounded-full bg-pink-400/10 blur-3xl" />
+        <div className="absolute bottom-0 left-1/3 h-72 w-72 rounded-full bg-orange-300/10 blur-3xl" />
+      </div>
+
+      {/* MOBILE OVERLAY */}
       {sidebarOpen && (
         <button
           type="button"
           aria-label="Close sidebar"
           onClick={() => setSidebarOpen(false)}
-          className="fixed inset-0 z-40 bg-black/40 lg:hidden"
+          className="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-sm lg:hidden"
         />
       )}
 
-      {/* =================================================
-          SIDEBAR
-      ================================================= */}
-
+      {/* SIDEBAR (Matching Admin Dark Theme & Animations) */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-[#171B3A] shadow-xl transition-transform duration-300 lg:translate-x-0 ${
-          sidebarOpen
-            ? "translate-x-0"
-            : "-translate-x-full"
+        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-[#171B3A] text-white shadow-2xl transition-transform duration-300 ease-in-out lg:translate-x-0 ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        {/* Logo */}
-        <div className="flex h-20 items-center justify-between border-b border-white/10 px-5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#2563EB] text-white shadow-sm">
+        <div className="flex h-20 shrink-0 items-center justify-between border-b border-white/10 px-5">
+          <Link
+            href="/user"
+            onClick={() => setSidebarOpen(false)}
+            className="flex items-center gap-3 text-white"
+          >
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-purple-600 text-white shadow-md shadow-purple-600/20">
               <ShieldCheck size={22} />
             </div>
 
             <div>
-              <h1 className="text-sm font-bold text-white">
-                Local Pro 1
-              </h1>
-
-              <p className="text-[11px] font-medium text-slate-300">
+              <h1 className="text-sm font-bold text-white">Local Pro 1</h1>
+              <p className="text-[11px] font-semibold text-violet-400">
                 User Workspace
               </p>
             </div>
-          </div>
+          </Link>
 
           <button
             type="button"
-            onClick={() =>
-              setSidebarOpen(false)
-            }
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-300 transition hover:bg-white/10 hover:text-white lg:hidden"
+            onClick={() => setSidebarOpen(false)}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-white/10 hover:text-white lg:hidden"
             aria-label="Close sidebar"
           >
             <X size={19} />
           </button>
         </div>
 
-        {/* Navigation */}
         <nav className="flex-1 overflow-y-auto px-3 py-5">
-          <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-300">
+          <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
             Workspace
           </p>
 
@@ -438,37 +314,25 @@ export default function UserProfilePage() {
                 key={item.href}
                 item={item}
                 pathname={pathname}
-                onNavigate={() =>
-                  setSidebarOpen(false)
-                }
+                onNavigate={() => setSidebarOpen(false)}
               />
             ))}
           </div>
         </nav>
 
-        {/* User Area */}
-        <div className="border-t border-white/10 p-3">
-          <div className="mb-2 flex items-center gap-3 rounded-xl px-3 py-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#2563EB] text-xs font-bold text-white">
+        <div className="shrink-0 border-t border-white/10 p-3">
+          <div className="mb-2 flex items-center gap-3 rounded-2xl bg-white/[0.04] px-3 py-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-violet-600 text-xs font-bold text-white">
               {user?.avatar ? (
-                <img
-                  src={user.avatar}
-                  alt={user.name || "User"}
-                  className="h-full w-full object-cover"
-                />
+                <img src={user.avatar} alt={userName} className="h-full w-full object-cover" />
               ) : (
-                getInitials(user?.name)
+                userInitial
               )}
             </div>
 
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-white">
-                {user?.name || "User"}
-              </p>
-
-              <p className="truncate text-xs font-medium capitalize text-slate-300">
-                {user?.role || "user"} Account
-              </p>
+              <p className="truncate text-sm font-bold text-white">{userName}</p>
+              <p className="truncate text-xs font-medium text-slate-400">{userEmail}</p>
             </div>
           </div>
 
@@ -476,237 +340,151 @@ export default function UserProfilePage() {
             type="button"
             onClick={handleLogout}
             disabled={loggingOut}
-            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex w-full items-center gap-3 rounded-2xl px-3.5 py-3 text-sm font-bold text-rose-400 transition hover:bg-rose-500/10 hover:text-rose-300 disabled:opacity-60"
           >
-            <LogOut size={17} />
-
-            <span>
-              {loggingOut
-                ? "Signing Out..."
-                : "Sign Out"}
-            </span>
+            {loggingOut ? <Loader2 size={18} className="animate-spin" /> : <LogOut size={18} />}
+            <span>Sign Out</span>
           </button>
         </div>
       </aside>
 
-      {/* =================================================
-          MAIN AREA
-      ================================================= */}
-
-      <div className="lg:pl-64">
-        {/* Top Bar */}
-        <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200 bg-white/95 px-5 backdrop-blur sm:px-6 lg:px-8">
+      {/* MAIN CONTAINER */}
+      <div className="min-h-screen w-full lg:pl-64">
+        {/* TOP BAR */}
+        <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200/80 bg-white/95 px-5 backdrop-blur-sm sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={() =>
-                setSidebarOpen(true)
-              }
-              className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-[#26344D] transition hover:bg-slate-50 lg:hidden"
+              onClick={() => setSidebarOpen(true)}
+              className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50 lg:hidden"
               aria-label="Open sidebar"
             >
               <Menu size={20} />
             </button>
 
             <div>
-              <p className="text-xs font-medium text-[#64748B]">
-                Workspace
-              </p>
-
-              <p className="text-sm font-bold text-[#171B3A]">
-                Profile
-              </p>
+              <p className="text-xs font-semibold text-slate-400">Workspace</p>
+              <p className="text-sm font-bold text-slate-900">Profile</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Link
-              href="/user/notifications"
-              className="flex h-9 w-9 items-center justify-center rounded-full text-[#64748B] transition hover:bg-slate-100 hover:text-[#26344D]"
-              aria-label="Notifications"
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => loadProfile(true)}
+              disabled={refreshing}
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition hover:bg-violet-50 hover:text-violet-600 disabled:opacity-50"
+              title="Refresh"
             >
-              <Bell size={18} />
-            </Link>
+              <RefreshCw size={16} className={refreshing ? "animate-spin text-violet-600" : ""} />
+            </button>
 
-            <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-[#EEF4FF] text-xs font-bold text-[#2563EB]">
+            <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-sm">
               {user?.avatar ? (
-                <img
-                  src={user.avatar}
-                  alt={user.name || "User"}
-                  className="h-full w-full object-cover"
-                />
+                <img src={user.avatar} alt={userName} className="h-full w-full object-cover" />
               ) : (
-                getInitials(user?.name)
+                userInitial
               )}
             </div>
           </div>
         </header>
 
-        {/* =================================================
-            CONTENT
-        ================================================= */}
-
-        <main className="min-h-[calc(100vh-4rem)] p-5 sm:p-6 lg:p-8">
+        {/* CONTENT */}
+        <main className="min-h-[calc(100vh-4rem)] p-4 sm:p-6 lg:p-8 animate-slideUp">
           <div className="mx-auto max-w-5xl space-y-6">
-            {/* Heading */}
-            <section>
-              <p className="text-sm font-semibold text-[#2563EB]">
-                ACCOUNT
-              </p>
 
-              <h1 className="mt-1 text-2xl font-bold tracking-tight text-[#171B3A] sm:text-3xl">
-                My Profile
-              </h1>
-
-              <p className="mt-2 text-sm text-[#64748B]">
-                View and manage your personal account
-                information.
-              </p>
+            {/* HEADER SECTION (NO BANNER) */}
+            <section className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="mb-1.5 inline-flex items-center gap-1.5 rounded-full border border-violet-200/80 bg-violet-50/80 px-2.5 py-0.5 text-[11px] font-bold tracking-wide text-violet-700">
+                  <ShieldCheck size={13} />
+                  ACCOUNT DETAILS
+                </div>
+                <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">
+                  My Profile
+                </h1>
+                <p className="mt-0.5 text-xs font-medium text-slate-500">
+                  View and manage your personal account information and avatar.
+                </p>
+              </div>
             </section>
 
-            {/* Error */}
             {error && (
-              <div
-                role="alert"
-                className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700"
-              >
-                {error}
-              </div>
+              <section className="rounded-2xl border border-rose-100 bg-rose-50 p-4 text-xs font-bold text-rose-700 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <p>{error}</p>
+                  <button onClick={() => setError("")} className="text-rose-400 hover:text-rose-600">
+                    <X size={16} />
+                  </button>
+                </div>
+              </section>
             )}
 
-            {/* Success */}
             {saved && (
-              <div
-                role="status"
-                className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-semibold text-green-700"
-              >
+              <section className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-xs font-bold text-emerald-700 shadow-sm">
                 Profile updated successfully.
-              </div>
+              </section>
             )}
 
-            {/* =================================================
-                PROFILE HEADER
-            ================================================= */}
+            {/* PROFILE HEADER CARD */}
+            <section className="overflow-hidden rounded-[26px] border border-slate-200/80 bg-white shadow-[0_10px_35px_rgba(45,35,100,0.05)]">
+              <div className="h-32 bg-gradient-to-r from-violet-600 via-purple-600 to-fuchsia-500" />
 
-            <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className="h-28 bg-[#171B3A]" />
-
-              <div className="px-5 pb-5 sm:px-6 sm:pb-6">
+              <div className="px-6 pb-6 sm:px-8">
                 <div className="-mt-12 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
                   <div className="flex items-end gap-4">
-                    {/* Profile Image */}
-                    <div className="relative flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-2xl border-4 border-white bg-[#EEF4FF] text-[#2563EB] shadow-sm">
+                    <div className="relative flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-[24px] border-4 border-white bg-violet-50 text-violet-600 shadow-md">
                       {imagePreview ? (
-                        <img
-                          src={imagePreview}
-                          alt={
-                            user?.name ||
-                            "Profile"
-                          }
-                          className="h-full w-full object-cover"
-                        />
+                        <img src={imagePreview} alt={userName} className="h-full w-full object-cover" />
                       ) : (
-                        <UserRound size={38} />
+                        <UserRound size={36} />
                       )}
 
-                      {/* Image Upload */}
                       <label
                         htmlFor="profileImage"
-                        className="absolute bottom-0 right-0 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border-2 border-white bg-[#2563EB] text-white shadow-sm transition hover:bg-[#1D4ED8]"
+                        className="absolute bottom-1 right-1 flex h-8 w-8 cursor-pointer items-center justify-center rounded-xl border border-white bg-violet-600 text-white shadow-sm transition hover:bg-violet-700"
                         title="Change profile picture"
                       >
-                        <Camera size={16} />
-
+                        <Camera size={14} />
                         <input
                           id="profileImage"
                           type="file"
                           accept="image/*"
-                          onChange={
-                            handleImageChange
-                          }
+                          onChange={handleImageChange}
                           className="hidden"
                         />
                       </label>
                     </div>
 
                     <div className="pb-1">
-                      <h2 className="text-lg font-bold text-[#171B3A]">
-                        {user?.name ||
-                          "User Profile"}
-                      </h2>
-
-                      <p className="mt-1 text-sm capitalize text-[#64748B]">
-                        {user?.role ||
-                          "user"}{" "}
-                        Workspace Member
+                      <h2 className="text-lg font-extrabold text-slate-900">{userName}</h2>
+                      <p className="mt-0.5 text-xs font-semibold capitalize text-violet-600">
+                        {user?.role || "user"} Workspace Member
                       </p>
                     </div>
                   </div>
 
-                  <span
-                    className={`inline-flex w-fit rounded-full px-3 py-1.5 text-xs font-bold ${
-                      user?.status ===
-                      "Active"
-                        ? "bg-green-50 text-green-700"
-                        : "bg-slate-100 text-slate-600"
-                    }`}
-                  >
-                    {user?.status ||
-                      "Active"}{" "}
-                    Account
+                  <span className="inline-flex w-fit rounded-full bg-emerald-50 px-3 py-1 text-[11px] font-bold text-emerald-600 border border-emerald-100">
+                    {user?.status || "Active"} Account
                   </span>
                 </div>
-
-                <p className="mt-4 text-xs text-slate-400">
-                  Profile information is loaded from
-                  your backend account.
-                </p>
               </div>
             </section>
 
-            {/* =================================================
-                PROFILE FORM
-            ================================================= */}
-
-            <form
-              onSubmit={handleSubmit}
-              className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
-            >
-              <div className="border-b border-slate-100 px-5 py-5 sm:px-6">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#EEF4FF] text-[#2563EB]">
-                    <UserRound size={19} />
-                  </div>
-
-                  <div>
-                    <h2 className="text-base font-bold text-[#171B3A]">
-                      Personal Information
-                    </h2>
-
-                    <p className="mt-1 text-sm text-[#64748B]">
-                      Update your profile information
-                      below.
-                    </p>
-                  </div>
-                </div>
+            {/* PROFILE FORM */}
+            <form onSubmit={handleSubmit} className="overflow-hidden rounded-[26px] border border-slate-200/80 bg-white shadow-[0_10px_35px_rgba(45,35,100,0.05)]">
+              <div className="border-b border-slate-100 bg-slate-50/50 px-6 py-4.5">
+                <h2 className="text-base font-bold text-slate-900">Personal Information</h2>
+                <p className="text-xs text-slate-500">Update your account settings below.</p>
               </div>
 
-              <div className="space-y-5 p-5 sm:p-6">
-                {/* Name */}
+              <div className="space-y-4 p-6 sm:p-8">
                 <div>
-                  <label
-                    htmlFor="name"
-                    className="mb-2 block text-sm font-semibold text-[#26344D]"
-                  >
+                  <label htmlFor="name" className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-600">
                     Full Name
                   </label>
-
                   <div className="relative">
-                    <UserRound
-                      size={17}
-                      className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-                    />
-
+                    <UserRound size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input
                       id="name"
                       name="name"
@@ -715,57 +493,34 @@ export default function UserProfilePage() {
                       onChange={handleChange}
                       placeholder="Your full name"
                       required
-                      className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-11 pr-4 text-sm text-[#26344D] outline-none placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-4 focus:ring-blue-500/10"
+                      className="h-11 w-full rounded-2xl border border-slate-200/90 bg-slate-50/50 pl-11 pr-4 text-xs font-medium text-slate-700 outline-none transition focus:border-violet-500 focus:bg-white focus:ring-4 focus:ring-violet-500/10"
                     />
                   </div>
                 </div>
 
-                {/* Email */}
                 <div>
-                  <label
-                    htmlFor="email"
-                    className="mb-2 block text-sm font-semibold text-[#26344D]"
-                  >
+                  <label htmlFor="email" className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-600">
                     Email Address
                   </label>
-
                   <div className="relative">
-                    <Mail
-                      size={17}
-                      className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-                    />
-
+                    <Mail size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input
                       id="email"
                       name="email"
                       type="email"
                       value={form.email}
                       readOnly
-                      className="h-11 w-full cursor-not-allowed rounded-xl border border-slate-200 bg-slate-50 pl-11 pr-4 text-sm text-[#64748B] outline-none"
+                      className="h-11 w-full cursor-not-allowed rounded-2xl border border-slate-200/90 bg-slate-100/70 pl-11 pr-4 text-xs font-medium text-slate-500 outline-none"
                     />
                   </div>
-
-                  <p className="mt-2 text-xs text-slate-400">
-                    Email is managed through your
-                    authenticated account.
-                  </p>
                 </div>
 
-                {/* Phone */}
                 <div>
-                  <label
-                    htmlFor="phone"
-                    className="mb-2 block text-sm font-semibold text-[#26344D]"
-                  >
+                  <label htmlFor="phone" className="mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-600">
                     Phone Number
                   </label>
-
                   <div className="relative">
-                    <Phone
-                      size={17}
-                      className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-                    />
-
+                    <Phone size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input
                       id="phone"
                       name="phone"
@@ -773,115 +528,30 @@ export default function UserProfilePage() {
                       value={form.phone}
                       onChange={handleChange}
                       placeholder="Your phone number"
-                      className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-11 pr-4 text-sm text-[#26344D] outline-none placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-4 focus:ring-blue-500/10"
+                      className="h-11 w-full rounded-2xl border border-slate-200/90 bg-slate-50/50 pl-11 pr-4 text-xs font-medium text-slate-700 outline-none transition focus:border-violet-500 focus:bg-white focus:ring-4 focus:ring-violet-500/10"
                     />
                   </div>
                 </div>
 
-                {/* Role */}
-                <div>
-                  <label className="mb-2 block text-sm font-semibold text-[#26344D]">
-                    Workspace Role
-                  </label>
-
-                  <div className="flex h-11 items-center rounded-xl border border-slate-200 bg-slate-50 px-4">
-                    <span className="text-sm font-semibold capitalize text-[#64748B]">
-                      {user?.role ||
-                        "user"}
-                    </span>
-                  </div>
-
-                  <p className="mt-2 text-xs text-slate-400">
-                    Your workspace role is managed by
-                    an administrator.
-                  </p>
-                </div>
-
-                {/* Status */}
-                <div>
-                  <label className="mb-2 block text-sm font-semibold text-[#26344D]">
-                    Account Status
-                  </label>
-
-                  <div className="flex h-11 items-center rounded-xl border border-slate-200 bg-slate-50 px-4">
-                    <span className="text-sm font-semibold text-[#64748B]">
-                      {user?.status ||
-                        "Active"}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Actions */}
-                <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:justify-end">
-                  <Link
-                    href="/user"
-                    className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 px-5 text-sm font-semibold text-[#64748B] transition hover:bg-slate-50 hover:text-[#26344D]"
-                  >
-                    Cancel
-                  </Link>
-
+                <div className="flex items-center justify-end gap-3 border-t border-slate-100 pt-5">
                   <button
                     type="submit"
                     disabled={saving}
-                    className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#2563EB] px-5 text-sm font-bold text-white transition hover:-translate-y-0.5 hover:bg-[#1D4ED8] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-violet-600 px-6 text-xs font-bold text-white shadow-lg shadow-violet-600/25 transition hover:bg-violet-700 disabled:opacity-50"
                   >
-                    <Save size={17} />
-
-                    {saving
-                      ? "Saving..."
-                      : "Save Changes"}
+                    {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                    <span>{saving ? "Saving changes..." : "Save Changes"}</span>
                   </button>
                 </div>
               </div>
             </form>
 
-            {/* =================================================
-                CONTACT INFORMATION
-            ================================================= */}
-
-            <section className="grid grid-cols-1 gap-5 md:grid-cols-2">
-              <ProfileInfoCard
-                icon={Mail}
-                title="Email"
-                value={
-                  user?.email ||
-                  "No email available"
-                }
-              />
-
-              <ProfileInfoCard
-                icon={Phone}
-                title="Phone"
-                value={
-                  user?.phone ||
-                  "No phone number added"
-                }
-              />
+            {/* CONTACT CARDS */}
+            <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <ProfileInfoCard icon={Mail} title="Email" value={user?.email || "No email available"} />
+              <ProfileInfoCard icon={Phone} title="Phone" value={user?.phone || "No phone number added"} />
             </section>
 
-            {/* =================================================
-                BACKEND STATUS
-            ================================================= */}
-
-            <section className="rounded-2xl border border-green-200 bg-green-50 p-5 shadow-sm sm:p-6">
-              <div className="flex items-start gap-3">
-                <div className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-green-500" />
-
-                <div>
-                  <h2 className="text-sm font-bold text-green-800">
-                    Profile Connected
-                  </h2>
-
-                  <p className="mt-1 text-xs leading-5 text-green-700">
-                    Your profile is connected to the
-                    backend. Changes are saved to the
-                    authenticated user&apos;s database record
-                    and will be loaded again when you
-                    refresh the page.
-                  </p>
-                </div>
-              </div>
-            </section>
           </div>
         </main>
       </div>
@@ -889,99 +559,44 @@ export default function UserProfilePage() {
   );
 }
 
-// =====================================================
-// NAV ITEM
-// =====================================================
-
-function UserNavItem({
-  item,
-  pathname,
-  onNavigate,
-}) {
+function UserNavItem({ item, pathname, onNavigate }) {
   const Icon = item.icon;
-
   const isActive =
     pathname === item.href ||
-    (item.href !== "/user" &&
-      pathname.startsWith(
-        `${item.href}/`
-      ));
+    (item.href !== "/user" && pathname.startsWith(`${item.href}/`));
 
   return (
     <Link
       href={item.href}
       onClick={onNavigate}
-      className={`group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold transition ${
+      className={`group flex items-center gap-3 rounded-2xl px-3.5 py-3 text-sm font-bold transition duration-150 ${
         isActive
-          ? "bg-[#2563EB] text-white shadow-sm"
-          : "bg-transparent text-white hover:bg-white/10 hover:text-white"
+          ? "bg-violet-600 text-white shadow-md shadow-violet-600/30"
+          : "text-slate-300 hover:bg-white/10 hover:text-white"
       }`}
     >
-      <Icon
-        size={18}
-        strokeWidth={2}
-        className="shrink-0 text-white"
-      />
-
-      <span className="text-white">
-        {item.label}
-      </span>
+      <Icon size={18} className={`transition duration-150 ${isActive ? "text-white" : "text-slate-400 group-hover:text-white"}`} />
+      <span>{item.label}</span>
     </Link>
   );
 }
 
-// =====================================================
-// INFO CARD
-// =====================================================
-
-function ProfileInfoCard({
-  icon: Icon,
-  title,
-  value,
-}) {
+function ProfileInfoCard({ icon: Icon, title, value }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#EEF4FF] text-[#2563EB]">
-          <Icon size={18} />
+    <div className="rounded-[24px] border border-slate-200/80 bg-white p-5 shadow-[0_10px_35px_rgba(45,35,100,0.06)]">
+      <div className="flex items-start gap-4">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
+          <Icon size={19} />
         </div>
-
         <div className="min-w-0">
-          <h3 className="text-sm font-bold text-[#171B3A]">
-            {title}
-          </h3>
-
-          <p className="mt-1 break-words text-sm text-[#64748B]">
-            {value}
-          </p>
+          <h3 className="text-xs font-bold text-slate-400">{title}</h3>
+          <p className="mt-1 break-words text-sm font-bold text-slate-900">{value}</p>
         </div>
       </div>
     </div>
   );
 }
 
-// =====================================================
-// INITIALS
-// =====================================================
-
-function getInitials(name) {
-  if (!name) {
-    return "U";
-  }
-
-  const parts = name
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-
-  if (parts.length === 1) {
-    return parts[0]
-      .slice(0, 2)
-      .toUpperCase();
-  }
-
-  return (
-    parts[0][0] +
-    parts[parts.length - 1][0]
-  ).toUpperCase();
+function extractUser(response) {
+  return response?.user || response?.data?.user || response?.data || response || null;
 }
