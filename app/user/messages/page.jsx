@@ -514,7 +514,7 @@ export default function UserMessagesPage() {
   }
 
   /* ============================================================
-     SEND MESSAGE (OPTIMISTIC INSTANT 0MS UI UPDATE)
+     SEND MESSAGE
   ============================================================ */
 
   async function handleSendMessage(event) {
@@ -540,14 +540,17 @@ export default function UserMessagesPage() {
 
     const recipientId = getUserId(contact);
 
-    // 1. OPTIMISTIC UI: Instant message injection
     const tempId = `temp-${Date.now()}`;
+
     const optimisticMsg = {
       _id: tempId,
       id: tempId,
       body: body,
       message: body,
-      sender: currentUser || { role: "user", name: "You" },
+      sender: currentUser || {
+        role: "user",
+        name: "You",
+      },
       createdAt: new Date().toISOString(),
       attachments: selectedFiles.map((f) => ({
         filename: f.name,
@@ -558,7 +561,9 @@ export default function UserMessagesPage() {
 
     setMessages((prev) => [...prev, optimisticMsg]);
     setMessage("");
+
     const filesToSend = [...selectedFiles];
+
     setSelectedFiles([]);
     scrollToBottom(true);
 
@@ -571,10 +576,15 @@ export default function UserMessagesPage() {
           throw new Error("Recipient user ID is missing.");
         }
 
-        const createResponse = await apiRequest("/conversations", {
-          method: "POST",
-          body: JSON.stringify({ recipientId }),
-        });
+        const createResponse = await apiRequest(
+          "/conversations",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              recipientId,
+            }),
+          }
+        );
 
         const created =
           createResponse?.conversation ||
@@ -582,17 +592,25 @@ export default function UserMessagesPage() {
           createResponse?.data;
 
         if (!created) {
-          throw new Error("Unable to create conversation.");
+          throw new Error(
+            "Unable to create conversation."
+          );
         }
 
         conversationId = getConversationId(created);
+
         setSelectedConversation(created);
 
         setConversations((current) => {
           const exists = current.some(
-            (item) => getConversationId(item) === conversationId
+            (item) =>
+              getConversationId(item) ===
+              conversationId
           );
-          return exists ? current : [...current, created];
+
+          return exists
+            ? current
+            : [...current, created];
         });
       }
 
@@ -600,15 +618,23 @@ export default function UserMessagesPage() {
 
       if (filesToSend.length > 0) {
         const formData = new FormData();
+
         formData.append("body", body);
-        formData.append("recipientId", String(recipientId || ""));
-        formData.append("conversationId", String(conversationId));
+        formData.append(
+          "recipientId",
+          String(recipientId || "")
+        );
+        formData.append(
+          "conversationId",
+          String(conversationId)
+        );
 
         filesToSend.forEach((file) => {
           formData.append("files", file);
         });
 
         let token = "";
+
         try {
           token =
             localStorage.getItem("token") ||
@@ -616,24 +642,38 @@ export default function UserMessagesPage() {
             "";
         } catch {}
 
-        const res = await fetch(`${API_URL}/messages`, {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            Accept: "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-          body: formData,
-        });
+        const res = await fetch(
+          `${API_URL}/messages`,
+          {
+            method: "POST",
+            credentials: "include",
+            headers: {
+              Accept: "application/json",
+              ...(token
+                ? {
+                    Authorization: `Bearer ${token}`,
+                  }
+                : {}),
+            },
+            body: formData,
+          }
+        );
 
         let responseData = null;
+
         try {
           const text = await res.text();
-          if (text) responseData = JSON.parse(text);
+
+          if (text) {
+            responseData = JSON.parse(text);
+          }
         } catch {}
 
         if (!res.ok) {
-          throw new Error(responseData?.message || "Failed to send file.");
+          throw new Error(
+            responseData?.message ||
+              "Failed to send file."
+          );
         }
 
         response = responseData;
@@ -659,24 +699,46 @@ export default function UserMessagesPage() {
         response?.message ||
         null;
 
-      if (sentMessage && typeof sentMessage === "object") {
+      if (
+        sentMessage &&
+        typeof sentMessage === "object"
+      ) {
         setMessages((current) =>
-          current.map((m) => (m.id === tempId || m._id === tempId ? sentMessage : m))
+          current.map((m) =>
+            m.id === tempId ||
+            m._id === tempId
+              ? sentMessage
+              : m
+          )
         );
       }
 
-      await refreshConversations(conversationId);
+      await refreshConversations(
+        conversationId
+      );
     } catch (err) {
-      console.error("Send message error:", err);
+      console.error(
+        "Send message error:",
+        err
+      );
 
       if (err?.status === 401) {
         window.location.href = "/login";
         return;
       }
 
-      setMessagesError(err?.message || "Unable to send message.");
-      // Rollback optimistic message on failure
-      setMessages((prev) => prev.filter((m) => m.id !== tempId && m._id !== tempId));
+      setMessagesError(
+        err?.message ||
+          "Unable to send message."
+      );
+
+      setMessages((prev) =>
+        prev.filter(
+          (m) =>
+            m.id !== tempId &&
+            m._id !== tempId
+        )
+      );
     } finally {
       setSending(false);
     }
@@ -719,7 +781,9 @@ export default function UserMessagesPage() {
         setMessages((prev) =>
           prev.filter(
             (m) =>
-              String(m?._id || m?.id) !==
+              String(
+                m?._id || m?.id
+              ) !==
               String(messageId)
           )
         );
@@ -731,7 +795,9 @@ export default function UserMessagesPage() {
         setMessages((prev) =>
           prev.map((m) => {
             if (
-              String(m?._id || m?.id) !==
+              String(
+                m?._id || m?.id
+              ) !==
               String(messageId)
             ) {
               return m;
@@ -759,7 +825,9 @@ export default function UserMessagesPage() {
         );
 
       if (conversationId) {
-        refreshConversations(conversationId);
+        refreshConversations(
+          conversationId
+        );
       }
     } catch (delError) {
       console.error(
@@ -803,12 +871,15 @@ export default function UserMessagesPage() {
       if (selectedId) {
         const updated = normalized.find(
           (conversation) =>
-            getConversationId(conversation) ===
-            selectedId
+            getConversationId(
+              conversation
+            ) === selectedId
         );
 
         if (updated) {
-          setSelectedConversation(updated);
+          setSelectedConversation(
+            updated
+          );
         }
       }
     } catch (err) {
@@ -851,7 +922,8 @@ export default function UserMessagesPage() {
     "User";
 
   const userEmail =
-    currentUser?.email || "User Account";
+    currentUser?.email ||
+    "User Account";
 
   const userInitial =
     String(userName)
@@ -868,11 +940,13 @@ export default function UserMessagesPage() {
   }
 
   return (
-    <div className="relative flex h-screen w-full overflow-hidden bg-[#f7f8fc] text-slate-950">
+    <div className="relative flex h-screen min-h-0 w-full overflow-hidden bg-[#f7f8fc] text-slate-950">
       {/* Background */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute -left-32 -top-32 h-72 w-72 rounded-full bg-violet-400/10 blur-3xl animate-pulse" />
+
         <div className="absolute right-0 top-20 h-80 w-80 rounded-full bg-pink-400/10 blur-3xl" />
+
         <div className="absolute bottom-0 left-1/3 h-72 w-72 rounded-full bg-orange-300/10 blur-3xl" />
       </div>
 
@@ -881,7 +955,9 @@ export default function UserMessagesPage() {
         <button
           type="button"
           aria-label="Close sidebar"
-          onClick={() => setSidebarOpen(false)}
+          onClick={() =>
+            setSidebarOpen(false)
+          }
           className="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-sm lg:hidden"
         />
       )}
@@ -897,7 +973,9 @@ export default function UserMessagesPage() {
         <div className="flex h-20 shrink-0 items-center justify-between border-b border-white/10 px-5">
           <Link
             href="/user"
-            onClick={() => setSidebarOpen(false)}
+            onClick={() =>
+              setSidebarOpen(false)
+            }
             className="flex items-center gap-3 text-white"
           >
             <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-purple-600 text-white shadow-md shadow-purple-600/20">
@@ -908,6 +986,7 @@ export default function UserMessagesPage() {
               <h1 className="text-sm font-bold text-white">
                 Local Pro 1
               </h1>
+
               <p className="text-[11px] font-semibold text-violet-400">
                 User Workspace
               </p>
@@ -916,7 +995,9 @@ export default function UserMessagesPage() {
 
           <button
             type="button"
-            onClick={() => setSidebarOpen(false)}
+            onClick={() =>
+              setSidebarOpen(false)
+            }
             className="flex h-8 w-8 items-center justify-center rounded-lg text-white transition hover:bg-white/10 lg:hidden"
             aria-label="Close sidebar"
           >
@@ -924,7 +1005,7 @@ export default function UserMessagesPage() {
           </button>
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-3 py-5">
+        <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-5">
           <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
             Workspace
           </p>
@@ -979,13 +1060,15 @@ export default function UserMessagesPage() {
       </aside>
 
       {/* Main */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden w-full">
         {/* Top Bar */}
         <header className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200/80 bg-white/95 px-5 backdrop-blur-sm sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={() => setSidebarOpen(true)}
+              onClick={() =>
+                setSidebarOpen(true)
+              }
               className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50 lg:hidden"
               aria-label="Open sidebar"
             >
@@ -996,6 +1079,7 @@ export default function UserMessagesPage() {
               <p className="text-xs font-semibold text-slate-400">
                 Workspace
               </p>
+
               <p className="text-sm font-bold text-slate-900">
                 Messages
               </p>
@@ -1006,8 +1090,12 @@ export default function UserMessagesPage() {
             <button
               type="button"
               onClick={() => {
-                const nextState = !soundEnabled;
-                setSoundEnabled(nextState);
+                const nextState =
+                  !soundEnabled;
+
+                setSoundEnabled(
+                  nextState
+                );
 
                 if (nextState) {
                   playNotificationChime();
@@ -1039,7 +1127,9 @@ export default function UserMessagesPage() {
 
             <button
               type="button"
-              onClick={() => loadConversations()}
+              onClick={() =>
+                loadConversations()
+              }
               disabled={loading}
               className="inline-flex h-9 items-center gap-1.5 rounded-2xl border border-slate-200/90 bg-white px-3 text-xs font-bold text-slate-700 shadow-sm transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700 disabled:opacity-50"
             >
@@ -1072,17 +1162,17 @@ export default function UserMessagesPage() {
         </header>
 
         {/* Workspace */}
-        <main className="flex min-h-0 flex-1 flex-col p-4 animate-slideUp sm:p-5 lg:p-6">
-          <div className="flex min-h-0 flex-1 w-full min-w-0 flex-col gap-4">
+        <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-4 animate-slideUp sm:p-5 lg:p-6">
+          <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-hidden">
             {error && (
               <section className="shrink-0 rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-700">
                 <p>{error}</p>
               </section>
             )}
 
-            <section className="grid min-h-0 flex-1 w-full grid-cols-1 overflow-hidden rounded-[26px] border border-slate-200/80 bg-white shadow-[0_10px_35px_rgba(45,35,100,0.05)] lg:grid-cols-[360px_minmax(0,1fr)]">
+            <section className="grid h-full min-h-0 min-w-0 flex-1 w-full grid-cols-1 grid-rows-[280px_minmax(0,1fr)] overflow-hidden rounded-[26px] border border-slate-200/80 bg-white shadow-[0_10px_35px_rgba(45,35,100,0.05)] lg:grid-cols-[360px_minmax(0,1fr)] lg:grid-rows-1">
               {/* Contacts */}
-              <aside className="flex min-h-0 flex-col border-b border-slate-100 lg:border-b-0 lg:border-r">
+              <aside className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-b border-slate-100 lg:border-b-0 lg:border-r">
                 <div className="shrink-0 border-b border-slate-100 bg-slate-50/50 p-4 sm:p-5">
                   <div className="mb-3.5">
                     <h2 className="text-base font-extrabold text-slate-900">
@@ -1104,7 +1194,9 @@ export default function UserMessagesPage() {
                       type="text"
                       value={search}
                       onChange={(e) =>
-                        setSearch(e.target.value)
+                        setSearch(
+                          e.target.value
+                        )
                       }
                       placeholder="Search contacts..."
                       className="h-10 w-full rounded-2xl border border-slate-200/90 bg-white pl-9 pr-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10"
@@ -1112,13 +1204,17 @@ export default function UserMessagesPage() {
                   </div>
                 </div>
 
-                <div className="min-h-0 flex-1 overflow-y-auto">
+                {/* Independent Contacts Scroll */}
+                <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
                   {loading &&
                   conversations.length === 0 ? (
                     <ConversationLoading />
                   ) : filteredConversations.length > 0 ? (
                     filteredConversations.map(
-                      (conversation, index) => {
+                      (
+                        conversation,
+                        index
+                      ) => {
                         const id =
                           getConversationId(
                             conversation
@@ -1131,7 +1227,9 @@ export default function UserMessagesPage() {
                           );
 
                         const participantId =
-                          getUserId(participant);
+                          getUserId(
+                            participant
+                          );
 
                         const name =
                           getParticipantName(
@@ -1163,11 +1261,12 @@ export default function UserMessagesPage() {
                           conversation?.preview ||
                           "No messages yet";
 
-                        const unread = Number(
-                          conversation?.unreadCount ||
-                            conversation?.unread ||
-                            0
-                        );
+                        const unread =
+                          Number(
+                            conversation?.unreadCount ||
+                              conversation?.unread ||
+                              0
+                          );
 
                         const active =
                           selectedConversation &&
@@ -1180,7 +1279,8 @@ export default function UserMessagesPage() {
                                   selectedConversation,
                                   currentUser
                                 )
-                              ) === participantId);
+                              ) ===
+                              participantId);
 
                         return (
                           <button
@@ -1209,12 +1309,15 @@ export default function UserMessagesPage() {
                                   className="h-full w-full object-cover"
                                 />
                               ) : (
-                                getInitials(name)
+                                getInitials(
+                                  name
+                                )
                               )}
 
                               {unread > 0 && (
                                 <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-violet-600 px-1 text-[9px] font-bold text-white shadow-sm">
-                                  {unread > 99
+                                  {unread >
+                                  99
                                     ? "99+"
                                     : unread}
                                 </span>
@@ -1225,7 +1328,8 @@ export default function UserMessagesPage() {
                               <div className="flex items-center justify-between gap-2">
                                 <p
                                   className={`truncate text-xs ${
-                                    unread > 0
+                                    unread >
+                                    0
                                       ? "font-bold text-slate-900"
                                       : "font-bold text-slate-800"
                                   }`}
@@ -1271,7 +1375,8 @@ export default function UserMessagesPage() {
               </aside>
 
               {/* Chat */}
-              <div className="flex min-h-0 min-w-0 flex-col">
+              <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+                {/* Chat Header */}
                 <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-slate-50/50 px-5 py-3.5 sm:px-6">
                   <div className="flex min-w-0 items-center gap-3">
                     <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-md shadow-purple-500/10">
@@ -1285,11 +1390,15 @@ export default function UserMessagesPage() {
                             selectedConversation,
                             currentUser
                           )}
-                          alt={selectedName}
+                          alt={
+                            selectedName
+                          }
                           className="h-full w-full object-cover"
                         />
                       ) : (
-                        <MessageSquare size={18} />
+                        <MessageSquare
+                          size={18}
+                        />
                       )}
                     </div>
 
@@ -1313,46 +1422,65 @@ export default function UserMessagesPage() {
                   </div>
                 </div>
 
-                {/* Messages */}
-                <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-6">
+                {/* Independent Messages Scroll */}
+                <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-5 py-6 sm:px-6">
                   {!selectedConversation ? (
                     <NoConversationSelected />
                   ) : messagesLoading ? (
                     <MessagesLoading />
                   ) : messagesError ? (
                     <MessageError
-                      message={messagesError}
+                      message={
+                        messagesError
+                      }
                     />
                   ) : messages.length === 0 ? (
                     <NoMessages />
                   ) : (
                     <div className="mx-auto flex w-full max-w-5xl flex-col gap-3.5">
-                      {messages.map((item, index) => (
-                        <MessageBubble
-                          key={
-                            item?._id ||
-                            item?.id ||
-                            `${item?.createdAt || "message"}-${index}`
-                          }
-                          message={item}
-                          currentUser={currentUser}
-                          onDeletePrompt={
-                            promptDeleteMessage
-                          }
-                        />
-                      ))}
+                      {messages.map(
+                        (
+                          item,
+                          index
+                        ) => (
+                          <MessageBubble
+                            key={
+                              item?._id ||
+                              item?.id ||
+                              `${
+                                item?.createdAt ||
+                                "message"
+                              }-${index}`
+                            }
+                            message={item}
+                            currentUser={
+                              currentUser
+                            }
+                            onDeletePrompt={
+                              promptDeleteMessage
+                            }
+                          />
+                        )
+                      )}
 
-                      <div ref={messagesEndRef} />
+                      <div
+                        ref={
+                          messagesEndRef
+                        }
+                      />
                     </div>
                   )}
                 </div>
 
-                {/* Composer */}
+                {/* Composer - Always Visible */}
                 <div className="shrink-0 border-t border-slate-100 bg-white p-4 sm:p-5">
                   {selectedFiles.length > 0 && (
                     <div className="mb-3 flex flex-wrap gap-2">
                       {selectedFiles.map(
-                        (file, idx) => (
+                        (
+                          file,
+                          idx
+                        ) => (
                           <div
                             key={`${file.name}-${idx}`}
                             className="flex items-center gap-2 rounded-xl border border-violet-100 bg-violet-50/70 px-3 py-1.5 text-xs text-violet-800"
@@ -1384,7 +1512,11 @@ export default function UserMessagesPage() {
                               }
                               className="ml-1 rounded-md text-violet-400 hover:bg-violet-200/50 hover:text-rose-600"
                             >
-                              <X size={13} />
+                              <X
+                                size={
+                                  13
+                                }
+                              />
                             </button>
                           </div>
                         )
@@ -1393,14 +1525,20 @@ export default function UserMessagesPage() {
                   )}
 
                   <form
-                    onSubmit={handleSendMessage}
+                    onSubmit={
+                      handleSendMessage
+                    }
                     className="flex items-end gap-2.5"
                   >
                     <input
                       type="file"
                       multiple
-                      ref={fileInputRef}
-                      onChange={handleFileChange}
+                      ref={
+                        fileInputRef
+                      }
+                      onChange={
+                        handleFileChange
+                      }
                       className="hidden"
                     />
 
@@ -1416,18 +1554,25 @@ export default function UserMessagesPage() {
                       className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200/90 bg-slate-50/50 text-slate-500 shadow-sm transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-600 disabled:cursor-not-allowed disabled:opacity-50"
                       aria-label="Attach file"
                     >
-                      <Paperclip size={18} />
+                      <Paperclip
+                        size={18}
+                      />
                     </button>
 
                     <div className="min-w-0 flex-1">
                       <textarea
-                        value={message}
+                        value={
+                          message
+                        }
                         onChange={(e) =>
-                          setMessage(e.target.value)
+                          setMessage(
+                            e.target.value
+                          )
                         }
                         onKeyDown={(e) => {
                           if (
-                            e.key === "Enter" &&
+                            e.key ===
+                              "Enter" &&
                             !e.shiftKey
                           ) {
                             e.preventDefault();
@@ -1439,7 +1584,9 @@ export default function UserMessagesPage() {
                               selectedConversation &&
                               !sending
                             ) {
-                              handleSendMessage(e);
+                              handleSendMessage(
+                                e
+                              );
                             }
                           }
                         }}
@@ -1461,7 +1608,8 @@ export default function UserMessagesPage() {
                       type="submit"
                       disabled={
                         (!message.trim() &&
-                          selectedFiles.length === 0) ||
+                          selectedFiles.length ===
+                            0) ||
                         !selectedConversation ||
                         sending
                       }
@@ -1474,14 +1622,17 @@ export default function UserMessagesPage() {
                           className="animate-spin"
                         />
                       ) : (
-                        <Send size={17} />
+                        <Send
+                          size={17}
+                        />
                       )}
                     </button>
                   </form>
 
                   <p className="mt-2 px-1 text-[10px] text-slate-400">
-                    Enter to send • Shift + Enter for a
-                    new line • Click Paperclip to add
+                    Enter to send • Shift +
+                    Enter for a new line •
+                    Click Paperclip to add
                     files
                   </p>
                 </div>
@@ -1492,105 +1643,125 @@ export default function UserMessagesPage() {
       </div>
 
       {/* Delete Modal */}
-      {deleteModalOpen && messageToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm animate-fadeIn">
-          <div className="w-full max-w-md overflow-hidden rounded-[28px] border border-slate-200/80 bg-white p-6 shadow-2xl">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-rose-50 text-rose-600">
-                <Trash2 size={20} />
-              </div>
-
-              <div>
-                <h3 className="text-base font-bold text-slate-900">
-                  Delete Message?
-                </h3>
-
-                <p className="text-xs text-slate-400">
-                  Choose how you want to delete this
-                  message.
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50/70 p-3.5 text-xs italic text-slate-600">
-              &ldquo;
-              {messageToDelete?.isDeletedForEveryone
-                ? "This message was deleted"
-                : messageToDelete?.body ||
-                  messageToDelete?.message ||
-                  (messageToDelete?.attachments
-                    ?.length > 0
-                    ? "Attachment"
-                    : "Message")}
-              &rdquo;
-            </div>
-
-            <div className="mt-6 flex flex-col gap-2.5">
-              {getUserId(
-                messageToDelete?.sender
-              )?.toString() ===
-                getUserId(
-                  currentUser
-                )?.toString() &&
-                !messageToDelete?.isDeletedForEveryone && (
-                  <button
-                    type="button"
-                    disabled={deletingMessage}
-                    onClick={() =>
-                      executeDeleteMessage(
-                        "everyone"
-                      )
-                    }
-                    className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-rose-600 px-4 text-xs font-bold text-white shadow-md shadow-rose-600/20 transition hover:bg-rose-700 disabled:opacity-50"
-                  >
-                    {deletingMessage ? (
-                      <Loader2
-                        size={15}
-                        className="animate-spin"
-                      />
-                    ) : (
-                      <Users size={15} />
-                    )}
-
-                    Delete for Everyone
-                  </button>
-                )}
-
-              <button
-                type="button"
-                disabled={deletingMessage}
-                onClick={() =>
-                  executeDeleteMessage("me")
-                }
-                className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
-              >
-                {deletingMessage ? (
-                  <Loader2
-                    size={15}
-                    className="animate-spin"
+      {deleteModalOpen &&
+        messageToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm animate-fadeIn">
+            <div className="w-full max-w-md overflow-hidden rounded-[28px] border border-slate-200/80 bg-white p-6 shadow-2xl">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-rose-50 text-rose-600">
+                  <Trash2
+                    size={20}
                   />
-                ) : (
-                  <Trash2 size={15} />
-                )}
+                </div>
 
-                Delete for Me
-              </button>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Delete Message?
+                  </h3>
 
-              <button
-                type="button"
-                disabled={deletingMessage}
-                onClick={() => {
-                  setDeleteModalOpen(false);
-                  setMessageToDelete(null);
-                }}
-                className="mt-1 h-9 w-full text-center text-xs font-semibold text-slate-400 hover:text-slate-600 disabled:opacity-50"
-              >
-                Cancel
-              </button>
+                  <p className="text-xs text-slate-400">
+                    Choose how you want to
+                    delete this message.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50/70 p-3.5 text-xs italic text-slate-600">
+                &ldquo;
+                {messageToDelete?.isDeletedForEveryone
+                  ? "This message was deleted"
+                  : messageToDelete?.body ||
+                    messageToDelete?.message ||
+                    (messageToDelete
+                      ?.attachments
+                      ?.length > 0
+                      ? "Attachment"
+                      : "Message")}
+                &rdquo;
+              </div>
+
+              <div className="mt-6 flex flex-col gap-2.5">
+                {getUserId(
+                  messageToDelete?.sender
+                )?.toString() ===
+                  getUserId(
+                    currentUser
+                  )?.toString() &&
+                  !messageToDelete?.isDeletedForEveryone && (
+                    <button
+                      type="button"
+                      disabled={
+                        deletingMessage
+                      }
+                      onClick={() =>
+                        executeDeleteMessage(
+                          "everyone"
+                        )
+                      }
+                      className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-rose-600 px-4 text-xs font-bold text-white shadow-md shadow-rose-600/20 transition hover:bg-rose-700 disabled:opacity-50"
+                    >
+                      {deletingMessage ? (
+                        <Loader2
+                          size={15}
+                          className="animate-spin"
+                        />
+                      ) : (
+                        <Users
+                          size={15}
+                        />
+                      )}
+
+                      Delete for Everyone
+                    </button>
+                  )}
+
+                <button
+                  type="button"
+                  disabled={
+                    deletingMessage
+                  }
+                  onClick={() =>
+                    executeDeleteMessage(
+                      "me"
+                    )
+                  }
+                  className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+                >
+                  {deletingMessage ? (
+                    <Loader2
+                      size={15}
+                      className="animate-spin"
+                    />
+                  ) : (
+                    <Trash2
+                      size={15}
+                    />
+                  )}
+
+                  Delete for Me
+                </button>
+
+                <button
+                  type="button"
+                  disabled={
+                    deletingMessage
+                  }
+                  onClick={() => {
+                    setDeleteModalOpen(
+                      false
+                    );
+                    setMessageToDelete(
+                      null
+                    );
+                  }}
+                  className="mt-1 h-9 w-full text-center text-xs font-semibold text-slate-400 hover:text-slate-600 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
     </div>
   );
 }
@@ -1604,11 +1775,18 @@ function MessageBubble({
   currentUser,
   onDeletePrompt,
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuOpen, setMenuOpen] =
+    useState(false);
+
   const menuRef = useRef(null);
 
-  const senderId = getUserId(message?.sender);
-  const currentUserId = getUserId(currentUser);
+  const senderId = getUserId(
+    message?.sender
+  );
+
+  const currentUserId = getUserId(
+    currentUser
+  );
 
   const isOutgoing =
     senderId &&
@@ -1635,10 +1813,14 @@ function MessageBubble({
     "";
 
   useEffect(() => {
-    function handleClickOutside(event) {
+    function handleClickOutside(
+      event
+    ) {
       if (
         menuRef.current &&
-        !menuRef.current.contains(event.target)
+        !menuRef.current.contains(
+          event.target
+        )
       ) {
         setMenuOpen(false);
       }
@@ -1667,39 +1849,50 @@ function MessageBubble({
           : "justify-start"
       }`}
     >
-      {isOutgoing && !isDeleted && (
-        <div
-          className="relative opacity-0 transition-opacity group-hover:opacity-100"
-          ref={menuRef}
-        >
-          <button
-            type="button"
-            onClick={() =>
-              setMenuOpen(!menuOpen)
-            }
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-            aria-label="Message options"
+      {isOutgoing &&
+        !isDeleted && (
+          <div
+            className="relative opacity-0 transition-opacity group-hover:opacity-100"
+            ref={menuRef}
           >
-            <MoreVertical size={14} />
-          </button>
+            <button
+              type="button"
+              onClick={() =>
+                setMenuOpen(
+                  !menuOpen
+                )
+              }
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+              aria-label="Message options"
+            >
+              <MoreVertical
+                size={14}
+              />
+            </button>
 
-          {menuOpen && (
-            <div className="absolute bottom-full right-0 z-20 mb-1 w-40 overflow-hidden rounded-2xl border border-slate-100 bg-white py-1.5 shadow-xl">
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onDeletePrompt(message);
-                }}
-                className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-xs font-bold text-rose-600 transition hover:bg-rose-50"
-              >
-                <Trash2 size={13} />
-                Delete Message
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+            {menuOpen && (
+              <div className="absolute bottom-full right-0 z-20 mb-1 w-40 overflow-hidden rounded-2xl border border-slate-100 bg-white py-1.5 shadow-xl">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(
+                      false
+                    );
+                    onDeletePrompt(
+                      message
+                    );
+                  }}
+                  className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-xs font-bold text-rose-600 transition hover:bg-rose-50"
+                >
+                  <Trash2
+                    size={13}
+                  />
+                  Delete Message
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
       <div
         className={`max-w-[82%] rounded-[20px] px-4 py-3 shadow-sm sm:max-w-[72%] ${
@@ -1720,8 +1913,13 @@ function MessageBubble({
 
         {isDeleted ? (
           <div className="flex items-center gap-2 text-xs">
-            <AlertTriangle size={13} />
-            <span>This message was deleted</span>
+            <AlertTriangle
+              size={13}
+            />
+
+            <span>
+              This message was deleted
+            </span>
           </div>
         ) : (
           body && (
@@ -1732,23 +1930,33 @@ function MessageBubble({
         )}
 
         {!isDeleted &&
-          Array.isArray(message?.attachments) &&
-          message.attachments.length > 0 && (
+          Array.isArray(
+            message?.attachments
+          ) &&
+          message.attachments.length >
+            0 && (
             <div className="mt-2 space-y-2">
               {message.attachments.map(
-                (attachment, attachmentIndex) => {
-                  const mime = String(
-                    attachment?.mimeType ||
-                      attachment?.fileType ||
-                      ""
-                  ).toLowerCase();
+                (
+                  attachment,
+                  attachmentIndex
+                ) => {
+                  const mime =
+                    String(
+                      attachment?.mimeType ||
+                        attachment?.fileType ||
+                        ""
+                    ).toLowerCase();
 
                   const isImg =
-                    mime.startsWith("image/");
+                    mime.startsWith(
+                      "image/"
+                    );
 
-                  const fullUrl = getFileUrl(
-                    attachment?.url
-                  );
+                  const fullUrl =
+                    getFileUrl(
+                      attachment?.url
+                    );
 
                   if (
                     isImg &&
@@ -1766,7 +1974,9 @@ function MessageBubble({
                         className="block overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-1 shadow-sm transition hover:opacity-95"
                       >
                         <img
-                          src={fullUrl}
+                          src={
+                            fullUrl
+                          }
                           alt={
                             attachment?.originalName ||
                             attachment?.filename ||
@@ -1784,7 +1994,9 @@ function MessageBubble({
                         attachment?.url ||
                         attachmentIndex
                       }
-                      href={fullUrl}
+                      href={
+                        fullUrl
+                      }
                       target="_blank"
                       rel="noreferrer"
                       className={`flex items-center gap-2 rounded-2xl border px-3.5 py-2 text-xs font-bold shadow-sm transition ${
@@ -1829,44 +2041,57 @@ function MessageBubble({
 
           {isOutgoing &&
             !isDeleted && (
-              <CheckCheck size={12} />
+              <CheckCheck
+                size={12}
+              />
             )}
         </div>
       </div>
 
-      {!isOutgoing && !isDeleted && (
-        <div
-          className="relative opacity-0 transition-opacity group-hover:opacity-100"
-          ref={menuRef}
-        >
-          <button
-            type="button"
-            onClick={() =>
-              setMenuOpen(!menuOpen)
-            }
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-            aria-label="Message options"
+      {!isOutgoing &&
+        !isDeleted && (
+          <div
+            className="relative opacity-0 transition-opacity group-hover:opacity-100"
+            ref={menuRef}
           >
-            <MoreVertical size={14} />
-          </button>
+            <button
+              type="button"
+              onClick={() =>
+                setMenuOpen(
+                  !menuOpen
+                )
+              }
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+              aria-label="Message options"
+            >
+              <MoreVertical
+                size={14}
+              />
+            </button>
 
-          {menuOpen && (
-            <div className="absolute bottom-full left-0 z-20 mb-1 w-40 overflow-hidden rounded-2xl border border-slate-100 bg-white py-1.5 shadow-xl">
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onDeletePrompt(message);
-                }}
-                className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-xs font-bold text-rose-600 transition hover:bg-rose-50"
-              >
-                <Trash2 size={13} />
-                Delete for Me
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+            {menuOpen && (
+              <div className="absolute bottom-full left-0 z-20 mb-1 w-40 overflow-hidden rounded-2xl border border-slate-100 bg-white py-1.5 shadow-xl">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(
+                      false
+                    );
+                    onDeletePrompt(
+                      message
+                    );
+                  }}
+                  className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-xs font-bold text-rose-600 transition hover:bg-rose-50"
+                >
+                  <Trash2
+                    size={13}
+                  />
+                  Delete for Me
+                </button>
+              </div>
+            )}
+          </div>
+        )}
     </div>
   );
 }
@@ -1875,11 +2100,15 @@ function MessageBubble({
    EMPTY / LOADING COMPONENTS
 ============================================================ */
 
-function EmptyConversationList({ search }) {
+function EmptyConversationList({
+  search,
+}) {
   return (
     <div className="flex min-h-[300px] flex-col items-center justify-center px-6 py-10 text-center">
       <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
-        <MessageSquare size={22} />
+        <MessageSquare
+          size={22}
+        />
       </div>
 
       <h3 className="mt-4 text-sm font-bold text-slate-800">
@@ -1901,7 +2130,9 @@ function NoConversationSelected() {
   return (
     <div className="flex h-full min-h-[380px] flex-col items-center justify-center text-center">
       <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
-        <MessageSquare size={26} />
+        <MessageSquare
+          size={26}
+        />
       </div>
 
       <h3 className="mt-4 text-sm font-bold text-slate-900">
@@ -1921,7 +2152,9 @@ function NoMessages() {
   return (
     <div className="flex h-full min-h-[380px] flex-col items-center justify-center text-center">
       <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
-        <MessageSquare size={26} />
+        <MessageSquare
+          size={26}
+        />
       </div>
 
       <h3 className="mt-4 text-sm font-bold text-slate-900">
@@ -1966,7 +2199,9 @@ function MessagesLoading() {
   );
 }
 
-function MessageError({ message }) {
+function MessageError({
+  message,
+}) {
   return (
     <div className="flex h-full min-h-[380px] items-center justify-center p-4">
       <div className="max-w-md rounded-2xl border border-rose-100 bg-rose-50 p-4 text-center text-xs font-semibold text-rose-600">
@@ -1980,14 +2215,21 @@ function MessageError({ message }) {
    NAV ITEM
 ============================================================ */
 
-function UserNavItem({ item, onNavigate }) {
-  const pathname = usePathname();
+function UserNavItem({
+  item,
+  onNavigate,
+}) {
+  const pathname =
+    usePathname();
+
   const Icon = item.icon;
 
   const isActive =
     pathname === item.href ||
     (item.href !== "/user" &&
-      pathname.startsWith(`${item.href}/`));
+      pathname.startsWith(
+        `${item.href}/`
+      ));
 
   return (
     <Link
@@ -2008,7 +2250,9 @@ function UserNavItem({ item, onNavigate }) {
         }`}
       />
 
-      <span>{item.label}</span>
+      <span>
+        {item.label}
+      </span>
     </Link>
   );
 }
@@ -2045,18 +2289,23 @@ function getOtherParticipant(
 ) {
   if (
     conversation?.contact &&
-    typeof conversation.contact === "object"
+    typeof conversation.contact ===
+      "object"
   ) {
     return conversation.contact;
   }
 
-  const participants = Array.isArray(
-    conversation?.participants
-  )
-    ? conversation.participants
-    : [];
+  const participants =
+    Array.isArray(
+      conversation?.participants
+    )
+      ? conversation.participants
+      : [];
 
-  if (participants.length === 0) {
+  if (
+    participants.length ===
+    0
+  ) {
     return (
       conversation?.recipient ||
       conversation?.user ||
@@ -2065,32 +2314,42 @@ function getOtherParticipant(
     );
   }
 
-  const currentUserId = getUserId(currentUser);
+  const currentUserId =
+    getUserId(currentUser);
 
-  const other = participants.find(
-    (participant) => {
-      const id = getUserId(participant);
+  const other =
+    participants.find(
+      (participant) => {
+        const id =
+          getUserId(
+            participant
+          );
 
-      return (
-        !currentUserId ||
-        !id ||
-        id.toString() !==
-          currentUserId.toString()
-      );
-    }
+        return (
+          !currentUserId ||
+          !id ||
+          id.toString() !==
+            currentUserId.toString()
+        );
+      }
+    );
+
+  return (
+    other ||
+    participants[0] ||
+    {}
   );
-
-  return other || participants[0] || {};
 }
 
 function getParticipantName(
   conversation,
   currentUser
 ) {
-  const participant = getOtherParticipant(
-    conversation,
-    currentUser
-  );
+  const participant =
+    getOtherParticipant(
+      conversation,
+      currentUser
+    );
 
   return (
     participant?.name ||
@@ -2108,10 +2367,11 @@ function getParticipantEmail(
   conversation,
   currentUser
 ) {
-  const participant = getOtherParticipant(
-    conversation,
-    currentUser
-  );
+  const participant =
+    getOtherParticipant(
+      conversation,
+      currentUser
+    );
 
   return (
     participant?.email ||
@@ -2124,10 +2384,11 @@ function getParticipantRole(
   conversation,
   currentUser
 ) {
-  const participant = getOtherParticipant(
-    conversation,
-    currentUser
-  );
+  const participant =
+    getOtherParticipant(
+      conversation,
+      currentUser
+    );
 
   return (
     participant?.role ||
@@ -2140,10 +2401,11 @@ function getParticipantAvatar(
   conversation,
   currentUser
 ) {
-  const participant = getOtherParticipant(
-    conversation,
-    currentUser
-  );
+  const participant =
+    getOtherParticipant(
+      conversation,
+      currentUser
+    );
 
   return (
     participant?.avatar ||
@@ -2153,7 +2415,9 @@ function getParticipantAvatar(
   );
 }
 
-function getConversationId(conversation) {
+function getConversationId(
+  conversation
+) {
   return (
     conversation?._id ||
     conversation?.id ||
@@ -2164,7 +2428,9 @@ function getConversationId(conversation) {
   );
 }
 
-function normalizeConversations(response) {
+function normalizeConversations(
+  response
+) {
   const possible =
     response?.conversations ||
     response?.data?.conversations ||
@@ -2172,12 +2438,16 @@ function normalizeConversations(response) {
     response?.data ||
     [];
 
-  return Array.isArray(possible)
+  return Array.isArray(
+    possible
+  )
     ? possible.filter(Boolean)
     : [];
 }
 
-function normalizeContacts(response) {
+function normalizeContacts(
+  response
+) {
   const possible =
     response?.contacts ||
     response?.users ||
@@ -2185,12 +2455,16 @@ function normalizeContacts(response) {
     response?.data?.users ||
     [];
 
-  return Array.isArray(possible)
+  return Array.isArray(
+    possible
+  )
     ? possible.filter(Boolean)
     : [];
 }
 
-function normalizeMessages(response) {
+function normalizeMessages(
+  response
+) {
   const possible =
     response?.messages ||
     response?.data?.messages ||
@@ -2198,7 +2472,9 @@ function normalizeMessages(response) {
     response?.data ||
     [];
 
-  return Array.isArray(possible)
+  return Array.isArray(
+    possible
+  )
     ? possible.filter(Boolean)
     : [];
 }
@@ -2230,9 +2506,12 @@ async function safeApiRequest(
   fallback = null
 ) {
   try {
-    return await apiRequest(endpoint, {
-      method: "GET",
-    });
+    return await apiRequest(
+      endpoint,
+      {
+        method: "GET",
+      }
+    );
   } catch (error) {
     if (error?.status === 401) {
       throw error;
@@ -2249,20 +2528,30 @@ async function apiRequest(
   let token = "";
 
   try {
-    if (typeof window !== "undefined") {
+    if (
+      typeof window !==
+      "undefined"
+    ) {
       token =
-        localStorage.getItem("token") ||
-        localStorage.getItem("authToken") ||
+        localStorage.getItem(
+          "token"
+        ) ||
+        localStorage.getItem(
+          "authToken"
+        ) ||
         "";
     }
   } catch {}
 
   const isFormData =
-    typeof FormData !== "undefined" &&
-    options.body instanceof FormData;
+    typeof FormData !==
+      "undefined" &&
+    options.body instanceof
+      FormData;
 
   const headers = {
-    Accept: "application/json",
+    Accept:
+      "application/json",
 
     ...(token
       ? {
@@ -2274,31 +2563,40 @@ async function apiRequest(
       ? {}
       : options.body
       ? {
-          "Content-Type": "application/json",
+          "Content-Type":
+            "application/json",
         }
       : {}),
 
-    ...(options.headers || {}),
+    ...(options.headers ||
+      {}),
   };
 
-  const response = await fetch(
-    `${API_URL}${endpoint}`,
-    {
-      ...options,
-      credentials: "include",
-      cache: "no-store",
-      headers,
-    }
-  );
+  const response =
+    await fetch(
+      `${API_URL}${endpoint}`,
+      {
+        ...options,
+        credentials:
+          "include",
+        cache:
+          "no-store",
+        headers,
+      }
+    );
 
   let data = null;
 
   try {
-    const text = await response.text();
+    const text =
+      await response.text();
 
     if (text) {
       try {
-        data = JSON.parse(text);
+        data =
+          JSON.parse(
+            text
+          );
       } catch {
         data = {
           message: text,
@@ -2313,8 +2611,11 @@ async function apiRequest(
       data?.error ||
       `Request failed with status ${response.status}`;
 
-    const error = new Error(message);
-    error.status = response.status;
+    const error =
+      new Error(message);
+
+    error.status =
+      response.status;
 
     throw error;
   }
@@ -2322,16 +2623,24 @@ async function apiRequest(
   return data;
 }
 
-function formatDateTime(date) {
+function formatDateTime(
+  date
+) {
   if (!date) return "";
 
-  const parsed = new Date(date);
+  const parsed =
+    new Date(date);
 
-  if (Number.isNaN(parsed.getTime())) {
+  if (
+    Number.isNaN(
+      parsed.getTime()
+    )
+  ) {
     return "";
   }
 
-  const now = new Date();
+  const now =
+    new Date();
 
   if (
     parsed.toDateString() ===
@@ -2355,12 +2664,19 @@ function formatDateTime(date) {
   );
 }
 
-function formatTime(date) {
+function formatTime(
+  date
+) {
   if (!date) return "";
 
-  const parsed = new Date(date);
+  const parsed =
+    new Date(date);
 
-  if (Number.isNaN(parsed.getTime())) {
+  if (
+    Number.isNaN(
+      parsed.getTime()
+    )
+  ) {
     return "";
   }
 
@@ -2373,7 +2689,9 @@ function formatTime(date) {
   );
 }
 
-function getInitials(name) {
+function getInitials(
+  name
+) {
   if (!name) return "U";
 
   return (
@@ -2381,14 +2699,17 @@ function getInitials(name) {
       .split(" ")
       .filter(Boolean)
       .slice(0, 2)
-      .map((part) =>
-        part[0]?.toUpperCase()
+      .map(
+        (part) =>
+          part[0]?.toUpperCase()
       )
       .join("") || "U"
   );
 }
 
-function extractUser(response) {
+function extractUser(
+  response
+) {
   return (
     response?.user ||
     response?.data?.user ||
