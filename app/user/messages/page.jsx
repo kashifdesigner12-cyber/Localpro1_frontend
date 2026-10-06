@@ -1,1706 +1,2720 @@
 "use client";
 
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
 import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useCallback,
-} from "react";
-import {
+  Activity,
+  AlertTriangle,
+  Bell,
+  CalendarDays,
+  CheckCheck,
+  ClipboardList,
+  Clock3,
+  File,
   FileText,
+  Image as ImageIcon,
+  LayoutDashboard,
+  Loader2,
+  LogOut,
+  Menu,
   MessageSquare,
   MoreVertical,
   Paperclip,
+  RefreshCw,
   Search,
   Send,
-  RefreshCw,
-  Trash2,
-  X,
-  Loader2,
-  ShieldCheck,
-  LogOut,
-  LayoutDashboard,
-  Users,
-  ClipboardList,
-  ClipboardCheck,
-  CalendarDays,
-  Activity,
   Settings,
-  Menu,
-  UserCheck,
+  ShieldCheck,
+  Trash2,
+  UserRound,
+  Users,
+  Volume2,
+  VolumeX,
+  X,
 } from "lucide-react";
-import Link from "next/link";
+
 import { authService } from "@/services/authService";
-import { usePathname, useRouter } from "next/navigation";
 
-/* ============================================================
-   API CONFIG
-============================================================ */
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL || "https://api.localpro1.net/api";
 
-const RAW_API_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  "https://api.localpro1.net/api";
-
-const CLEAN_API_URL = String(RAW_API_URL)
-  .trim()
-  .replace(/\/+$/, "");
-
-const API_BASE_URL = CLEAN_API_URL.endsWith("/api")
-  ? CLEAN_API_URL
-  : `${CLEAN_API_URL}/api`;
-
-const BACKEND_BASE_URL = API_BASE_URL.endsWith("/api")
-  ? API_BASE_URL.slice(0, -4)
-  : API_BASE_URL;
-
-const getApiUrl = (path = "") => {
-  const cleanPath = String(path).startsWith("/")
-    ? String(path)
-    : `/${path}`;
-
-  return `${API_BASE_URL}${cleanPath}`;
-};
+const BACKEND_BASE_URL = API_URL.replace(/\/api\/?$/, "");
 
 const getFileUrl = (url) => {
   if (!url) return "#";
 
-  const value = String(url);
-
-  if (
-    value.startsWith("http://") ||
-    value.startsWith("https://")
-  ) {
-    return value;
+  if (url.startsWith("http://") || url.startsWith("https://")) {
+    return url;
   }
 
-  return `${BACKEND_BASE_URL}${
-    value.startsWith("/") ? "" : "/"
-  }${value}`;
+  return `${BACKEND_BASE_URL}${url.startsWith("/") ? "" : "/"}${url}`;
 };
 
 /* ============================================================
-   TOKEN
+   AUDIO SYNTHESIZER
 ============================================================ */
 
-const normalizeTokenValue = (value) => {
-  if (!value) return null;
-
-  let rawValue = String(value).trim();
-
-  if (!rawValue) return null;
-
-  if (/^Bearer\s+/i.test(rawValue)) {
-    rawValue = rawValue
-      .replace(/^Bearer\s+/i, "")
-      .trim();
-  }
-
+const playNotificationChime = () => {
   try {
-    const parsed = JSON.parse(rawValue);
+    if (typeof window === "undefined") return;
 
-    if (typeof parsed === "string") {
-      return (
-        parsed.replace(/^Bearer\s+/i, "").trim() ||
-        null
-      );
-    }
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
 
-    if (parsed && typeof parsed === "object") {
-      const possibleToken =
-        parsed.token ||
-        parsed.accessToken ||
-        parsed.access_token ||
-        parsed.jwt;
+    const ctx = new AudioCtx();
+    const now = ctx.currentTime;
 
-      if (possibleToken) {
-        return (
-          String(possibleToken)
-            .replace(/^Bearer\s+/i, "")
-            .trim() || null
-        );
-      }
-    }
-  } catch {}
+    const createNote = (frequency, startTime, duration) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
 
-  return rawValue || null;
-};
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(frequency, startTime);
 
-const getStoredToken = () => {
-  if (typeof window === "undefined") return null;
-
-  const tokenKeys = [
-    "token",
-    "accessToken",
-    "access_token",
-    "authToken",
-    "auth_token",
-    "jwt",
-  ];
-
-  for (const key of tokenKeys) {
-    try {
-      const localToken = normalizeTokenValue(
-        window.localStorage.getItem(key)
+      gain.gain.setValueAtTime(0.18, startTime);
+      gain.gain.exponentialRampToValueAtTime(
+        0.001,
+        startTime + duration
       );
 
-      if (localToken) return localToken;
-    } catch {}
+      osc.connect(gain);
+      gain.connect(ctx.destination);
 
-    try {
-      const sessionToken = normalizeTokenValue(
-        window.sessionStorage.getItem(key)
-      );
+      osc.start(startTime);
+      osc.stop(startTime + duration);
+    };
 
-      if (sessionToken) return sessionToken;
-    } catch {}
-  }
-
-  return null;
-};
-
-const getAuthHeaders = (includeContentType = true) => {
-  const headers = {
-    Accept: "application/json",
-  };
-
-  if (includeContentType) {
-    headers["Content-Type"] = "application/json";
-  }
-
-  const token = getStoredToken();
-
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-
-  return headers;
-};
-
-/* ============================================================
-   RESPONSE PARSER
-============================================================ */
-
-const parseResponse = async (response) => {
-  try {
-    const text = await response.text();
-
-    if (!text) return null;
-
-    try {
-      return JSON.parse(text);
-    } catch {
-      return {
-        success: false,
-        message: text,
-      };
-    }
-  } catch {
-    return null;
+    createNote(1318.51, now, 0.12);
+    createNote(1760, now + 0.08, 0.32);
+  } catch (err) {
+    console.warn("Chime playback error:", err);
   }
 };
 
 /* ============================================================
-   HELPERS
+   SIDEBAR NAVIGATION
 ============================================================ */
 
-const getId = (item) =>
-  item?.id ||
-  item?._id ||
-  item?.userId?._id ||
-  item?.userId?.id ||
-  null;
-
-const getUserName = (user) =>
-  user?.name ||
-  user?.fullName ||
-  user?.username ||
-  user?.email ||
-  "Unknown User";
-
-const getRole = (user) => {
-  if (!user?.role) return "";
-
-  return (
-    String(user.role).charAt(0).toUpperCase() +
-    String(user.role).slice(1)
-  );
-};
-
-const getInitials = (name) => {
-  if (!name) return "U";
-
-  return String(name)
-    .split(" ")
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) =>
-      part.charAt(0).toUpperCase()
-    )
-    .join("");
-};
-
-const formatMessageTime = (dateValue) => {
-  if (!dateValue) return "";
-
-  const date = new Date(dateValue);
-
-  if (Number.isNaN(date.getTime())) return "";
-
-  return date.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-};
-
-const formatConversationTime = (dateValue) => {
-  if (!dateValue) return "";
-
-  const date = new Date(dateValue);
-
-  if (Number.isNaN(date.getTime())) return "";
-
-  const now = new Date();
-
-  if (date.toDateString() === now.toDateString()) {
-    return date.toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
-
-  return date.toLocaleDateString([], {
-    month: "short",
-    day: "numeric",
-  });
-};
-
-const normalizeUsers = (data) => {
-  if (Array.isArray(data)) return data;
-
-  if (Array.isArray(data?.users)) {
-    return data.users;
-  }
-
-  if (Array.isArray(data?.data)) {
-    return data.data;
-  }
-
-  if (Array.isArray(data?.users?.data)) {
-    return data.users.data;
-  }
-
-  return [];
-};
-
-const normalizeConversations = (data) => {
-  if (Array.isArray(data)) return data;
-
-  if (Array.isArray(data?.conversations)) {
-    return data.conversations;
-  }
-
-  if (Array.isArray(data?.data)) {
-    return data.data;
-  }
-
-  if (Array.isArray(data?.data?.conversations)) {
-    return data.data.conversations;
-  }
-
-  return [];
-};
-
-const getUnreadCount = (conversation) => {
-  if (!conversation) return 0;
-
-  const possibleValues = [
-    conversation?.unreadCount,
-    conversation?.unreadMessages,
-    conversation?.unread,
-    conversation?.unreadMessageCount,
-  ];
-
-  for (const value of possibleValues) {
-    if (
-      typeof value === "number" &&
-      value > 0
-    ) {
-      return value;
-    }
-
-    if (
-      typeof value === "string" &&
-      !Number.isNaN(Number(value))
-    ) {
-      const number = Number(value);
-
-      if (number > 0) return number;
-    }
-  }
-
-  return 0;
-};
-
-const getConversationLastMessage = (
-  conversation
-) => {
-  if (!conversation) return "";
-
-  return (
-    conversation?.lastMessage ||
-    conversation?.lastMessageText ||
-    conversation?.latestMessage?.body ||
-    conversation?.latestMessage?.message ||
-    ""
-  );
-};
-
-const getConversationLastDate = (
-  conversation
-) => {
-  if (!conversation) return null;
-
-  return (
-    conversation?.lastMessageAt ||
-    conversation?.lastMessage?.createdAt ||
-    conversation?.latestMessage?.createdAt ||
-    conversation?.updatedAt ||
-    conversation?.createdAt ||
-    null
-  );
-};
+const navigation = [
+  { label: "Dashboard", href: "/user", icon: LayoutDashboard },
+  { label: "My Tasks", href: "/user/tasks", icon: ClipboardList },
+  { label: "Calendar", href: "/user/calendar", icon: CalendarDays },
+  { label: "Attendance", href: "/user/attendance", icon: Clock3 },
+  { label: "Messages", href: "/user/messages", icon: MessageSquare },
+  { label: "Notifications", href: "/user/notifications", icon: Bell },
+  { label: "Leave Requests", href: "/user/leave-requests", icon: FileText },
+  { label: "Profile", href: "/user/profile", icon: UserRound },
+  { label: "Settings", href: "/user/settings", icon: Settings },
+  { label: "Policies", href: "/user/policies", icon: ShieldCheck },
+];
 
 /* ============================================================
-   MAIN COMPONENT
+   USER MESSAGES PAGE
 ============================================================ */
 
-export default function AdminConversationsPage() {
-  const router = useRouter();
-
-  const [search, setSearch] = useState("");
-  const [users, setUsers] = useState([]);
-  const [conversations, setConversations] =
-    useState([]);
-
-  const [selectedUser, setSelectedUser] =
-    useState(null);
-
-  const [
-    selectedConversationId,
-    setSelectedConversationId,
-  ] = useState(null);
-
-  const [
-    selectedConversation,
-    setSelectedConversation,
-  ] = useState(null);
-
+export default function UserMessagesPage() {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [conversations, setConversations] = useState([]);
+  const [contacts, setContacts] = useState([]);
+  const [selectedConversation, setSelectedConversation] = useState(null);
   const [messages, setMessages] = useState([]);
+  const [search, setSearch] = useState("");
   const [message, setMessage] = useState("");
-  const [selectedFiles, setSelectedFiles] =
-    useState([]);
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+  const [messagesError, setMessagesError] = useState("");
 
-  const [loadingUsers, setLoadingUsers] =
-    useState(false);
+  const [currentUser, setCurrentUser] = useState(() =>
+    extractUser(authService?.getUser?.())
+  );
 
-  const [
-    loadingConversations,
-    setLoadingConversations,
-  ] = useState(false);
-
-  const [
-    loadingMessages,
-    setLoadingMessages,
-  ] = useState(false);
-
-  const [
-    startingConversation,
-    setStartingConversation,
-  ] = useState(false);
-
-  const [
-    sendingMessage,
-    setSendingMessage,
-  ] = useState(false);
-
-  const [
-    messagesError,
-    setMessagesError,
-  ] = useState("");
-
-  const [refreshing, setRefreshing] =
-    useState(false);
-
-  const [
-    deleteModalOpen,
-    setDeleteModalOpen,
-  ] = useState(false);
-
-  const [
-    messageToDelete,
-    setMessageToDelete,
-  ] = useState(null);
-
-  const [
-    deletingMessage,
-    setDeletingMessage,
-  ] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [messageToDelete, setMessageToDelete] = useState(null);
+  const [deletingMessage, setDeletingMessage] = useState(false);
 
   const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
-
-  const selectedConversationIdRef =
-    useRef(null);
-
-  const conversationsRef = useRef([]);
-  const usersRef = useRef([]);
-  const messagesRef = useRef([]);
-  const messagesCache = useRef({});
+  const selectedConversationRef = useRef(null);
 
   useEffect(() => {
-    usersRef.current = users;
-  }, [users]);
+    selectedConversationRef.current = selectedConversation;
+  }, [selectedConversation]);
 
-  useEffect(() => {
-    conversationsRef.current =
-      conversations;
-  }, [conversations]);
-
-  useEffect(() => {
-    messagesRef.current = messages;
-  }, [messages]);
-
-  useEffect(() => {
-    selectedConversationIdRef.current =
-      selectedConversationId;
-  }, [selectedConversationId]);
-
-  const scrollToBottom = useCallback(
-    (instant = false) => {
-      if (!messagesEndRef.current) return;
-
-      messagesEndRef.current.scrollIntoView({
-        behavior: instant ? "auto" : "smooth",
-      });
-    },
-    []
-  );
-
-  useEffect(() => {
-    if (messages.length > 0) {
-      scrollToBottom(false);
-    }
-  }, [messages, scrollToBottom]);
-
-  /* ==========================================================
-     FETCH USERS & CONVERSATIONS
-  ========================================================== */
-
-  const fetchData = useCallback(
-    async (force = false) => {
-      try {
-        const response = await fetch(
-          getApiUrl("/users"),
-          {
-            method: "GET",
-            credentials: "include",
-            headers: getAuthHeaders(),
-          }
-        );
-
-        if (response.status === 401) {
-          router.replace("/login");
-          return;
-        }
-
-        const data =
-          await parseResponse(response);
-
-        if (response.ok) {
-          const userData =
-            normalizeUsers(data);
-
-          const availableUsers =
-            userData.filter((user) => {
-              if (!user) return false;
-
-              const role = String(
-                user?.role || ""
-              ).toLowerCase();
-
-              return (
-                role === "user" ||
-                role === "manager"
-              );
-            });
-
-          setUsers(availableUsers);
-        }
-      } catch {}
-
-      try {
-        const response = await fetch(
-          getApiUrl("/conversations"),
-          {
-            method: "GET",
-            credentials: "include",
-            headers: getAuthHeaders(),
-            cache: "no-store",
-          }
-        );
-
-        const data =
-          await parseResponse(response);
-
-        if (response.ok) {
-          const conversationData =
-            normalizeConversations(data);
-
-          setConversations(
-            conversationData
-          );
-
-          conversationsRef.current =
-            conversationData;
-        }
-      } catch {}
-    },
-    [router]
-  );
-
-  useEffect(() => {
-    fetchData(false);
-  }, [fetchData]);
-
-  const findConversationForUser =
-    useCallback((userId, list) => {
-      if (!userId) return null;
-
-      const convList = Array.isArray(list)
-        ? list
-        : conversationsRef.current;
-
-      return (
-        convList.find((conversation) => {
-          const participants =
-            Array.isArray(
-              conversation?.participants
-            )
-              ? conversation.participants
-              : [];
-
-          return participants.some(
-            (participant) => {
-              const participantId =
-                getId(participant);
-
-              return (
-                participantId &&
-                String(participantId) ===
-                  String(userId)
-              );
-            }
-          );
-        }) || null
-      );
-    }, []);
-
-  const extractMessages = (data) => {
-    if (Array.isArray(data)) return data;
-
-    if (Array.isArray(data?.messages)) {
-      return data.messages;
-    }
-
-    if (Array.isArray(data?.data)) {
-      return data.data;
-    }
-
-    if (
-      Array.isArray(
-        data?.data?.messages
-      )
-    ) {
-      return data.data.messages;
-    }
-
-    if (
-      Array.isArray(
-        data?.conversation?.messages
-      )
-    ) {
-      return data.conversation.messages;
-    }
-
-    return [];
+  const scrollToBottom = (instant = false) => {
+    messagesEndRef.current?.scrollIntoView({
+      behavior: instant ? "auto" : "smooth",
+    });
   };
 
-  const fetchMessages = useCallback(
-    async (
-      conversationId,
-      silent = false
-    ) => {
-      if (!conversationId) return [];
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
 
-      if (
-        !silent &&
-        messagesCache.current[
-          conversationId
-        ]
-      ) {
-        setMessages(
-          messagesCache.current[
-            conversationId
-          ]
-        );
+  /* ============================================================
+     LOAD CONVERSATIONS
+  ============================================================ */
 
-        setLoadingMessages(false);
-      } else if (!silent) {
-        setLoadingMessages(true);
+  const loadConversations = useCallback(async () => {
+    try {
+      setError("");
+
+      const me = await authService.me();
+      const user = extractUser(me);
+
+      if (!user) {
+        window.location.href = "/login";
+        return;
       }
 
-      if (!silent) {
-        setMessagesError("");
+      setCurrentUser(user);
+
+      const response = await safeApiRequest("/conversations", null);
+
+      const backendConversations = normalizeConversations(response);
+      const backendContacts = normalizeContacts(response);
+
+      setConversations(backendConversations);
+      setContacts(backendContacts);
+    } catch (err) {
+      console.error("User conversations error:", err);
+
+      if (err?.status === 401) {
+        window.location.href = "/login";
+        return;
       }
+
+      setError(err?.message || "Unable to load conversations.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadConversations();
+  }, [loadConversations]);
+
+  /* ============================================================
+     POLLING
+  ============================================================ */
+
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const activeConv = selectedConversationRef.current;
+      const conversationId = getConversationId(activeConv);
+
+      if (!conversationId) return;
 
       try {
-        const response = await fetch(
-          getApiUrl(
-            `/conversations/${conversationId}/messages?limit=100`
-          ),
-          {
-            method: "GET",
-            credentials: "include",
-            headers: getAuthHeaders(),
-            cache: "no-store",
+        const response = await getConversationMessages(conversationId);
+        const fetchedMessages = normalizeMessages(response);
+
+        setMessages((prevMessages) => {
+          if (fetchedMessages.length > prevMessages.length) {
+            const latestMsg =
+              fetchedMessages[fetchedMessages.length - 1];
+
+            const senderId = getUserId(latestMsg?.sender);
+            const myId = getUserId(currentUser);
+
+            if (
+              soundEnabled &&
+              senderId &&
+              myId &&
+              senderId.toString() !== myId.toString()
+            ) {
+              playNotificationChime();
+            }
+
+            return fetchedMessages;
           }
-        );
 
-        const data =
-          await parseResponse(response);
+          return prevMessages;
+        });
+      } catch {}
+    }, 4000);
 
-        if (!response.ok) {
-          throw new Error(
-            "Failed to load messages."
-          );
-        }
+    return () => clearInterval(interval);
+  }, [currentUser, soundEnabled]);
 
-        const messageData =
-          extractMessages(data);
+  /* ============================================================
+     DISPLAY CONVERSATIONS
+  ============================================================ */
 
-        if (
-          String(conversationId) ===
-          String(
-            selectedConversationIdRef.current
-          )
-        ) {
-          messagesCache.current[
-            conversationId
-          ] = messageData;
+  const displayConversations = useMemo(() => {
+    const conversationByUserId = new Map();
 
-          setMessages(messageData);
-        }
-
-        return messageData;
-      } catch (err) {
-        if (!silent) {
-          setMessagesError(
-            err?.message ||
-              "Unable to load messages."
-          );
-        }
-
-        return [];
-      } finally {
-        if (!silent) {
-          setLoadingMessages(false);
-        }
-      }
-    },
-    []
-  );
-
-  const openConversation =
-    useCallback(
-      async (
+    conversations.forEach((conversation) => {
+      const participant = getOtherParticipant(
         conversation,
-        user = null
-      ) => {
-        const conversationId =
-          conversation?.id ||
-          conversation?._id;
+        currentUser
+      );
 
-        if (!conversationId) return;
+      const participantId = getUserId(participant);
 
-        selectedConversationIdRef.current =
-          conversationId;
-
-        setSelectedConversationId(
-          conversationId
-        );
-
-        setSelectedConversation(
+      if (participantId) {
+        conversationByUserId.set(
+          participantId.toString(),
           conversation
         );
+      }
+    });
 
-        if (user) {
-          setSelectedUser(user);
-        }
+    const contactItems = contacts.map((contact) => {
+      const contactId = getUserId(contact);
 
-        setMessagesError("");
-        setSelectedFiles([]);
+      const existing = contactId
+        ? conversationByUserId.get(contactId.toString())
+        : null;
 
-        await fetchMessages(
-          conversationId,
-          false
+      if (existing) {
+        return existing;
+      }
+
+      return {
+        id: null,
+        _id: null,
+        participants: [contact],
+        contact,
+        lastMessage: "",
+        lastMessageAt: null,
+        updatedAt: null,
+        createdAt: null,
+        unreadCount: 0,
+        unread: 0,
+        status: "new",
+        channel: "chat",
+        isNewContact: true,
+      };
+    });
+
+    const contactIds = new Set(
+      contacts
+        .map(getUserId)
+        .filter(Boolean)
+        .map((id) => id.toString())
+    );
+
+    const unmatchedConversations = conversations.filter(
+      (conversation) => {
+        const participant = getOtherParticipant(
+          conversation,
+          currentUser
         );
 
+        const participantId = getUserId(participant);
+
+        return (
+          !participantId ||
+          !contactIds.has(participantId.toString())
+        );
+      }
+    );
+
+    return [...contactItems, ...unmatchedConversations];
+  }, [contacts, conversations, currentUser]);
+
+  /* ============================================================
+     FILTER
+  ============================================================ */
+
+  const filteredConversations = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
+    if (!query) {
+      return displayConversations;
+    }
+
+    return displayConversations.filter((conversation) => {
+      const name = getParticipantName(
+        conversation,
+        currentUser
+      );
+
+      const email = getParticipantEmail(
+        conversation,
+        currentUser
+      );
+
+      const role = getParticipantRole(
+        conversation,
+        currentUser
+      );
+
+      const lastMessage = String(
+        conversation?.lastMessage ||
+          conversation?.lastMessageText ||
+          conversation?.preview ||
+          ""
+      );
+
+      return `${name} ${email} ${role} ${lastMessage}`
+        .toLowerCase()
+        .includes(query);
+    });
+  }, [displayConversations, search, currentUser]);
+
+  /* ============================================================
+     FILE HANDLING
+  ============================================================ */
+
+  const handleFileChange = (event) => {
+    const files = Array.from(event.target.files || []);
+
+    if (files.length === 0) return;
+
+    setSelectedFiles((prev) =>
+      [...prev, ...files].slice(0, 5)
+    );
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const removeSelectedFile = (index) => {
+    setSelectedFiles((prev) =>
+      prev.filter((_, i) => i !== index)
+    );
+  };
+
+  /* ============================================================
+     SELECT CONVERSATION
+  ============================================================ */
+
+  async function handleSelectConversation(item) {
+    if (!item) return;
+
+    setMessages([]);
+    setMessagesError("");
+    setSelectedFiles([]);
+
+    let conversation = item;
+    let conversationId = getConversationId(conversation);
+
+    try {
+      setMessagesLoading(true);
+
+      if (!conversationId && conversation?.isNewContact) {
+        const contact = getOtherParticipant(
+          conversation,
+          currentUser
+        );
+
+        const recipientId = getUserId(contact);
+
+        if (!recipientId) {
+          throw new Error(
+            "Selected user does not have a valid user ID."
+          );
+        }
+
+        const response = await apiRequest(
+          "/conversations",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              recipientId,
+            }),
+          }
+        );
+
+        const created =
+          response?.conversation ||
+          response?.data?.conversation ||
+          response?.data;
+
+        if (!created) {
+          throw new Error(
+            "Backend did not return the created conversation."
+          );
+        }
+
+        conversation = created;
+        conversationId = getConversationId(created);
+
+        setConversations((current) => {
+          const exists = current.some(
+            (item) =>
+              getConversationId(item) === conversationId
+          );
+
+          return exists
+            ? current
+            : [...current, created];
+        });
+      }
+
+      if (!conversationId) {
+        throw new Error(
+          "This conversation does not have a valid ID."
+        );
+      }
+
+      setSelectedConversation(conversation);
+
+      const unreadCount = Number(
+        conversation?.unreadCount ||
+          conversation?.unread ||
+          0
+      );
+
+      if (unreadCount > 0) {
         try {
-          await fetch(
-            getApiUrl(
-              `/conversations/${conversationId}/read`
-            ),
-            {
-              method: "PUT",
-              credentials: "include",
-              headers: getAuthHeaders(),
-            }
+          await markConversationRead(conversationId);
+
+          setConversations((current) =>
+            current.map((item) => {
+              if (
+                getConversationId(item) !==
+                conversationId
+              ) {
+                return item;
+              }
+
+              return {
+                ...item,
+                unreadCount: 0,
+                unread: 0,
+              };
+            })
           );
         } catch {}
-      },
-      [fetchMessages]
-    );
+      }
 
-  const handleSelectUser =
-    useCallback(
-      async (user) => {
-        const userId = getId(user);
+      const response =
+        await getConversationMessages(conversationId);
 
-        if (!userId) return;
+      const fetched = normalizeMessages(response);
 
-        setSelectedUser(user);
-        setMessagesError("");
+      setMessages(fetched);
+    } catch (err) {
+      console.error(
+        "Conversation selection error:",
+        err
+      );
 
-        const existingConversation =
-          findConversationForUser(
-            userId,
-            conversationsRef.current
-          );
+      if (err?.status === 401) {
+        window.location.href = "/login";
+        return;
+      }
 
-        if (existingConversation) {
-          await openConversation(
-            existingConversation,
-            user
-          );
+      setMessagesError(
+        err?.message ||
+          "Unable to open conversation."
+      );
+    } finally {
+      setMessagesLoading(false);
+    }
+  }
 
-          return;
-        }
+  /* ============================================================
+     SEND MESSAGE
+  ============================================================ */
 
-        setStartingConversation(true);
+  async function handleSendMessage(event) {
+    event.preventDefault();
 
-        try {
-          const response = await fetch(
-            getApiUrl(
-              "/conversations"
-            ),
-            {
-              method: "POST",
-              credentials: "include",
-              headers: getAuthHeaders(),
-              body: JSON.stringify({
-                recipientId: userId,
-              }),
-            }
-          );
-
-          const data =
-            await parseResponse(
-              response
-            );
-
-          if (!response.ok) {
-            throw new Error(
-              "Failed to start conversation."
-            );
-          }
-
-          const newConversation =
-            data?.conversation ||
-            data?.data?.conversation ||
-            data?.data ||
-            data;
-
-          const newConversationId =
-            newConversation?.id ||
-            newConversation?._id;
-
-          if (newConversationId) {
-            setConversations(
-              (prev) => {
-                const exists =
-                  prev.some(
-                    (item) =>
-                      String(
-                        item?.id ||
-                          item?._id
-                      ) ===
-                      String(
-                        newConversationId
-                      )
-                  );
-
-                return exists
-                  ? prev
-                  : [
-                      newConversation,
-                      ...prev,
-                    ];
-              }
-            );
-
-            conversationsRef.current =
-              [
-                newConversation,
-                ...conversationsRef.current,
-              ];
-
-            await openConversation(
-              newConversation,
-              user
-            );
-          }
-        } catch (err) {
-          setMessagesError(
-            err?.message ||
-              "Failed to start conversation."
-          );
-        } finally {
-          setStartingConversation(
-            false
-          );
-        }
-      },
-      [
-        findConversationForUser,
-        openConversation,
-      ]
-    );
-
-  const filteredUsers = useMemo(() => {
-    const query =
-      search.trim().toLowerCase();
-
-    if (!query) return users;
-
-    return users.filter((user) => {
-      const full =
-        `${user?.name || ""} ${
-          user?.email || ""
-        }`.toLowerCase();
-
-      return full.includes(query);
-    });
-  }, [users, search]);
-
-  const handleSendMessage = async (e) => {
-    e?.preventDefault();
-
-    const cleanBody = message.trim();
+    const body = message.trim();
 
     if (
-      (!cleanBody &&
-        selectedFiles.length === 0) ||
-      !selectedConversationId ||
-      !selectedUser
+      (!body && selectedFiles.length === 0) ||
+      !selectedConversation ||
+      sending
     ) {
       return;
     }
 
-    const recipientId =
-      getId(selectedUser);
+    let conversationId =
+      getConversationId(selectedConversation);
 
-    if (!recipientId) return;
+    const contact = getOtherParticipant(
+      selectedConversation,
+      currentUser
+    );
 
-    const tempId =
-      `temp-${Date.now()}`;
+    const recipientId = getUserId(contact);
 
-    const filesToSend = [
-      ...selectedFiles,
-    ];
+    const tempId = `temp-${Date.now()}`;
 
-    const optimisticMessage = {
+    const optimisticMsg = {
       _id: tempId,
       id: tempId,
-      body: cleanBody,
-      sender: {
-        role: "admin",
+      body: body,
+      message: body,
+      sender: currentUser || {
+        role: "user",
         name: "You",
       },
-      createdAt:
-        new Date().toISOString(),
-      attachments:
-        filesToSend.map((file) => ({
-          filename: file.name,
-          originalName: file.name,
-          mimeType: file.type,
-        })),
+      createdAt: new Date().toISOString(),
+      attachments: selectedFiles.map((f) => ({
+        filename: f.name,
+        originalName: f.name,
+        mimeType: f.type,
+      })),
     };
 
-    setMessages((prev) => [
-      ...prev,
-      optimisticMessage,
-    ]);
-
+    setMessages((prev) => [...prev, optimisticMsg]);
     setMessage("");
+
+    const filesToSend = [...selectedFiles];
+
     setSelectedFiles([]);
     scrollToBottom(true);
 
     try {
-      setSendingMessage(true);
+      setSending(true);
+      setMessagesError("");
+
+      if (!conversationId) {
+        if (!recipientId) {
+          throw new Error("Recipient user ID is missing.");
+        }
+
+        const createResponse = await apiRequest(
+          "/conversations",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              recipientId,
+            }),
+          }
+        );
+
+        const created =
+          createResponse?.conversation ||
+          createResponse?.data?.conversation ||
+          createResponse?.data;
+
+        if (!created) {
+          throw new Error(
+            "Unable to create conversation."
+          );
+        }
+
+        conversationId = getConversationId(created);
+
+        setSelectedConversation(created);
+
+        setConversations((current) => {
+          const exists = current.some(
+            (item) =>
+              getConversationId(item) ===
+              conversationId
+          );
+
+          return exists
+            ? current
+            : [...current, created];
+        });
+      }
 
       let response;
 
       if (filesToSend.length > 0) {
-        const formData =
-          new FormData();
+        const formData = new FormData();
 
-        formData.append(
-          "body",
-          cleanBody
-        );
-
+        formData.append("body", body);
         formData.append(
           "recipientId",
-          recipientId
+          String(recipientId || "")
         );
-
         formData.append(
           "conversationId",
-          selectedConversationId
+          String(conversationId)
         );
 
-        filesToSend.forEach(
-          (file) =>
-            formData.append(
-              "files",
-              file
-            )
-        );
+        filesToSend.forEach((file) => {
+          formData.append("files", file);
+        });
 
-        const token =
-          getStoredToken();
+        let token = "";
 
-        const headers = {
-          Accept:
-            "application/json",
-        };
+        try {
+          token =
+            localStorage.getItem("token") ||
+            localStorage.getItem("authToken") ||
+            "";
+        } catch {}
 
-        if (token) {
-          headers.Authorization =
-            `Bearer ${token}`;
-        }
-
-        response = await fetch(
-          getApiUrl("/messages"),
+        const res = await fetch(
+          `${API_URL}/messages`,
           {
             method: "POST",
-            credentials:
-              "include",
-            headers,
+            credentials: "include",
+            headers: {
+              Accept: "application/json",
+              ...(token
+                ? {
+                    Authorization: `Bearer ${token}`,
+                  }
+                : {}),
+            },
             body: formData,
           }
         );
+
+        let responseData = null;
+
+        try {
+          const text = await res.text();
+
+          if (text) {
+            responseData = JSON.parse(text);
+          }
+        } catch {}
+
+        if (!res.ok) {
+          throw new Error(
+            responseData?.message ||
+              "Failed to send file."
+          );
+        }
+
+        response = responseData;
       } else {
-        response = await fetch(
-          getApiUrl(
-            `/conversations/${selectedConversationId}/messages`
-          ),
+        response = await apiRequest(
+          `/conversations/${conversationId}/messages`,
           {
             method: "POST",
-            credentials:
-              "include",
-            headers:
-              getAuthHeaders(),
             body: JSON.stringify({
-              body: cleanBody,
-              recipientId,
+              body,
+              message: body,
+              messageType: "text",
+              channel: "chat",
+              direction: "internal",
             }),
           }
         );
       }
 
-      const data =
-        await parseResponse(
-          response
-        );
-
-      if (!response.ok) {
-        throw new Error(
-          "Failed to send message."
-        );
-      }
-
-      const confirmedMessage =
-        data?.message ||
-        data?.data?.message ||
-        data?.data;
+      const sentMessage =
+        response?.data ||
+        response?.messageData ||
+        response?.message ||
+        null;
 
       if (
-        confirmedMessage &&
-        typeof confirmedMessage ===
-          "object"
+        sentMessage &&
+        typeof sentMessage === "object"
       ) {
-        setMessages((prev) =>
-          prev.map((item) =>
-            String(
-              item?.id ||
-                item?._id
-            ) ===
-            String(tempId)
-              ? confirmedMessage
-              : item
+        setMessages((current) =>
+          current.map((m) =>
+            m.id === tempId ||
+            m._id === tempId
+              ? sentMessage
+              : m
           )
         );
       }
+
+      await refreshConversations(
+        conversationId
+      );
     } catch (err) {
+      console.error(
+        "Send message error:",
+        err
+      );
+
+      if (err?.status === 401) {
+        window.location.href = "/login";
+        return;
+      }
+
       setMessagesError(
-        "Message failed to sync: " +
-          (err?.message ||
-            "Error")
+        err?.message ||
+          "Unable to send message."
       );
 
       setMessages((prev) =>
         prev.filter(
-          (item) =>
-            String(
-              item?.id ||
-                item?._id
-            ) !==
-            String(tempId)
+          (m) =>
+            m.id !== tempId &&
+            m._id !== tempId
         )
       );
     } finally {
-      setSendingMessage(false);
+      setSending(false);
     }
-  };
+  }
 
-  const handleDeleteConversation =
-    async () => {
-      if (!selectedConversationId)
-        return;
+  /* ============================================================
+     DELETE MESSAGE
+  ============================================================ */
 
-      if (
-        !window.confirm(
-          "Are you sure you want to delete this entire conversation?"
-        )
-      ) {
-        return;
-      }
+  function promptDeleteMessage(msg) {
+    setMessageToDelete(msg);
+    setDeleteModalOpen(true);
+  }
 
-      try {
-        const response =
-          await fetch(
-            getApiUrl(
-              `/conversations/${selectedConversationId}`
-            ),
-            {
-              method: "DELETE",
-              credentials:
-                "include",
-              headers:
-                getAuthHeaders(),
-            }
-          );
+  async function executeDeleteMessage(type) {
+    if (!messageToDelete) return;
 
-        if (!response.ok) {
-          throw new Error(
-            "Failed to delete conversation."
-          );
+    const messageId =
+      messageToDelete?._id ||
+      messageToDelete?.id;
+
+    if (!messageId) return;
+
+    try {
+      setDeletingMessage(true);
+
+      const endpoint =
+        type === "everyone"
+          ? `/messages/${messageId}/delete-for-everyone`
+          : `/messages/${messageId}/delete-for-me`;
+
+      const response = await apiRequest(
+        endpoint,
+        {
+          method: "POST",
         }
+      );
 
-        const deletedId =
-          selectedConversationId;
-
-        setConversations((prev) =>
+      if (type === "me") {
+        setMessages((prev) =>
           prev.filter(
-            (c) =>
+            (m) =>
               String(
-                c?.id ||
-                  c?._id
+                m?._id || m?.id
               ) !==
-              String(deletedId)
+              String(messageId)
           )
         );
+      } else {
+        const updatedMsg =
+          response?.data ||
+          response?.message;
 
-        delete messagesCache
-          .current[deletedId];
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (
+              String(
+                m?._id || m?.id
+              ) !==
+              String(messageId)
+            ) {
+              return m;
+            }
 
-        selectedConversationIdRef.current =
-          null;
-
-        setSelectedConversationId(
-          null
-        );
-
-        setSelectedConversation(
-          null
-        );
-
-        setSelectedUser(null);
-        setMessages([]);
-      } catch (err) {
-        setMessagesError(
-          err?.message ||
-            "Could not delete conversation."
+            return {
+              ...m,
+              ...(updatedMsg || {}),
+              body: "This message was deleted",
+              message:
+                "This message was deleted",
+              isDeletedForEveryone: true,
+              attachments: [],
+            };
+          })
         );
       }
-    };
+
+      setDeleteModalOpen(false);
+      setMessageToDelete(null);
+
+      const conversationId =
+        getConversationId(
+          selectedConversation
+        );
+
+      if (conversationId) {
+        refreshConversations(
+          conversationId
+        );
+      }
+    } catch (delError) {
+      console.error(
+        "Delete message failed:",
+        delError
+      );
+
+      alert(
+        delError?.message ||
+          "Failed to delete message."
+      );
+    } finally {
+      setDeletingMessage(false);
+    }
+  }
+
+  /* ============================================================
+     REFRESH CONVERSATIONS
+  ============================================================ */
+
+  async function refreshConversations(
+    selectedId = null
+  ) {
+    try {
+      const response = await apiRequest(
+        "/conversations",
+        {
+          method: "GET",
+        }
+      );
+
+      const normalized =
+        normalizeConversations(response);
+
+      const normalizedContacts =
+        normalizeContacts(response);
+
+      setConversations(normalized);
+      setContacts(normalizedContacts);
+
+      if (selectedId) {
+        const updated = normalized.find(
+          (conversation) =>
+            getConversationId(
+              conversation
+            ) === selectedId
+        );
+
+        if (updated) {
+          setSelectedConversation(
+            updated
+          );
+        }
+      }
+    } catch (err) {
+      if (err?.status === 401) {
+        window.location.href = "/login";
+      }
+    }
+  }
+
+  /* ============================================================
+     USER DATA
+  ============================================================ */
+
+  const selectedName = selectedConversation
+    ? getParticipantName(
+        selectedConversation,
+        currentUser
+      )
+    : "Select a Contact";
+
+  const selectedEmail = selectedConversation
+    ? getParticipantEmail(
+        selectedConversation,
+        currentUser
+      )
+    : "";
+
+  const selectedRole = selectedConversation
+    ? getParticipantRole(
+        selectedConversation,
+        currentUser
+      )
+    : "";
+
+  const userName =
+    currentUser?.name ||
+    currentUser?.fullName ||
+    currentUser?.displayName ||
+    currentUser?.email ||
+    "User";
+
+  const userEmail =
+    currentUser?.email ||
+    "User Account";
+
+  const userInitial =
+    String(userName)
+      .trim()
+      .charAt(0)
+      .toUpperCase() || "U";
+
+  async function handleLogout() {
+    try {
+      await authService.logout();
+    } catch {}
+
+    window.location.href = "/login";
+  }
 
   return (
-    <div className="flex h-screen min-h-0 w-full flex-1 flex-col overflow-hidden bg-[#f7f8fc] text-slate-950 animate-fadeIn">
-      {/* Background ambient lighting */}
+    <div className="relative flex h-screen min-h-0 w-full overflow-hidden bg-[#f7f8fc] text-slate-950">
+      {/* Background */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute -left-32 -top-32 h-72 w-72 rounded-full bg-violet-400/10 blur-3xl animate-pulse" />
+
         <div className="absolute right-0 top-20 h-80 w-80 rounded-full bg-pink-400/10 blur-3xl" />
+
         <div className="absolute bottom-0 left-1/3 h-72 w-72 rounded-full bg-orange-300/10 blur-3xl" />
       </div>
 
-      {/* FULL REMAINING PAGE */}
-      <div className="flex h-screen min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        {/* CONVERSATION WORKSPACE */}
-        <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white animate-slideUp lg:flex-row">
-          {/* CONTACTS */}
-          <div className="flex h-[280px] min-h-0 w-full shrink-0 flex-col overflow-hidden border-b border-slate-100 lg:h-full lg:w-[360px] lg:border-b-0 lg:border-r">
-            <div className="shrink-0 border-b border-slate-100 bg-slate-50/50 p-4 sm:p-5">
-              <div className="mb-3.5">
-                <h2 className="text-base font-extrabold text-slate-900">
-                  Team Contacts
-                </h2>
+      {/* Mobile Overlay */}
+      {sidebarOpen && (
+        <button
+          type="button"
+          aria-label="Close sidebar"
+          onClick={() =>
+            setSidebarOpen(false)
+          }
+          className="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-sm lg:hidden"
+        />
+      )}
 
-                <p className="mt-0.5 text-xs text-slate-400">
-                  Select a member to chat
-                </p>
-              </div>
-
-              <div className="relative">
-                <Search
-                  size={16}
-                  className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
-                />
-
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(e) =>
-                    setSearch(
-                      e.target.value
-                    )
-                  }
-                  placeholder="Search contacts..."
-                  className="h-10 w-full rounded-2xl border border-slate-200/90 bg-white pl-9 pr-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10"
-                />
-              </div>
+      {/* Sidebar */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-[#171B3A] text-white shadow-2xl transition-transform duration-300 ease-in-out lg:static lg:translate-x-0 ${
+          sidebarOpen
+            ? "translate-x-0"
+            : "-translate-x-full"
+        }`}
+      >
+        <div className="flex h-20 shrink-0 items-center justify-between border-b border-white/10 px-5">
+          <Link
+            href="/user"
+            onClick={() =>
+              setSidebarOpen(false)
+            }
+            className="flex items-center gap-3 text-white"
+          >
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-purple-600 text-white shadow-md shadow-purple-600/20">
+              <ShieldCheck size={22} />
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-              {loadingUsers &&
-              users.length === 0 ? (
-                <div className="flex min-h-[260px] flex-col items-center justify-center p-6 text-center">
-                  <Loader2
-                    size={26}
-                    className="animate-spin text-violet-600"
-                  />
+            <div>
+              <h1 className="text-sm font-bold text-white">
+                Local Pro 1
+              </h1>
 
-                  <p className="mt-3 text-xs font-semibold text-slate-400">
-                    Loading contacts...
-                  </p>
-                </div>
-              ) : filteredUsers.length >
-                0 ? (
-                filteredUsers.map(
-                  (user) => {
-                    const userId =
-                      getId(user);
+              <p className="text-[11px] font-semibold text-violet-400">
+                User Workspace
+              </p>
+            </div>
+          </Link>
 
-                    const isSelected =
-                      String(
-                        getId(
-                          selectedUser
-                        )
-                      ) ===
-                      String(userId);
+          <button
+            type="button"
+            onClick={() =>
+              setSidebarOpen(false)
+            }
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-white transition hover:bg-white/10 lg:hidden"
+            aria-label="Close sidebar"
+          >
+            <X size={19} />
+          </button>
+        </div>
 
-                    const existingConv =
-                      findConversationForUser(
-                        userId,
-                        conversations
-                      );
+        <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-5">
+          <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Workspace
+          </p>
 
-                    const unread =
-                      getUnreadCount(
-                        existingConv
-                      );
+          <div className="space-y-1.5">
+            {navigation.map((item) => (
+              <UserNavItem
+                key={item.href}
+                item={item}
+                onNavigate={() =>
+                  setSidebarOpen(false)
+                }
+              />
+            ))}
+          </div>
+        </nav>
 
-                    return (
-                      <button
-                        key={userId}
-                        type="button"
-                        onClick={() =>
-                          handleSelectUser(
-                            user
-                          )
-                        }
-                        className={`flex w-full items-start gap-3 border-b border-slate-100/80 px-4 py-3.5 text-left transition duration-150 ${
-                          isSelected
-                            ? "border-violet-200/60 bg-violet-50/70"
-                            : "hover:bg-slate-50/80"
-                        }`}
-                      >
-                        <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-sm">
-                          {getInitials(
-                            getUserName(
-                              user
-                            )
-                          )}
-
-                          {unread > 0 &&
-                            !isSelected && (
-                              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-violet-600 px-1 text-[9px] font-bold text-white shadow-sm">
-                                {unread >
-                                99
-                                  ? "99+"
-                                  : unread}
-                              </span>
-                            )}
-                        </div>
-
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="truncate text-xs font-bold text-slate-900">
-                              {getUserName(
-                                user
-                              )}
-                            </p>
-
-                            {existingConv && (
-                              <span className="shrink-0 text-[10px] text-slate-400">
-                                {formatConversationTime(
-                                  getConversationLastDate(
-                                    existingConv
-                                  )
-                                )}
-                              </span>
-                            )}
-                          </div>
-
-                          <p className="mt-1 truncate text-xs text-slate-500">
-                            {getConversationLastMessage(
-                              existingConv
-                            ) ||
-                              user?.email ||
-                              "Click to message"}
-                          </p>
-                        </div>
-                      </button>
-                    );
-                  }
-                )
+        <div className="shrink-0 border-t border-white/10 p-3">
+          <div className="mb-2 flex items-center gap-3 rounded-2xl bg-white/[0.04] px-3 py-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-violet-600 text-xs font-bold text-white">
+              {currentUser?.avatar ? (
+                <img
+                  src={currentUser.avatar}
+                  alt={userName}
+                  className="h-full w-full object-cover"
+                />
               ) : (
-                <div className="p-8 text-center text-xs text-slate-400">
-                  No contacts available.
-                </div>
+                userInitial
               )}
+            </div>
+
+            <div className="min-w-0">
+              <p className="truncate text-sm font-bold text-white">
+                {userName}
+              </p>
+
+              <p className="truncate text-xs font-medium text-slate-400">
+                {userEmail}
+              </p>
             </div>
           </div>
 
-          {/* CHAT — FULL REMAINING WIDTH */}
-          <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-50/20">
-            {/* Chat Header */}
-            <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-slate-50/50 px-5 py-3.5 sm:px-6">
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-md shadow-purple-500/10">
-                  {selectedUser ? (
-                    getInitials(
-                      getUserName(
-                        selectedUser
-                      )
-                    )
-                  ) : (
-                    <MessageSquare
-                      size={18}
-                    />
-                  )}
-                  {selectedUser && (() => {
-                    const activeConv = findConversationForUser(getId(selectedUser), conversations);
-                    const unreadCnt = getUnreadCount(activeConv);
-                    if (unreadCnt > 0) {
-                      return (
-                        <span className="absolute -right-1 -top-1 z-10 flex h-4 min-w-4 items-center justify-center rounded-full bg-violet-600 px-1 text-[9px] font-bold text-white shadow-sm">
-                          {unreadCnt > 99 ? "99+" : unreadCnt}
-                        </span>
-                      );
-                    }
-                    return null;
-                  })()}
-                </div>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-bold text-rose-400 transition hover:bg-rose-500/10 hover:text-rose-300"
+          >
+            <LogOut size={17} />
+            <span>Sign Out</span>
+          </button>
+        </div>
+      </aside>
 
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h2 className="truncate text-sm font-extrabold text-slate-900">
-                      {selectedUser
-                        ? getUserName(
-                            selectedUser
-                          )
-                        : "Select a contact"}
-                    </h2>
-                    {selectedUser && (() => {
-                      const activeConv = findConversationForUser(getId(selectedUser), conversations);
-                      const unreadCnt = getUnreadCount(activeConv);
-                      if (unreadCnt > 0) {
-                        return (
-                          <span className="rounded-full bg-violet-600 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm">
-                            {unreadCnt} new message{unreadCnt > 1 ? "s" : ""}
-                          </span>
-                        );
-                      }
-                      return null;
-                    })()}
-                  </div>
+      {/* Main */}
+      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden w-full">
+        {/* Top Bar */}
+        <header className="flex h-16 shrink-0 items-center justify-between border-b border-slate-200/80 bg-white/95 px-5 backdrop-blur-sm sm:px-6 lg:px-8">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() =>
+                setSidebarOpen(true)
+              }
+              className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50 lg:hidden"
+              aria-label="Open sidebar"
+            >
+              <Menu size={20} />
+            </button>
 
-                  <p className="truncate text-xs font-semibold text-violet-600">
-                    {selectedUser
-                      ? getRole(
-                          selectedUser
-                        ) ||
-                        "Active Member"
-                      : "Choose from list"}
-                  </p>
-                </div>
-              </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-400">
+                Workspace
+              </p>
 
-              {selectedConversationId && (
-                <button
-                  onClick={
-                    handleDeleteConversation
-                  }
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-rose-100 bg-rose-50 text-rose-600 transition hover:bg-rose-100"
-                  title="Delete Conversation"
-                >
-                  <Trash2 size={14} />
-                </button>
+              <p className="text-sm font-bold text-slate-900">
+                Messages
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                const nextState =
+                  !soundEnabled;
+
+                setSoundEnabled(
+                  nextState
+                );
+
+                if (nextState) {
+                  playNotificationChime();
+                }
+              }}
+              className={`flex h-9 items-center gap-1.5 rounded-2xl border px-3 text-xs font-bold transition ${
+                soundEnabled
+                  ? "border-violet-200 bg-violet-50 text-violet-700"
+                  : "border-slate-200 bg-white text-slate-400"
+              }`}
+              title={
+                soundEnabled
+                  ? "Notification sound is ON"
+                  : "Notification sound is MUTED"
+              }
+            >
+              {soundEnabled ? (
+                <Volume2 size={15} />
+              ) : (
+                <VolumeX size={15} />
+              )}
+
+              <span className="hidden sm:inline">
+                {soundEnabled
+                  ? "Sound ON"
+                  : "Muted"}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                loadConversations()
+              }
+              disabled={loading}
+              className="inline-flex h-9 items-center gap-1.5 rounded-2xl border border-slate-200/90 bg-white px-3 text-xs font-bold text-slate-700 shadow-sm transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700 disabled:opacity-50"
+            >
+              <RefreshCw
+                size={15}
+                className={
+                  loading
+                    ? "animate-spin text-violet-600"
+                    : ""
+                }
+              />
+
+              <span className="hidden sm:inline">
+                Refresh
+              </span>
+            </button>
+
+            <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-sm">
+              {currentUser?.avatar ? (
+                <img
+                  src={currentUser.avatar}
+                  alt={userName}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                userInitial
               )}
             </div>
+          </div>
+        </header>
 
-            {/* Messages */}
-            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-5 py-6 sm:px-6">
-              {startingConversation ? (
-                <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
-                  <Loader2
-                    size={28}
-                    className="animate-spin text-violet-600"
-                  />
+        {/* Workspace */}
+        <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-4 animate-slideUp sm:p-5 lg:p-6">
+          <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-hidden">
+            {error && (
+              <section className="shrink-0 rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-700">
+                <p>{error}</p>
+              </section>
+            )}
 
-                  <p className="mt-2 text-xs font-semibold text-slate-400">
-                    Opening conversation...
-                  </p>
-                </div>
-              ) : loadingMessages ? (
-                <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
-                  <Loader2
-                    size={28}
-                    className="animate-spin text-violet-600"
-                  />
+            <section className="grid h-full min-h-0 min-w-0 flex-1 w-full grid-cols-1 grid-rows-[280px_minmax(0,1fr)] overflow-hidden rounded-[26px] border border-slate-200/80 bg-white shadow-[0_10px_35px_rgba(45,35,100,0.05)] lg:grid-cols-[360px_minmax(0,1fr)] lg:grid-rows-1">
+              {/* Contacts */}
+              <aside className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-b border-slate-100 lg:border-b-0 lg:border-r">
+                <div className="shrink-0 border-b border-slate-100 bg-slate-50/50 p-4 sm:p-5">
+                  <div className="mb-3.5">
+                    <h2 className="text-base font-extrabold text-slate-900">
+                      Team Contacts
+                    </h2>
 
-                  <p className="mt-2 text-xs font-semibold text-slate-400">
-                    Loading messages...
-                  </p>
-                </div>
-              ) : !selectedUser ? (
-                <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
-                    <MessageSquare
-                      size={26}
-                    />
+                    <p className="mt-0.5 text-xs text-slate-400">
+                      Select a team member to chat
+                    </p>
                   </div>
 
-                  <h3 className="mt-4 text-sm font-bold text-slate-900">
-                    No contact selected
-                  </h3>
+                  <div className="relative">
+                    <Search
+                      size={16}
+                      className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+                    />
 
-                  <p className="mt-1 text-xs text-slate-400">
-                    Pick a team member
-                    from the left list
-                    to review chat
-                    histories.
-                  </p>
+                    <input
+                      type="text"
+                      value={search}
+                      onChange={(e) =>
+                        setSearch(
+                          e.target.value
+                        )
+                      }
+                      placeholder="Search contacts..."
+                      className="h-10 w-full rounded-2xl border border-slate-200/90 bg-white pl-9 pr-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10"
+                    />
+                  </div>
                 </div>
-              ) : messages.length ===
-                0 ? (
-                <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
-                  <h3 className="text-sm font-bold text-slate-800">
-                    Say Hello 👋
-                  </h3>
 
-                  <p className="mt-1 text-xs text-slate-400">
-                    Start the discussion
-                    below.
-                  </p>
-                </div>
-              ) : (
-                <div className="flex w-full flex-col gap-3.5">
-                  {messages.map(
-                    (
-                      item,
-                      index
-                    ) => {
-                      const sender =
-                        item?.sender;
+                {/* Independent Contacts Scroll */}
+                <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
+                  {loading &&
+                  conversations.length === 0 ? (
+                    <ConversationLoading />
+                  ) : filteredConversations.length > 0 ? (
+                    filteredConversations.map(
+                      (
+                        conversation,
+                        index
+                      ) => {
+                        const id =
+                          getConversationId(
+                            conversation
+                          );
 
-                      const senderName =
-                        getUserName(
-                          sender
-                        );
+                        const participant =
+                          getOtherParticipant(
+                            conversation,
+                            currentUser
+                          );
 
-                      const isDeleted =
-                        Boolean(
-                          item?.isDeletedForEveryone
-                        );
+                        const participantId =
+                          getUserId(
+                            participant
+                          );
 
-                      const body =
-                        isDeleted
-                          ? "This message was deleted"
-                          : item?.body ||
-                            item?.message ||
-                            "";
+                        const name =
+                          getParticipantName(
+                            conversation,
+                            currentUser
+                          );
 
-                      const isAdmin =
-                        String(
-                          sender?.role ||
-                            ""
-                        ).toLowerCase() ===
-                        "admin";
+                        const email =
+                          getParticipantEmail(
+                            conversation,
+                            currentUser
+                          );
 
-                      return (
-                        <div
-                          key={
-                            item?.id ||
-                              item?._id ||
-                              index
-                          }
-                          className={`group relative flex w-full items-center gap-2.5 ${
-                            isAdmin
-                              ? "justify-end"
-                              : "justify-start"
-                          }`}
-                        >
-                          <div
-                            className={`max-w-[82%] rounded-[20px] px-4 py-3 shadow-sm sm:max-w-[72%] ${
-                              isDeleted
-                                ? "border border-slate-200/80 bg-slate-50 italic text-slate-400"
-                                : isAdmin
-                                ? "rounded-tr-xs bg-violet-600 text-white shadow-violet-600/15"
-                                : "rounded-tl-xs border border-slate-100 bg-white text-slate-800 shadow-[0_4px_20px_rgba(45,35,100,0.03)]"
+                        const role =
+                          getParticipantRole(
+                            conversation,
+                            currentUser
+                          );
+
+                        const avatar =
+                          getParticipantAvatar(
+                            conversation,
+                            currentUser
+                          );
+
+                        const lastMessage =
+                          conversation?.lastMessage ||
+                          conversation?.lastMessageText ||
+                          conversation?.preview ||
+                          "No messages yet";
+
+                        const unread =
+                          Number(
+                            conversation?.unreadCount ||
+                              conversation?.unread ||
+                              0
+                          );
+
+                        const active =
+                          selectedConversation &&
+                          (id
+                            ? getConversationId(
+                                selectedConversation
+                              ) === id
+                            : getUserId(
+                                getOtherParticipant(
+                                  selectedConversation,
+                                  currentUser
+                                )
+                              ) ===
+                              participantId);
+
+                        return (
+                          <button
+                            key={
+                              id ||
+                              participantId ||
+                              `contact-${index}`
+                            }
+                            type="button"
+                            onClick={() =>
+                              handleSelectConversation(
+                                conversation
+                              )
+                            }
+                            className={`flex w-full items-start gap-3 border-b border-slate-100/80 px-4 py-3.5 text-left transition duration-150 ${
+                              active
+                                ? "border-violet-200/60 bg-violet-50/70"
+                                : "hover:bg-slate-50/80"
                             }`}
                           >
-                            {!isAdmin &&
-                              senderName &&
-                              !isDeleted && (
-                                <p className="mb-1 text-[10px] font-bold text-violet-600">
-                                  {
-                                    senderName
-                                  }
+                            <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-sm">
+                              {avatar ? (
+                                <img
+                                  src={avatar}
+                                  alt={name}
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                getInitials(
+                                  name
+                                )
+                              )}
+
+                              {unread > 0 && (
+                                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-violet-600 px-1 text-[9px] font-bold text-white shadow-sm">
+                                  {unread >
+                                  99
+                                    ? "99+"
+                                    : unread}
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <p
+                                  className={`truncate text-xs ${
+                                    unread >
+                                    0
+                                      ? "font-bold text-slate-900"
+                                      : "font-bold text-slate-800"
+                                  }`}
+                                >
+                                  {name}
+                                </p>
+
+                                <span className="shrink-0 text-[10px] text-slate-400">
+                                  {formatDateTime(
+                                    conversation?.lastMessageAt ||
+                                      conversation?.updatedAt ||
+                                      conversation?.createdAt
+                                  )}
+                                </span>
+                              </div>
+
+                              {email && (
+                                <p className="mt-0.5 truncate text-[10px] text-slate-400">
+                                  {email}
                                 </p>
                               )}
 
-                            <p className="whitespace-pre-wrap break-words text-xs font-medium leading-relaxed">
-                              {body}
-                            </p>
-
-                            <span
-                              className={`mt-1.5 block text-right text-[10px] ${
-                                isAdmin
-                                  ? "text-violet-200"
-                                  : "text-slate-400"
-                              }`}
-                            >
-                              {formatMessageTime(
-                                item?.createdAt
+                              {role && (
+                                <p className="mt-0.5 text-[9px] font-bold uppercase text-violet-600">
+                                  {role}
+                                </p>
                               )}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    }
+
+                              <p className="mt-1 truncate text-xs text-slate-500">
+                                {lastMessage}
+                              </p>
+                            </div>
+                          </button>
+                        );
+                      }
+                    )
+                  ) : (
+                    <EmptyConversationList
+                      search={search}
+                    />
                   )}
-
-                  <div
-                    ref={
-                      messagesEndRef
-                    }
-                  />
                 </div>
-              )}
-            </div>
+              </aside>
 
-            {/* Fixed Message Composer */}
-            <div className="shrink-0 border-t border-slate-100 bg-white p-4 sm:p-5">
-              {selectedFiles.length >
-                0 && (
-                <div className="mb-3 flex flex-wrap gap-2">
-                  {selectedFiles.map(
-                    (
-                      file,
-                      idx
-                    ) => (
-                      <div
-                        key={idx}
-                        className="flex items-center gap-2 rounded-xl border border-violet-100 bg-violet-50/70 px-3 py-1.5 text-xs text-violet-800"
-                      >
-                        <span className="max-w-[150px] truncate font-semibold">
-                          {
-                            file.name
+              {/* Chat */}
+              <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+                {/* Chat Header */}
+                <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-slate-50/50 px-5 py-3.5 sm:px-6">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-md shadow-purple-500/10">
+                      {selectedConversation &&
+                      getParticipantAvatar(
+                        selectedConversation,
+                        currentUser
+                      ) ? (
+                        <img
+                          src={getParticipantAvatar(
+                            selectedConversation,
+                            currentUser
+                          )}
+                          alt={
+                            selectedName
                           }
-                        </span>
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <MessageSquare
+                          size={18}
+                        />
+                      )}
+                    </div>
 
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setSelectedFiles(
-                              (
-                                prev
-                              ) =>
-                                prev.filter(
-                                  (
-                                    _,
-                                    i
-                                  ) =>
-                                    i !==
-                                    idx
-                                )
-                            )
-                          }
-                          className="text-violet-400 hover:text-rose-600"
-                        >
-                          <X
-                            size={
-                              13
+                    <div className="min-w-0">
+                      <h2 className="truncate text-sm font-extrabold text-slate-900">
+                        {selectedName}
+                      </h2>
+
+                      <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
+                        <span className="h-2 w-2 rounded-full bg-emerald-500" />
+
+                        <p className="truncate text-xs font-semibold text-violet-600">
+                          {selectedConversation
+                            ? selectedEmail ||
+                              selectedRole ||
+                              "Active Chat"
+                            : "Choose a contact to start messaging"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Independent Messages Scroll */}
+                <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-5 py-6 sm:px-6">
+                  {!selectedConversation ? (
+                    <NoConversationSelected />
+                  ) : messagesLoading ? (
+                    <MessagesLoading />
+                  ) : messagesError ? (
+                    <MessageError
+                      message={
+                        messagesError
+                      }
+                    />
+                  ) : messages.length === 0 ? (
+                    <NoMessages />
+                  ) : (
+                    <div className="mx-auto flex w-full max-w-5xl flex-col gap-3.5">
+                      {messages.map(
+                        (
+                          item,
+                          index
+                        ) => (
+                          <MessageBubble
+                            key={
+                              item?._id ||
+                              item?.id ||
+                              `${
+                                item?.createdAt ||
+                                "message"
+                              }-${index}`
+                            }
+                            message={item}
+                            currentUser={
+                              currentUser
+                            }
+                            onDeletePrompt={
+                              promptDeleteMessage
                             }
                           />
-                        </button>
-                      </div>
-                    )
+                        )
+                      )}
+
+                      <div
+                        ref={
+                          messagesEndRef
+                        }
+                      />
+                    </div>
                   )}
                 </div>
-              )}
 
-              <form
-                onSubmit={
-                  handleSendMessage
-                }
-                className="flex items-end gap-2.5"
-              >
-                <input
-                  type="file"
-                  multiple
-                  ref={fileInputRef}
-                  onChange={(e) => {
-                    const newFiles =
-                      Array.from(
-                        e.target
-                          .files || []
-                      );
+                {/* Composer - Always Visible */}
+                <div className="shrink-0 border-t border-slate-100 bg-white p-4 sm:p-5">
+                  {selectedFiles.length > 0 && (
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      {selectedFiles.map(
+                        (
+                          file,
+                          idx
+                        ) => (
+                          <div
+                            key={`${file.name}-${idx}`}
+                            className="flex items-center gap-2 rounded-xl border border-violet-100 bg-violet-50/70 px-3 py-1.5 text-xs text-violet-800"
+                          >
+                            {file.type.startsWith(
+                              "image/"
+                            ) ? (
+                              <ImageIcon
+                                size={14}
+                                className="text-violet-600"
+                              />
+                            ) : (
+                              <File
+                                size={14}
+                                className="text-violet-600"
+                              />
+                            )}
 
-                    setSelectedFiles(
-                      (prev) => [
-                        ...prev,
-                        ...newFiles,
-                      ]
-                    );
+                            <span className="max-w-[150px] truncate font-semibold">
+                              {file.name}
+                            </span>
 
-                    e.target.value =
-                      "";
-                  }}
-                  className="hidden"
-                />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                removeSelectedFile(
+                                  idx
+                                )
+                              }
+                              className="ml-1 rounded-md text-violet-400 hover:bg-violet-200/50 hover:text-rose-600"
+                            >
+                              <X
+                                size={
+                                  13
+                                }
+                              />
+                            </button>
+                          </div>
+                        )
+                      )}
+                    </div>
+                  )}
+
+                  <form
+                    onSubmit={
+                      handleSendMessage
+                    }
+                    className="flex items-end gap-2.5"
+                  >
+                    <input
+                      type="file"
+                      multiple
+                      ref={
+                        fileInputRef
+                      }
+                      onChange={
+                        handleFileChange
+                      }
+                      className="hidden"
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        fileInputRef.current?.click()
+                      }
+                      disabled={
+                        !selectedConversation ||
+                        sending
+                      }
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200/90 bg-slate-50/50 text-slate-500 shadow-sm transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-600 disabled:cursor-not-allowed disabled:opacity-50"
+                      aria-label="Attach file"
+                    >
+                      <Paperclip
+                        size={18}
+                      />
+                    </button>
+
+                    <div className="min-w-0 flex-1">
+                      <textarea
+                        value={
+                          message
+                        }
+                        onChange={(e) =>
+                          setMessage(
+                            e.target.value
+                          )
+                        }
+                        onKeyDown={(e) => {
+                          if (
+                            e.key ===
+                              "Enter" &&
+                            !e.shiftKey
+                          ) {
+                            e.preventDefault();
+
+                            if (
+                              (message.trim() ||
+                                selectedFiles.length >
+                                  0) &&
+                              selectedConversation &&
+                              !sending
+                            ) {
+                              handleSendMessage(
+                                e
+                              );
+                            }
+                          }
+                        }}
+                        placeholder={
+                          selectedConversation
+                            ? `Message ${selectedName} or attach files...`
+                            : "Select a contact first..."
+                        }
+                        rows={1}
+                        disabled={
+                          !selectedConversation ||
+                          sending
+                        }
+                        className="min-h-11 max-h-32 w-full resize-none rounded-2xl border border-slate-200/90 bg-slate-50/50 px-4 py-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:bg-white focus:ring-4 focus:ring-violet-500/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={
+                        (!message.trim() &&
+                          selectedFiles.length ===
+                            0) ||
+                        !selectedConversation ||
+                        sending
+                      }
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-violet-600 text-white shadow-md shadow-violet-600/25 transition duration-150 hover:-translate-y-0.5 hover:bg-violet-700 active:translate-y-0 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
+                      aria-label="Send message"
+                    >
+                      {sending ? (
+                        <Loader2
+                          size={17}
+                          className="animate-spin"
+                        />
+                      ) : (
+                        <Send
+                          size={17}
+                        />
+                      )}
+                    </button>
+                  </form>
+
+                  <p className="mt-2 px-1 text-[10px] text-slate-400">
+                    Enter to send • Shift +
+                    Enter for a new line •
+                    Click Paperclip to add
+                    files
+                  </p>
+                </div>
+              </div>
+            </section>
+          </div>
+        </main>
+      </div>
+
+      {/* Delete Modal */}
+      {deleteModalOpen &&
+        messageToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm animate-fadeIn">
+            <div className="w-full max-w-md overflow-hidden rounded-[28px] border border-slate-200/80 bg-white p-6 shadow-2xl">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-rose-50 text-rose-600">
+                  <Trash2
+                    size={20}
+                  />
+                </div>
+
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Delete Message?
+                  </h3>
+
+                  <p className="text-xs text-slate-400">
+                    Choose how you want to
+                    delete this message.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50/70 p-3.5 text-xs italic text-slate-600">
+                &ldquo;
+                {messageToDelete?.isDeletedForEveryone
+                  ? "This message was deleted"
+                  : messageToDelete?.body ||
+                    messageToDelete?.message ||
+                    (messageToDelete
+                      ?.attachments
+                      ?.length > 0
+                      ? "Attachment"
+                      : "Message")}
+                &rdquo;
+              </div>
+
+              <div className="mt-6 flex flex-col gap-2.5">
+                {getUserId(
+                  messageToDelete?.sender
+                )?.toString() ===
+                  getUserId(
+                    currentUser
+                  )?.toString() &&
+                  !messageToDelete?.isDeletedForEveryone && (
+                    <button
+                      type="button"
+                      disabled={
+                        deletingMessage
+                      }
+                      onClick={() =>
+                        executeDeleteMessage(
+                          "everyone"
+                        )
+                      }
+                      className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-rose-600 px-4 text-xs font-bold text-white shadow-md shadow-rose-600/20 transition hover:bg-rose-700 disabled:opacity-50"
+                    >
+                      {deletingMessage ? (
+                        <Loader2
+                          size={15}
+                          className="animate-spin"
+                        />
+                      ) : (
+                        <Users
+                          size={15}
+                        />
+                      )}
+
+                      Delete for Everyone
+                    </button>
+                  )}
 
                 <button
                   type="button"
+                  disabled={
+                    deletingMessage
+                  }
                   onClick={() =>
-                    fileInputRef.current?.click()
+                    executeDeleteMessage(
+                      "me"
+                    )
                   }
-                  disabled={
-                    !selectedUser
-                  }
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200/90 bg-slate-50/50 text-slate-500 shadow-sm transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-600 disabled:opacity-40"
+                  className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-xs font-bold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
                 >
-                  <Paperclip
-                    size={18}
-                  />
-                </button>
-
-                <div className="min-w-0 flex-1">
-                  <textarea
-                    value={message}
-                    onChange={(e) =>
-                      setMessage(
-                        e.target.value
-                      )
-                    }
-                    placeholder={
-                      selectedUser
-                        ? "Write a message..."
-                        : "Select user first..."
-                    }
-                    rows={1}
-                    disabled={
-                      !selectedUser ||
-                      sendingMessage
-                    }
-                    onKeyDown={(e) => {
-                      if (
-                        e.key ===
-                          "Enter" &&
-                        !e.shiftKey
-                      ) {
-                        e.preventDefault();
-
-                        handleSendMessage(
-                          e
-                        );
-                      }
-                    }}
-                    className="min-h-11 max-h-32 w-full resize-none rounded-2xl border border-slate-200/90 bg-slate-50/50 px-4 py-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:bg-white focus:ring-4 focus:ring-violet-500/10 disabled:opacity-60"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={
-                    !selectedUser ||
-                    sendingMessage ||
-                    (!message.trim() &&
-                      selectedFiles.length ===
-                        0)
-                  }
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-violet-600 text-white shadow-md shadow-violet-600/25 transition hover:bg-violet-700 disabled:bg-slate-200 disabled:text-slate-400"
-                >
-                  {sendingMessage ? (
+                  {deletingMessage ? (
                     <Loader2
-                      size={17}
+                      size={15}
                       className="animate-spin"
                     />
                   ) : (
-                    <Send
-                      size={17}
+                    <Trash2
+                      size={15}
                     />
                   )}
+
+                  Delete for Me
                 </button>
-              </form>
+
+                <button
+                  type="button"
+                  disabled={
+                    deletingMessage
+                  }
+                  onClick={() => {
+                    setDeleteModalOpen(
+                      false
+                    );
+                    setMessageToDelete(
+                      null
+                    );
+                  }}
+                  className="mt-1 h-9 w-full text-center text-xs font-semibold text-slate-400 hover:text-slate-600 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
-        </section>
+        )}
+    </div>
+  );
+}
+
+/* ============================================================
+   MESSAGE BUBBLE
+============================================================ */
+
+function MessageBubble({
+  message,
+  currentUser,
+  onDeletePrompt,
+}) {
+  const [menuOpen, setMenuOpen] =
+    useState(false);
+
+  const menuRef = useRef(null);
+
+  const senderId = getUserId(
+    message?.sender
+  );
+
+  const currentUserId = getUserId(
+    currentUser
+  );
+
+  const isOutgoing =
+    senderId &&
+    currentUserId &&
+    senderId.toString() ===
+      currentUserId.toString();
+
+  const isDeleted = Boolean(
+    message?.isDeletedForEveryone
+  );
+
+  const body = isDeleted
+    ? "This message was deleted"
+    : message?.body ||
+      message?.message ||
+      message?.text ||
+      message?.content ||
+      "";
+
+  const sender =
+    message?.sender?.name ||
+    message?.senderName ||
+    message?.from?.name ||
+    "";
+
+  useEffect(() => {
+    function handleClickOutside(
+      event
+    ) {
+      if (
+        menuRef.current &&
+        !menuRef.current.contains(
+          event.target
+        )
+      ) {
+        setMenuOpen(false);
+      }
+    }
+
+    if (menuOpen) {
+      document.addEventListener(
+        "mousedown",
+        handleClickOutside
+      );
+    }
+
+    return () => {
+      document.removeEventListener(
+        "mousedown",
+        handleClickOutside
+      );
+    };
+  }, [menuOpen]);
+
+  return (
+    <div
+      className={`group relative flex w-full items-center gap-2.5 ${
+        isOutgoing
+          ? "justify-end"
+          : "justify-start"
+      }`}
+    >
+      {isOutgoing &&
+        !isDeleted && (
+          <div
+            className="relative opacity-0 transition-opacity group-hover:opacity-100"
+            ref={menuRef}
+          >
+            <button
+              type="button"
+              onClick={() =>
+                setMenuOpen(
+                  !menuOpen
+                )
+              }
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+              aria-label="Message options"
+            >
+              <MoreVertical
+                size={14}
+              />
+            </button>
+
+            {menuOpen && (
+              <div className="absolute bottom-full right-0 z-20 mb-1 w-40 overflow-hidden rounded-2xl border border-slate-100 bg-white py-1.5 shadow-xl">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(
+                      false
+                    );
+                    onDeletePrompt(
+                      message
+                    );
+                  }}
+                  className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-xs font-bold text-rose-600 transition hover:bg-rose-50"
+                >
+                  <Trash2
+                    size={13}
+                  />
+                  Delete Message
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+      <div
+        className={`max-w-[82%] rounded-[20px] px-4 py-3 shadow-sm sm:max-w-[72%] ${
+          isDeleted
+            ? "border border-slate-200/80 bg-slate-50 italic text-slate-400"
+            : isOutgoing
+            ? "rounded-tr-xs bg-violet-600 text-white shadow-violet-600/15"
+            : "rounded-tl-xs border border-slate-100 bg-white text-slate-800 shadow-[0_4px_20px_rgba(45,35,100,0.03)]"
+        }`}
+      >
+        {!isOutgoing &&
+          sender &&
+          !isDeleted && (
+            <p className="mb-1 text-[10px] font-bold text-violet-600">
+              {sender}
+            </p>
+          )}
+
+        {isDeleted ? (
+          <div className="flex items-center gap-2 text-xs">
+            <AlertTriangle
+              size={13}
+            />
+
+            <span>
+              This message was deleted
+            </span>
+          </div>
+        ) : (
+          body && (
+            <p className="whitespace-pre-wrap break-words text-xs font-medium leading-relaxed">
+              {body}
+            </p>
+          )
+        )}
+
+        {!isDeleted &&
+          Array.isArray(
+            message?.attachments
+          ) &&
+          message.attachments.length >
+            0 && (
+            <div className="mt-2 space-y-2">
+              {message.attachments.map(
+                (
+                  attachment,
+                  attachmentIndex
+                ) => {
+                  const mime =
+                    String(
+                      attachment?.mimeType ||
+                        attachment?.fileType ||
+                        ""
+                    ).toLowerCase();
+
+                  const isImg =
+                    mime.startsWith(
+                      "image/"
+                    );
+
+                  const fullUrl =
+                    getFileUrl(
+                      attachment?.url
+                    );
+
+                  if (
+                    isImg &&
+                    fullUrl !== "#"
+                  ) {
+                    return (
+                      <a
+                        key={
+                          attachment?.url ||
+                          attachmentIndex
+                        }
+                        href={fullUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-1 shadow-sm transition hover:opacity-95"
+                      >
+                        <img
+                          src={
+                            fullUrl
+                          }
+                          alt={
+                            attachment?.originalName ||
+                            attachment?.filename ||
+                            "Attached Image"
+                          }
+                          className="max-h-60 w-auto rounded-xl object-contain"
+                        />
+                      </a>
+                    );
+                  }
+
+                  return (
+                    <a
+                      key={
+                        attachment?.url ||
+                        attachmentIndex
+                      }
+                      href={
+                        fullUrl
+                      }
+                      target="_blank"
+                      rel="noreferrer"
+                      className={`flex items-center gap-2 rounded-2xl border px-3.5 py-2 text-xs font-bold shadow-sm transition ${
+                        isOutgoing
+                          ? "border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100"
+                          : "border-slate-200/80 bg-white text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      <FileText
+                        size={15}
+                        className="shrink-0 text-violet-600"
+                      />
+
+                      <span className="max-w-[200px] truncate">
+                        {attachment?.originalName ||
+                          attachment?.filename ||
+                          "Attached Document"}
+                      </span>
+                    </a>
+                  );
+                }
+              )}
+            </div>
+          )}
+
+        <div
+          className={`mt-1.5 flex items-center justify-end gap-1 text-[10px] ${
+            isDeleted
+              ? "text-slate-400"
+              : isOutgoing
+              ? "text-violet-200"
+              : "text-slate-400"
+          }`}
+        >
+          <span>
+            {formatTime(
+              message?.createdAt ||
+                message?.sentAt ||
+                message?.timestamp
+            )}
+          </span>
+
+          {isOutgoing &&
+            !isDeleted && (
+              <CheckCheck
+                size={12}
+              />
+            )}
+        </div>
+      </div>
+
+      {!isOutgoing &&
+        !isDeleted && (
+          <div
+            className="relative opacity-0 transition-opacity group-hover:opacity-100"
+            ref={menuRef}
+          >
+            <button
+              type="button"
+              onClick={() =>
+                setMenuOpen(
+                  !menuOpen
+                )
+              }
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+              aria-label="Message options"
+            >
+              <MoreVertical
+                size={14}
+              />
+            </button>
+
+            {menuOpen && (
+              <div className="absolute bottom-full left-0 z-20 mb-1 w-40 overflow-hidden rounded-2xl border border-slate-100 bg-white py-1.5 shadow-xl">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(
+                      false
+                    );
+                    onDeletePrompt(
+                      message
+                    );
+                  }}
+                  className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-xs font-bold text-rose-600 transition hover:bg-rose-50"
+                >
+                  <Trash2
+                    size={13}
+                  />
+                  Delete for Me
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+    </div>
+  );
+}
+
+/* ============================================================
+   EMPTY / LOADING COMPONENTS
+============================================================ */
+
+function EmptyConversationList({
+  search,
+}) {
+  return (
+    <div className="flex min-h-[300px] flex-col items-center justify-center px-6 py-10 text-center">
+      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
+        <MessageSquare
+          size={22}
+        />
+      </div>
+
+      <h3 className="mt-4 text-sm font-bold text-slate-800">
+        {search
+          ? "No matching contacts"
+          : "No contacts available"}
+      </h3>
+
+      <p className="mt-1 max-w-xs text-xs leading-5 text-slate-400">
+        {search
+          ? "No team user matches your search."
+          : "No contacts found."}
+      </p>
+    </div>
+  );
+}
+
+function NoConversationSelected() {
+  return (
+    <div className="flex h-full min-h-[380px] flex-col items-center justify-center text-center">
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
+        <MessageSquare
+          size={26}
+        />
+      </div>
+
+      <h3 className="mt-4 text-sm font-bold text-slate-900">
+        No contact selected
+      </h3>
+
+      <p className="mt-1 max-w-sm text-xs leading-5 text-slate-400">
+        Pick a contact from the left list to
+        review message histories or start a
+        fresh discussion.
+      </p>
+    </div>
+  );
+}
+
+function NoMessages() {
+  return (
+    <div className="flex h-full min-h-[380px] flex-col items-center justify-center text-center">
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
+        <MessageSquare
+          size={26}
+        />
+      </div>
+
+      <h3 className="mt-4 text-sm font-bold text-slate-900">
+        No messages yet
+      </h3>
+
+      <p className="mt-1 text-xs text-slate-400">
+        Send a message below to start your
+        conversation.
+      </p>
+    </div>
+  );
+}
+
+function ConversationLoading() {
+  return (
+    <div className="flex min-h-[280px] flex-col items-center justify-center p-6 text-center">
+      <Loader2
+        size={26}
+        className="animate-spin text-violet-600"
+      />
+
+      <p className="mt-3 text-xs font-semibold text-slate-500">
+        Loading contacts...
+      </p>
+    </div>
+  );
+}
+
+function MessagesLoading() {
+  return (
+    <div className="flex h-full min-h-[380px] flex-col items-center justify-center text-center">
+      <Loader2
+        size={32}
+        className="animate-spin text-violet-600"
+      />
+
+      <p className="mt-3 text-xs font-semibold text-slate-500">
+        Loading messages...
+      </p>
+    </div>
+  );
+}
+
+function MessageError({
+  message,
+}) {
+  return (
+    <div className="flex h-full min-h-[380px] items-center justify-center p-4">
+      <div className="max-w-md rounded-2xl border border-rose-100 bg-rose-50 p-4 text-center text-xs font-semibold text-rose-600">
+        {message}
       </div>
     </div>
+  );
+}
+
+/* ============================================================
+   NAV ITEM
+============================================================ */
+
+function UserNavItem({
+  item,
+  onNavigate,
+}) {
+  const pathname =
+    usePathname();
+
+  const Icon = item.icon;
+
+  const isActive =
+    pathname === item.href ||
+    (item.href !== "/user" &&
+      pathname.startsWith(
+        `${item.href}/`
+      ));
+
+  return (
+    <Link
+      href={item.href}
+      onClick={onNavigate}
+      className={`group flex items-center gap-3 rounded-2xl px-3.5 py-3 text-sm font-bold transition duration-150 ${
+        isActive
+          ? "bg-violet-600 text-white shadow-md shadow-violet-600/30"
+          : "text-slate-300 hover:bg-white/10 hover:text-white"
+      }`}
+    >
+      <Icon
+        size={18}
+        className={`transition duration-150 ${
+          isActive
+            ? "text-white"
+            : "text-slate-400 group-hover:text-white"
+        }`}
+      />
+
+      <span>
+        {item.label}
+      </span>
+    </Link>
+  );
+}
+
+/* ============================================================
+   HELPERS
+============================================================ */
+
+function getUserId(user) {
+  if (!user) return null;
+
+  if (
+    typeof user === "string" ||
+    typeof user === "number"
+  ) {
+    return user;
+  }
+
+  return (
+    user?._id ||
+    user?.id ||
+    user?.userId ||
+    user?.user?._id ||
+    user?.user?.id ||
+    user?._doc?._id ||
+    user?._doc?.id ||
+    null
+  );
+}
+
+function getOtherParticipant(
+  conversation,
+  currentUser
+) {
+  if (
+    conversation?.contact &&
+    typeof conversation.contact ===
+      "object"
+  ) {
+    return conversation.contact;
+  }
+
+  const participants =
+    Array.isArray(
+      conversation?.participants
+    )
+      ? conversation.participants
+      : [];
+
+  if (
+    participants.length ===
+    0
+  ) {
+    return (
+      conversation?.recipient ||
+      conversation?.user ||
+      conversation?.contact ||
+      {}
+    );
+  }
+
+  const currentUserId =
+    getUserId(currentUser);
+
+  const other =
+    participants.find(
+      (participant) => {
+        const id =
+          getUserId(
+            participant
+          );
+
+        return (
+          !currentUserId ||
+          !id ||
+          id.toString() !==
+            currentUserId.toString()
+        );
+      }
+    );
+
+  return (
+    other ||
+    participants[0] ||
+    {}
+  );
+}
+
+function getParticipantName(
+  conversation,
+  currentUser
+) {
+  const participant =
+    getOtherParticipant(
+      conversation,
+      currentUser
+    );
+
+  return (
+    participant?.name ||
+    participant?.fullName ||
+    participant?.displayName ||
+    participant?.username ||
+    participant?.email ||
+    conversation?.name ||
+    conversation?.userName ||
+    "User"
+  );
+}
+
+function getParticipantEmail(
+  conversation,
+  currentUser
+) {
+  const participant =
+    getOtherParticipant(
+      conversation,
+      currentUser
+    );
+
+  return (
+    participant?.email ||
+    conversation?.email ||
+    ""
+  );
+}
+
+function getParticipantRole(
+  conversation,
+  currentUser
+) {
+  const participant =
+    getOtherParticipant(
+      conversation,
+      currentUser
+    );
+
+  return (
+    participant?.role ||
+    conversation?.role ||
+    ""
+  );
+}
+
+function getParticipantAvatar(
+  conversation,
+  currentUser
+) {
+  const participant =
+    getOtherParticipant(
+      conversation,
+      currentUser
+    );
+
+  return (
+    participant?.avatar ||
+    participant?.profileImage ||
+    participant?.image ||
+    ""
+  );
+}
+
+function getConversationId(
+  conversation
+) {
+  return (
+    conversation?._id ||
+    conversation?.id ||
+    conversation?.conversationId ||
+    conversation?.conversation?._id ||
+    conversation?.conversation?.id ||
+    null
+  );
+}
+
+function normalizeConversations(
+  response
+) {
+  const possible =
+    response?.conversations ||
+    response?.data?.conversations ||
+    response?.results ||
+    response?.data ||
+    [];
+
+  return Array.isArray(
+    possible
+  )
+    ? possible.filter(Boolean)
+    : [];
+}
+
+function normalizeContacts(
+  response
+) {
+  const possible =
+    response?.contacts ||
+    response?.users ||
+    response?.data?.contacts ||
+    response?.data?.users ||
+    [];
+
+  return Array.isArray(
+    possible
+  )
+    ? possible.filter(Boolean)
+    : [];
+}
+
+function normalizeMessages(
+  response
+) {
+  const possible =
+    response?.messages ||
+    response?.data?.messages ||
+    response?.results ||
+    response?.data ||
+    [];
+
+  return Array.isArray(
+    possible
+  )
+    ? possible.filter(Boolean)
+    : [];
+}
+
+async function markConversationRead(
+  conversationId
+) {
+  return apiRequest(
+    `/conversations/${conversationId}/read`,
+    {
+      method: "PUT",
+    }
+  );
+}
+
+async function getConversationMessages(
+  conversationId
+) {
+  return apiRequest(
+    `/conversations/${conversationId}/messages`,
+    {
+      method: "GET",
+    }
+  );
+}
+
+async function safeApiRequest(
+  endpoint,
+  fallback = null
+) {
+  try {
+    return await apiRequest(
+      endpoint,
+      {
+        method: "GET",
+      }
+    );
+  } catch (error) {
+    if (error?.status === 401) {
+      throw error;
+    }
+
+    return fallback;
+  }
+}
+
+async function apiRequest(
+  endpoint,
+  options = {}
+) {
+  let token = "";
+
+  try {
+    if (
+      typeof window !==
+      "undefined"
+    ) {
+      token =
+        localStorage.getItem(
+          "token"
+        ) ||
+        localStorage.getItem(
+          "authToken"
+        ) ||
+        "";
+    }
+  } catch {}
+
+  const isFormData =
+    typeof FormData !==
+      "undefined" &&
+    options.body instanceof
+      FormData;
+
+  const headers = {
+    Accept:
+      "application/json",
+
+    ...(token
+      ? {
+          Authorization: `Bearer ${token}`,
+        }
+      : {}),
+
+    ...(isFormData
+      ? {}
+      : options.body
+      ? {
+          "Content-Type":
+            "application/json",
+        }
+      : {}),
+
+    ...(options.headers ||
+      {}),
+  };
+
+  const response =
+    await fetch(
+      `${API_URL}${endpoint}`,
+      {
+        ...options,
+        credentials:
+          "include",
+        cache:
+          "no-store",
+        headers,
+      }
+    );
+
+  let data = null;
+
+  try {
+    const text =
+      await response.text();
+
+    if (text) {
+      try {
+        data =
+          JSON.parse(
+            text
+          );
+      } catch {
+        data = {
+          message: text,
+        };
+      }
+    }
+  } catch {}
+
+  if (!response.ok) {
+    const message =
+      data?.message ||
+      data?.error ||
+      `Request failed with status ${response.status}`;
+
+    const error =
+      new Error(message);
+
+    error.status =
+      response.status;
+
+    throw error;
+  }
+
+  return data;
+}
+
+function formatDateTime(
+  date
+) {
+  if (!date) return "";
+
+  const parsed =
+    new Date(date);
+
+  if (
+    Number.isNaN(
+      parsed.getTime()
+    )
+  ) {
+    return "";
+  }
+
+  const now =
+    new Date();
+
+  if (
+    parsed.toDateString() ===
+    now.toDateString()
+  ) {
+    return parsed.toLocaleTimeString(
+      "en-US",
+      {
+        hour: "numeric",
+        minute: "2-digit",
+      }
+    );
+  }
+
+  return parsed.toLocaleDateString(
+    "en-US",
+    {
+      month: "short",
+      day: "numeric",
+    }
+  );
+}
+
+function formatTime(
+  date
+) {
+  if (!date) return "";
+
+  const parsed =
+    new Date(date);
+
+  if (
+    Number.isNaN(
+      parsed.getTime()
+    )
+  ) {
+    return "";
+  }
+
+  return parsed.toLocaleTimeString(
+    "en-US",
+    {
+      hour: "numeric",
+      minute: "2-digit",
+    }
+  );
+}
+
+function getInitials(
+  name
+) {
+  if (!name) return "U";
+
+  return (
+    name
+      .split(" ")
+      .filter(Boolean)
+      .slice(0, 2)
+      .map(
+        (part) =>
+          part[0]?.toUpperCase()
+      )
+      .join("") || "U"
+  );
+}
+
+function extractUser(
+  response
+) {
+  return (
+    response?.user ||
+    response?.data?.user ||
+    response?.data ||
+    response ||
+    null
   );
 }
