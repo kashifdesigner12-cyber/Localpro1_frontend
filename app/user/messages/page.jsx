@@ -1301,21 +1301,23 @@ export default function UserMessagesPage() {
                                 : "hover:bg-slate-50/80"
                             }`}
                           >
-                            <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-sm">
-                              {avatar ? (
-                                <img
-                                  src={avatar}
-                                  alt={name}
-                                  className="h-full w-full object-cover"
-                                />
-                              ) : (
-                                getInitials(
-                                  name
-                                )
-                              )}
+                            <div className="relative shrink-0">
+                              <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-sm">
+                                {avatar ? (
+                                  <img
+                                    src={avatar}
+                                    alt={name}
+                                    className="h-full w-full object-cover"
+                                  />
+                                ) : (
+                                  getInitials(
+                                    name
+                                  )
+                                )}
+                              </div>
 
                               {unread > 0 && (
-                                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-violet-600 px-1 text-[9px] font-bold text-white shadow-sm">
+                                <span className="absolute -right-2 -top-2 z-10 flex h-5 min-w-5 items-center justify-center rounded-full bg-violet-600 px-1 text-[10px] font-extrabold text-white shadow-md ring-2 ring-white">
                                   {unread >
                                   99
                                     ? "99+"
@@ -1379,27 +1381,29 @@ export default function UserMessagesPage() {
                 {/* Chat Header */}
                 <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-slate-50/50 px-5 py-3.5 sm:px-6">
                   <div className="flex min-w-0 items-center gap-3">
-                    <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-md shadow-purple-500/10">
-                      {selectedConversation &&
-                      getParticipantAvatar(
-                        selectedConversation,
-                        currentUser
-                      ) ? (
-                        <img
-                          src={getParticipantAvatar(
-                            selectedConversation,
-                            currentUser
-                          )}
-                          alt={
-                            selectedName
-                          }
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <MessageSquare
-                          size={18}
-                        />
-                      )}
+                    <div className="relative shrink-0">
+                      <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-md shadow-purple-500/10">
+                        {selectedConversation &&
+                        getParticipantAvatar(
+                          selectedConversation,
+                          currentUser
+                        ) ? (
+                          <img
+                            src={getParticipantAvatar(
+                              selectedConversation,
+                              currentUser
+                            )}
+                            alt={
+                              selectedName
+                            }
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <MessageSquare
+                            size={18}
+                          />
+                        )}
+                      </div>
 
                       {selectedConversation && (() => {
                         const unreadCnt = Number(
@@ -1409,7 +1413,7 @@ export default function UserMessagesPage() {
                         );
                         if (unreadCnt > 0) {
                           return (
-                            <span className="absolute -right-1 -top-1 z-10 flex h-4 min-w-4 items-center justify-center rounded-full bg-violet-600 px-1 text-[9px] font-bold text-white shadow-sm">
+                            <span className="absolute -right-2 -top-2 z-20 flex h-5 min-w-5 items-center justify-center rounded-full bg-violet-600 px-1 text-[10px] font-extrabold text-white shadow-md ring-2 ring-white">
                               {unreadCnt > 99 ? "99+" : unreadCnt}
                             </span>
                           );
