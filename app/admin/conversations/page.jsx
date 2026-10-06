@@ -506,6 +506,9 @@ export default function AdminConversationsPage() {
             method: "GET",
             credentials: "include",
             headers: getAuthHeaders(),
+            cache: force
+              ? "no-store"
+              : "default",
           }
         );
 
@@ -550,6 +553,11 @@ export default function AdminConversationsPage() {
           }
         );
 
+        if (response.status === 401) {
+          router.replace("/login");
+          return;
+        }
+
         const data =
           await parseResponse(response);
 
@@ -557,12 +565,44 @@ export default function AdminConversationsPage() {
           const conversationData =
             normalizeConversations(data);
 
+          /*
+           * Keep unread count from backend.
+           * The currently opened conversation
+           * should stay read on the contacts list.
+           */
+          const updatedConversations =
+            conversationData.map(
+              (conversation) => {
+                const conversationId =
+                  conversation?.id ||
+                  conversation?._id;
+
+                if (
+                  selectedConversationIdRef.current &&
+                  String(conversationId) ===
+                    String(
+                      selectedConversationIdRef.current
+                    )
+                ) {
+                  return {
+                    ...conversation,
+                    unreadCount: 0,
+                    unreadMessages: 0,
+                    unread: 0,
+                    unreadMessageCount: 0,
+                  };
+                }
+
+                return conversation;
+              }
+            );
+
           setConversations(
-            conversationData
+            updatedConversations
           );
 
           conversationsRef.current =
-            conversationData;
+            updatedConversations;
         }
       } catch {}
     },
@@ -571,6 +611,16 @@ export default function AdminConversationsPage() {
 
   useEffect(() => {
     fetchData(false);
+
+    /*
+     * Check for new messages every 5 seconds.
+     * This makes unread badges update automatically.
+     */
+    const interval = setInterval(() => {
+      fetchData(true);
+    }, 5000);
+
+    return () => clearInterval(interval);
   }, [fetchData]);
 
   const findConversationForUser =
@@ -747,6 +797,57 @@ export default function AdminConversationsPage() {
         if (user) {
           setSelectedUser(user);
         }
+
+        /*
+         * Immediately clear unread badge
+         * when conversation is opened.
+         */
+        setConversations((prev) =>
+          prev.map((item) => {
+            const itemId =
+              item?.id ||
+              item?._id;
+
+            if (
+              String(itemId) ===
+              String(conversationId)
+            ) {
+              return {
+                ...item,
+                unreadCount: 0,
+                unreadMessages: 0,
+                unread: 0,
+                unreadMessageCount: 0,
+              };
+            }
+
+            return item;
+          })
+        );
+
+        conversationsRef.current =
+          conversationsRef.current.map(
+            (item) => {
+              const itemId =
+                item?.id ||
+                item?._id;
+
+              if (
+                String(itemId) ===
+                String(conversationId)
+              ) {
+                return {
+                  ...item,
+                  unreadCount: 0,
+                  unreadMessages: 0,
+                  unread: 0,
+                  unreadMessageCount: 0,
+                };
+              }
+
+              return item;
+            }
+          );
 
         setMessagesError("");
         setSelectedFiles([]);
@@ -1063,6 +1164,12 @@ export default function AdminConversationsPage() {
           )
         );
       }
+
+      /*
+       * Refresh conversations after sending
+       * so latest message/time stays updated.
+       */
+      fetchData(true);
     } catch (err) {
       setMessagesError(
         "Message failed to sync: " +
@@ -1257,16 +1364,19 @@ export default function AdminConversationsPage() {
                             : "hover:bg-slate-50/80"
                         }`}
                       >
-                        <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-sm">
-                          {getInitials(
-                            getUserName(
-                              user
-                            )
-                          )}
+                        <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-visible rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-sm">
+                          <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-2xl">
+                            {getInitials(
+                              getUserName(
+                                user
+                              )
+                            )}
+                          </div>
 
+                          {/* WhatsApp-style unread badge */}
                           {unread > 0 &&
                             !isSelected && (
-                              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-violet-600 px-1 text-[9px] font-bold text-white shadow-sm">
+                              <span className="absolute -right-1.5 -top-1.5 z-10 flex h-5 min-w-5 items-center justify-center rounded-full bg-violet-600 px-1.5 text-[10px] font-extrabold leading-none text-white shadow-md shadow-violet-600/30 ring-2 ring-white">
                                 {unread >
                                 99
                                   ? "99+"
