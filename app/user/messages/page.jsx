@@ -1379,7 +1379,7 @@ export default function UserMessagesPage() {
                 {/* Chat Header */}
                 <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-slate-50/50 px-5 py-3.5 sm:px-6">
                   <div className="flex min-w-0 items-center gap-3">
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-md shadow-purple-500/10">
+                    <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-md shadow-purple-500/10">
                       {selectedConversation &&
                       getParticipantAvatar(
                         selectedConversation,
@@ -1400,12 +1400,46 @@ export default function UserMessagesPage() {
                           size={18}
                         />
                       )}
+
+                      {selectedConversation && (() => {
+                        const unreadCnt = Number(
+                          selectedConversation?.unreadCount ||
+                          selectedConversation?.unread ||
+                          0
+                        );
+                        if (unreadCnt > 0) {
+                          return (
+                            <span className="absolute -right-1 -top-1 z-10 flex h-4 min-w-4 items-center justify-center rounded-full bg-violet-600 px-1 text-[9px] font-bold text-white shadow-sm">
+                              {unreadCnt > 99 ? "99+" : unreadCnt}
+                            </span>
+                          );
+                        }
+                        return null;
+                      })()}
                     </div>
 
                     <div className="min-w-0">
-                      <h2 className="truncate text-sm font-extrabold text-slate-900">
-                        {selectedName}
-                      </h2>
+                      <div className="flex items-center gap-2">
+                        <h2 className="truncate text-sm font-extrabold text-slate-900">
+                          {selectedName}
+                        </h2>
+
+                        {selectedConversation && (() => {
+                          const unreadCnt = Number(
+                            selectedConversation?.unreadCount ||
+                            selectedConversation?.unread ||
+                            0
+                          );
+                          if (unreadCnt > 0) {
+                            return (
+                              <span className="rounded-full bg-violet-600 px-2 py-0.5 text-[10px] font-bold text-white shadow-sm">
+                                {unreadCnt} new message{unreadCnt > 1 ? "s" : ""}
+                              </span>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
 
                       <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
                         <span className="h-2 w-2 rounded-full bg-emerald-500" />
