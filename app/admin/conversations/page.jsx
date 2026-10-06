@@ -372,56 +372,11 @@ const getConversationLastDate = (
 };
 
 /* ============================================================
-   NAVIGATION
-============================================================ */
-
-const navigation = [
-  {
-    label: "Dashboard",
-    href: "/admin",
-    icon: LayoutDashboard,
-  },
-  {
-    label: "Users",
-    href: "/admin/users",
-    icon: Users,
-  },
-  {
-    label: "Tasks",
-    href: "/admin/tasks",
-    icon: ClipboardList,
-  },
-  {
-    label: "Attendance",
-    href: "/admin/attendance",
-    icon: UserCheck,
-  },
-  {
-    label: "Leave Requests",
-    href: "/admin/leave-requests",
-    icon: ClipboardCheck,
-  },
-  {
-    label: "Conversations",
-    href: "/admin/conversations",
-    icon: MessageSquare,
-  },
-  {
-    label: "Settings",
-    href: "/admin/settings",
-    icon: Settings,
-  },
-];
-
-/* ============================================================
    MAIN COMPONENT
 ============================================================ */
 
 export default function AdminConversationsPage() {
   const router = useRouter();
-
-  const [sidebarOpen, setSidebarOpen] =
-    useState(false);
 
   const [search, setSearch] = useState("");
   const [users, setUsers] = useState([]);
@@ -1130,98 +1085,6 @@ export default function AdminConversationsPage() {
     }
   };
 
-  const promptDeleteMessage = (
-    msg
-  ) => {
-    setMessageToDelete(msg);
-    setDeleteModalOpen(true);
-  };
-
-  const executeDeleteMessage =
-    async (type) => {
-      if (!messageToDelete)
-        return;
-
-      const messageId =
-        messageToDelete?._id ||
-        messageToDelete?.id;
-
-      if (!messageId) return;
-
-      try {
-        setDeletingMessage(true);
-
-        const endpoint =
-          type === "everyone"
-            ? `/messages/${messageId}/delete-for-everyone`
-            : `/messages/${messageId}/delete-for-me`;
-
-        const response =
-          await fetch(
-            getApiUrl(endpoint),
-            {
-              method: "POST",
-              credentials:
-                "include",
-              headers:
-                getAuthHeaders(),
-            }
-          );
-
-        if (!response.ok) {
-          throw new Error(
-            "Delete failed."
-          );
-        }
-
-        if (type === "me") {
-          setMessages((prev) =>
-            prev.filter(
-              (item) =>
-                String(
-                  item?._id ||
-                    item?.id
-                ) !==
-                String(messageId)
-            )
-          );
-        } else {
-          setMessages((prev) =>
-            prev.map((item) =>
-              String(
-                item?._id ||
-                  item?.id
-              ) ===
-              String(messageId)
-                ? {
-                    ...item,
-                    body:
-                      "This message was deleted",
-                    isDeletedForEveryone:
-                      true,
-                  }
-                : item
-            )
-          );
-        }
-
-        setDeleteModalOpen(
-          false
-        );
-
-        setMessageToDelete(null);
-      } catch (err) {
-        setMessagesError(
-          err?.message ||
-            "Could not delete message."
-        );
-      } finally {
-        setDeletingMessage(
-          false
-        );
-      }
-    };
-
   const handleDeleteConversation =
     async () => {
       if (!selectedConversationId)
@@ -1294,691 +1157,524 @@ export default function AdminConversationsPage() {
       }
     };
 
-  async function handleLogout() {
-    try {
-      await authService.logout();
-    } catch {
-    } finally {
-      setSidebarOpen(false);
-      router.replace("/login");
-    }
-  }
-
   return (
-    <div className="relative flex h-screen w-full overflow-hidden bg-[#f7f8fc] text-slate-950 animate-fadeIn">
+    <div className="flex h-screen min-h-0 w-full flex-1 flex-col overflow-hidden bg-[#f7f8fc] text-slate-950 animate-fadeIn">
       {/* Background ambient lighting */}
-
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute -left-32 -top-32 h-72 w-72 rounded-full bg-violet-400/10 blur-3xl animate-pulse" />
         <div className="absolute right-0 top-20 h-80 w-80 rounded-full bg-pink-400/10 blur-3xl" />
         <div className="absolute bottom-0 left-1/3 h-72 w-72 rounded-full bg-orange-300/10 blur-3xl" />
       </div>
 
-      {/* MOBILE OVERLAY */}
+      {/* FULL REMAINING PAGE */}
+      <div className="flex h-screen min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        {/* CONVERSATION WORKSPACE */}
+        <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white animate-slideUp lg:flex-row">
+          {/* CONTACTS */}
+          <div className="flex h-[280px] min-h-0 w-full shrink-0 flex-col overflow-hidden border-b border-slate-100 lg:h-full lg:w-[360px] lg:border-b-0 lg:border-r">
+            <div className="shrink-0 border-b border-slate-100 bg-slate-50/50 p-4 sm:p-5">
+              <div className="mb-3.5">
+                <h2 className="text-base font-extrabold text-slate-900">
+                  Team Contacts
+                </h2>
 
-      {sidebarOpen && (
-        <button
-          type="button"
-          aria-label="Close sidebar"
-          onClick={() =>
-            setSidebarOpen(false)
-          }
-          className="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-sm lg:hidden"
-        />
-      )}
+                <p className="mt-0.5 text-xs text-slate-400">
+                  Select a member to chat
+                </p>
+              </div>
 
-      {/* SIDEBAR */}
+              <div className="relative">
+                <Search
+                  size={16}
+                  className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+                />
 
-      <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-[#171B3A] text-white shadow-2xl transition-transform duration-300 ease-in-out lg:translate-x-0 ${
-          sidebarOpen
-            ? "translate-x-0"
-            : "-translate-x-full"
-        }`}
-      >
-        <div className="flex h-20 shrink-0 items-center justify-between border-b border-white/10 px-5">
-          <Link
-            href="/admin"
-            onClick={() =>
-              setSidebarOpen(false)
-            }
-            className="flex items-center gap-3 text-white"
-          >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-600/20">
-              <ShieldCheck size={22} />
-            </div>
-
-            <div>
-              <h1 className="text-sm font-bold text-white">
-                Local Pro 1
-              </h1>
-
-              <p className="text-[11px] font-semibold text-blue-400">
-                Admin Workspace
-              </p>
-            </div>
-          </Link>
-
-          <button
-            type="button"
-            onClick={() =>
-              setSidebarOpen(false)
-            }
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-white/10 hover:text-white lg:hidden"
-            aria-label="Close sidebar"
-          >
-            <X size={19} />
-          </button>
-        </div>
-
-        <nav className="flex-1 overflow-y-auto px-3 py-5">
-          <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-            Administration
-          </p>
-
-          <div className="space-y-1.5">
-            {navigation.map(
-              (item) => (
-                <AdminNavItem
-                  key={item.href}
-                  item={item}
-                  onNavigate={() =>
-                    setSidebarOpen(
-                      false
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) =>
+                    setSearch(
+                      e.target.value
                     )
                   }
+                  placeholder="Search contacts..."
+                  className="h-10 w-full rounded-2xl border border-slate-200/90 bg-white pl-9 pr-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10"
                 />
-              )
-            )}
-          </div>
-        </nav>
-
-        <div className="shrink-0 border-t border-white/10 p-3">
-          <div className="mb-2 flex items-center gap-3 rounded-2xl bg-white/[0.04] px-3 py-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#2563EB] text-xs font-bold text-white">
-              A
+              </div>
             </div>
 
-            <div className="min-w-0">
-              <p className="truncate text-sm font-bold text-white">
-                Administrator
-              </p>
-
-              <p className="truncate text-xs font-medium text-slate-400">
-                Admin Account
-              </p>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="flex w-full items-center gap-3 rounded-2xl px-3.5 py-3 text-sm font-bold text-rose-400 transition hover:bg-rose-500/10 hover:text-rose-300"
-          >
-            <LogOut size={18} />
-            <span>Sign Out</span>
-          </button>
-        </div>
-      </aside>
-
-      {/* MAIN CONTAINER */}
-
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden w-full">
-        {/* TOP HEADER REMOVED */}
-
-        {/* WORKSPACE CHAT SECTION */}
-
-        <main className="flex h-full min-h-0 flex-1 flex-col overflow-hidden p-0 animate-slideUp">
-          <section className="grid h-full min-h-0 flex-1 w-full grid-cols-1 overflow-hidden rounded-none border-0 bg-white shadow-none lg:grid-cols-[360px_minmax(0,1fr)]">
-            {/* Left Column */}
-
-            <aside className="flex h-full min-h-0 flex-col border-b border-slate-100 lg:border-b-0 lg:border-r">
-              <div className="shrink-0 border-b border-slate-100 bg-slate-50/50 p-4 sm:p-5">
-                <div className="mb-3.5">
-                  <h2 className="text-base font-extrabold text-slate-900">
-                    Team Contacts
-                  </h2>
-
-                  <p className="mt-0.5 text-xs text-slate-400">
-                    Select a member to chat
-                  </p>
-                </div>
-
-                <div className="relative">
-                  <Search
-                    size={16}
-                    className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+              {loadingUsers &&
+              users.length === 0 ? (
+                <div className="flex min-h-[260px] flex-col items-center justify-center p-6 text-center">
+                  <Loader2
+                    size={26}
+                    className="animate-spin text-violet-600"
                   />
 
-                  <input
-                    type="text"
-                    value={search}
+                  <p className="mt-3 text-xs font-semibold text-slate-400">
+                    Loading contacts...
+                  </p>
+                </div>
+              ) : filteredUsers.length >
+                0 ? (
+                filteredUsers.map(
+                  (user) => {
+                    const userId =
+                      getId(user);
+
+                    const isSelected =
+                      String(
+                        getId(
+                          selectedUser
+                        )
+                      ) ===
+                      String(userId);
+
+                    const existingConv =
+                      findConversationForUser(
+                        userId,
+                        conversations
+                      );
+
+                    const unread =
+                      getUnreadCount(
+                        existingConv
+                      );
+
+                    return (
+                      <button
+                        key={userId}
+                        type="button"
+                        onClick={() =>
+                          handleSelectUser(
+                            user
+                          )
+                        }
+                        className={`flex w-full items-start gap-3 border-b border-slate-100/80 px-4 py-3.5 text-left transition duration-150 ${
+                          isSelected
+                            ? "border-violet-200/60 bg-violet-50/70"
+                            : "hover:bg-slate-50/80"
+                        }`}
+                      >
+                        <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-sm">
+                          {getInitials(
+                            getUserName(
+                              user
+                            )
+                          )}
+
+                          {unread > 0 &&
+                            !isSelected && (
+                              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-violet-600 px-1 text-[9px] font-bold text-white shadow-sm">
+                                {unread >
+                                99
+                                  ? "99+"
+                                  : unread}
+                              </span>
+                            )}
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="truncate text-xs font-bold text-slate-900">
+                              {getUserName(
+                                user
+                              )}
+                            </p>
+
+                            {existingConv && (
+                              <span className="shrink-0 text-[10px] text-slate-400">
+                                {formatConversationTime(
+                                  getConversationLastDate(
+                                    existingConv
+                                  )
+                                )}
+                              </span>
+                            )}
+                          </div>
+
+                          <p className="mt-1 truncate text-xs text-slate-500">
+                            {getConversationLastMessage(
+                              existingConv
+                            ) ||
+                              user?.email ||
+                              "Click to message"}
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  }
+                )
+              ) : (
+                <div className="p-8 text-center text-xs text-slate-400">
+                  No contacts available.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* CHAT — FULL REMAINING WIDTH */}
+          <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-50/20">
+            {/* Chat Header */}
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-slate-50/50 px-5 py-3.5 sm:px-6">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-md shadow-purple-500/10">
+                  {selectedUser ? (
+                    getInitials(
+                      getUserName(
+                        selectedUser
+                      )
+                    )
+                  ) : (
+                    <MessageSquare
+                      size={18}
+                    />
+                  )}
+                </div>
+
+                <div className="min-w-0">
+                  <h2 className="truncate text-sm font-extrabold text-slate-900">
+                    {selectedUser
+                      ? getUserName(
+                          selectedUser
+                        )
+                      : "Select a contact"}
+                  </h2>
+
+                  <p className="truncate text-xs font-semibold text-violet-600">
+                    {selectedUser
+                      ? getRole(
+                          selectedUser
+                        ) ||
+                        "Active Member"
+                      : "Choose from list"}
+                  </p>
+                </div>
+              </div>
+
+              {selectedConversationId && (
+                <button
+                  onClick={
+                    handleDeleteConversation
+                  }
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-rose-100 bg-rose-50 text-rose-600 transition hover:bg-rose-100"
+                  title="Delete Conversation"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </div>
+
+            {/* Messages */}
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-5 py-6 sm:px-6">
+              {startingConversation ? (
+                <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
+                  <Loader2
+                    size={28}
+                    className="animate-spin text-violet-600"
+                  />
+
+                  <p className="mt-2 text-xs font-semibold text-slate-400">
+                    Opening conversation...
+                  </p>
+                </div>
+              ) : loadingMessages ? (
+                <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
+                  <Loader2
+                    size={28}
+                    className="animate-spin text-violet-600"
+                  />
+
+                  <p className="mt-2 text-xs font-semibold text-slate-400">
+                    Loading messages...
+                  </p>
+                </div>
+              ) : !selectedUser ? (
+                <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
+                    <MessageSquare
+                      size={26}
+                    />
+                  </div>
+
+                  <h3 className="mt-4 text-sm font-bold text-slate-900">
+                    No contact selected
+                  </h3>
+
+                  <p className="mt-1 text-xs text-slate-400">
+                    Pick a team member
+                    from the left list
+                    to review chat
+                    histories.
+                  </p>
+                </div>
+              ) : messages.length ===
+                0 ? (
+                <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
+                  <h3 className="text-sm font-bold text-slate-800">
+                    Say Hello 👋
+                  </h3>
+
+                  <p className="mt-1 text-xs text-slate-400">
+                    Start the discussion
+                    below.
+                  </p>
+                </div>
+              ) : (
+                <div className="flex w-full flex-col gap-3.5">
+                  {messages.map(
+                    (
+                      item,
+                      index
+                    ) => {
+                      const sender =
+                        item?.sender;
+
+                      const senderName =
+                        getUserName(
+                          sender
+                        );
+
+                      const isDeleted =
+                        Boolean(
+                          item?.isDeletedForEveryone
+                        );
+
+                      const body =
+                        isDeleted
+                          ? "This message was deleted"
+                          : item?.body ||
+                            item?.message ||
+                            "";
+
+                      const isAdmin =
+                        String(
+                          sender?.role ||
+                            ""
+                        ).toLowerCase() ===
+                        "admin";
+
+                      return (
+                        <div
+                          key={
+                            item?.id ||
+                              item?._id ||
+                              index
+                          }
+                          className={`group relative flex w-full items-center gap-2.5 ${
+                            isAdmin
+                              ? "justify-end"
+                              : "justify-start"
+                          }`}
+                        >
+                          <div
+                            className={`max-w-[82%] rounded-[20px] px-4 py-3 shadow-sm sm:max-w-[72%] ${
+                              isDeleted
+                                ? "border border-slate-200/80 bg-slate-50 italic text-slate-400"
+                                : isAdmin
+                                ? "rounded-tr-xs bg-violet-600 text-white shadow-violet-600/15"
+                                : "rounded-tl-xs border border-slate-100 bg-white text-slate-800 shadow-[0_4px_20px_rgba(45,35,100,0.03)]"
+                            }`}
+                          >
+                            {!isAdmin &&
+                              senderName &&
+                              !isDeleted && (
+                                <p className="mb-1 text-[10px] font-bold text-violet-600">
+                                  {
+                                    senderName
+                                  }
+                                </p>
+                              )}
+
+                            <p className="whitespace-pre-wrap break-words text-xs font-medium leading-relaxed">
+                              {body}
+                            </p>
+
+                            <span
+                              className={`mt-1.5 block text-right text-[10px] ${
+                                isAdmin
+                                  ? "text-violet-200"
+                                  : "text-slate-400"
+                              }`}
+                            >
+                              {formatMessageTime(
+                                item?.createdAt
+                              )}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    }
+                  )}
+
+                  <div
+                    ref={
+                      messagesEndRef
+                    }
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Fixed Message Composer */}
+            <div className="shrink-0 border-t border-slate-100 bg-white p-4 sm:p-5">
+              {selectedFiles.length >
+                0 && (
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {selectedFiles.map(
+                    (
+                      file,
+                      idx
+                    ) => (
+                      <div
+                        key={idx}
+                        className="flex items-center gap-2 rounded-xl border border-violet-100 bg-violet-50/70 px-3 py-1.5 text-xs text-violet-800"
+                      >
+                        <span className="max-w-[150px] truncate font-semibold">
+                          {
+                            file.name
+                          }
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSelectedFiles(
+                              (
+                                prev
+                              ) =>
+                                prev.filter(
+                                  (
+                                    _,
+                                    i
+                                  ) =>
+                                    i !==
+                                    idx
+                                )
+                            )
+                          }
+                          className="text-violet-400 hover:text-rose-600"
+                        >
+                          <X
+                            size={
+                              13
+                            }
+                          />
+                        </button>
+                      </div>
+                    )
+                  )}
+                </div>
+              )}
+
+              <form
+                onSubmit={
+                  handleSendMessage
+                }
+                className="flex items-end gap-2.5"
+              >
+                <input
+                  type="file"
+                  multiple
+                  ref={fileInputRef}
+                  onChange={(e) => {
+                    const newFiles =
+                      Array.from(
+                        e.target
+                          .files || []
+                      );
+
+                    setSelectedFiles(
+                      (prev) => [
+                        ...prev,
+                        ...newFiles,
+                      ]
+                    );
+
+                    e.target.value =
+                      "";
+                  }}
+                  className="hidden"
+                />
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    fileInputRef.current?.click()
+                  }
+                  disabled={
+                    !selectedUser
+                  }
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200/90 bg-slate-50/50 text-slate-500 shadow-sm transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-600 disabled:opacity-40"
+                >
+                  <Paperclip
+                    size={18}
+                  />
+                </button>
+
+                <div className="min-w-0 flex-1">
+                  <textarea
+                    value={message}
                     onChange={(e) =>
-                      setSearch(
+                      setMessage(
                         e.target.value
                       )
                     }
-                    placeholder="Search contacts..."
-                    className="h-10 w-full rounded-2xl border border-slate-200/90 bg-white pl-9 pr-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10"
-                  />
-                </div>
-              </div>
-
-              <div className="min-h-0 flex-1 overflow-y-auto">
-                {loadingUsers &&
-                users.length === 0 ? (
-                  <div className="flex min-h-[260px] flex-col items-center justify-center p-6 text-center">
-                    <Loader2
-                      size={26}
-                      className="animate-spin text-violet-600"
-                    />
-
-                    <p className="mt-3 text-xs font-semibold text-slate-400">
-                      Loading contacts...
-                    </p>
-                  </div>
-                ) : filteredUsers.length >
-                  0 ? (
-                  filteredUsers.map(
-                    (user) => {
-                      const userId =
-                        getId(user);
-
-                      const isSelected =
-                        String(
-                          getId(
-                            selectedUser
-                          )
-                        ) ===
-                        String(userId);
-
-                      const existingConv =
-                        findConversationForUser(
-                          userId,
-                          conversations
-                        );
-
-                      const unread =
-                        getUnreadCount(
-                          existingConv
-                        );
-
-                      return (
-                        <button
-                          key={userId}
-                          type="button"
-                          onClick={() =>
-                            handleSelectUser(
-                              user
-                            )
-                          }
-                          className={`flex w-full items-start gap-3 border-b border-slate-100/80 px-4 py-3.5 text-left transition duration-150 ${
-                            isSelected
-                              ? "bg-violet-50/70 border-violet-200/60"
-                              : "hover:bg-slate-50/80"
-                          }`}
-                        >
-                          <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-sm">
-                            {getInitials(
-                              getUserName(
-                                user
-                              )
-                            )}
-
-                            {unread > 0 &&
-                              !isSelected && (
-                                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-violet-600 px-1 text-[9px] font-bold text-white shadow-sm">
-                                  {unread >
-                                  99
-                                    ? "99+"
-                                    : unread}
-                                </span>
-                              )}
-                          </div>
-
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="truncate text-xs font-bold text-slate-900">
-                                {getUserName(
-                                  user
-                                )}
-                              </p>
-
-                              {existingConv && (
-                                <span className="shrink-0 text-[10px] text-slate-400">
-                                  {formatConversationTime(
-                                    getConversationLastDate(
-                                      existingConv
-                                    )
-                                  )}
-                                </span>
-                              )}
-                            </div>
-
-                            <p className="mt-1 truncate text-xs text-slate-500">
-                              {getConversationLastMessage(
-                                existingConv
-                              ) ||
-                                user?.email ||
-                                "Click to message"}
-                            </p>
-                          </div>
-                        </button>
-                      );
+                    placeholder={
+                      selectedUser
+                        ? "Write a message..."
+                        : "Select user first..."
                     }
-                  )
-                ) : (
-                  <div className="p-8 text-center text-xs text-slate-400">
-                    No contacts available.
-                  </div>
-                )}
-              </div>
-            </aside>
-
-            {/* Right Column */}
-
-            <div className="flex h-full min-h-0 min-w-0 flex-col bg-slate-50/20">
-              {/* CHAT HEADER */}
-
-              <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-slate-50/50 px-5 py-3.5 sm:px-6">
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-md shadow-purple-500/10">
-                    {selectedUser ? (
-                      getInitials(
-                        getUserName(
-                          selectedUser
-                        )
-                      )
-                    ) : (
-                      <MessageSquare
-                        size={18}
-                      />
-                    )}
-                  </div>
-
-                  <div className="min-w-0">
-                    <h2 className="truncate text-sm font-extrabold text-slate-900">
-                      {selectedUser
-                        ? getUserName(
-                            selectedUser
-                          )
-                        : "Select a contact"}
-                    </h2>
-
-                    <p className="truncate text-xs font-semibold text-violet-600">
-                      {selectedUser
-                        ? getRole(
-                            selectedUser
-                          ) ||
-                          "Active Member"
-                        : "Choose from list"}
-                    </p>
-                  </div>
-                </div>
-
-                {selectedConversationId && (
-                  <button
-                    onClick={
-                      handleDeleteConversation
-                    }
-                    className="flex h-8 w-8 items-center justify-center rounded-xl border border-rose-100 bg-rose-50 text-rose-600 transition hover:bg-rose-100"
-                    title="Delete Conversation"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                )}
-              </div>
-
-              {/* Messages Container */}
-
-              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-6">
-                {startingConversation ? (
-                  <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
-                    <Loader2
-                      size={28}
-                      className="animate-spin text-violet-600"
-                    />
-
-                    <p className="mt-2 text-xs font-semibold text-slate-400">
-                      Opening conversation...
-                    </p>
-                  </div>
-                ) : loadingMessages ? (
-                  <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
-                    <Loader2
-                      size={28}
-                      className="animate-spin text-violet-600"
-                    />
-
-                    <p className="mt-2 text-xs font-semibold text-slate-400">
-                      Loading messages...
-                    </p>
-                  </div>
-                ) : !selectedUser ? (
-                  <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
-                    <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
-                      <MessageSquare
-                        size={26}
-                      />
-                    </div>
-
-                    <h3 className="mt-4 text-sm font-bold text-slate-900">
-                      No contact selected
-                    </h3>
-
-                    <p className="mt-1 text-xs text-slate-400">
-                      Pick a team member
-                      from the left list
-                      to review chat
-                      histories.
-                    </p>
-                  </div>
-                ) : messages.length ===
-                  0 ? (
-                  <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
-                    <h3 className="text-sm font-bold text-slate-800">
-                      Say Hello 👋
-                    </h3>
-
-                    <p className="mt-1 text-xs text-slate-400">
-                      Start the discussion
-                      below.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="mx-auto flex w-full max-w-5xl flex-col gap-3.5">
-                    {messages.map(
-                      (
-                        item,
-                        index
-                      ) => {
-                        const sender =
-                          item?.sender;
-
-                        const senderName =
-                          getUserName(
-                            sender
-                          );
-
-                        const isDeleted =
-                          Boolean(
-                            item?.isDeletedForEveryone
-                          );
-
-                        const body =
-                          isDeleted
-                            ? "This message was deleted"
-                            : item?.body ||
-                              item?.message ||
-                              "";
-
-                        const isAdmin =
-                          String(
-                            sender?.role ||
-                              ""
-                          ).toLowerCase() ===
-                          "admin";
-
-                        return (
-                          <div
-                            key={
-                              item?.id ||
-                              item?._id ||
-                              index
-                            }
-                            className={`group relative flex w-full items-center gap-2.5 ${
-                              isAdmin
-                                ? "justify-end"
-                                : "justify-start"
-                            }`}
-                          >
-                            <div
-                              className={`max-w-[82%] rounded-[20px] px-4 py-3 shadow-sm sm:max-w-[72%] ${
-                                isDeleted
-                                  ? "border border-slate-200/80 bg-slate-50 italic text-slate-400"
-                                  : isAdmin
-                                  ? "rounded-tr-xs bg-violet-600 text-white shadow-violet-600/15"
-                                  : "rounded-tl-xs border border-slate-100 bg-white text-slate-800 shadow-[0_4px_20px_rgba(45,35,100,0.03)]"
-                              }`}
-                            >
-                              {!isAdmin &&
-                                senderName &&
-                                !isDeleted && (
-                                  <p className="mb-1 text-[10px] font-bold text-violet-600">
-                                    {
-                                      senderName
-                                    }
-                                  </p>
-                                )}
-
-                              <p className="whitespace-pre-wrap break-words text-xs font-medium leading-relaxed">
-                                {body}
-                              </p>
-
-                              <span
-                                className={`mt-1.5 block text-right text-[10px] ${
-                                  isAdmin
-                                    ? "text-violet-200"
-                                    : "text-slate-400"
-                                }`}
-                              >
-                                {formatMessageTime(
-                                  item?.createdAt
-                                )}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      }
-                    )}
-
-                    <div
-                      ref={
-                        messagesEndRef
-                      }
-                    />
-                  </div>
-                )}
-              </div>
-
-              {/* Composer */}
-
-              <div className="shrink-0 border-t border-slate-100 bg-white p-4 sm:p-5">
-                {selectedFiles.length >
-                  0 && (
-                  <div className="mb-3 flex flex-wrap gap-2">
-                    {selectedFiles.map(
-                      (
-                        file,
-                        idx
-                      ) => (
-                        <div
-                          key={idx}
-                          className="flex items-center gap-2 rounded-xl border border-violet-100 bg-violet-50/70 px-3 py-1.5 text-xs text-violet-800"
-                        >
-                          <span className="max-w-[150px] truncate font-semibold">
-                            {
-                              file.name
-                            }
-                          </span>
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setSelectedFiles(
-                                (
-                                  prev
-                                ) =>
-                                  prev.filter(
-                                    (
-                                      _,
-                                      i
-                                    ) =>
-                                      i !==
-                                      idx
-                                  )
-                              )
-                            }
-                            className="text-violet-400 hover:text-rose-600"
-                          >
-                            <X
-                              size={
-                                13
-                              }
-                            />
-                          </button>
-                        </div>
-                      )
-                    )}
-                  </div>
-                )}
-
-                <form
-                  onSubmit={
-                    handleSendMessage
-                  }
-                  className="flex items-end gap-2.5"
-                >
-                  <input
-                    type="file"
-                    multiple
-                    ref={fileInputRef}
-                    onChange={(e) => {
-                      const newFiles =
-                        Array.from(
-                          e.target
-                            .files || []
-                        );
-
-                      setSelectedFiles(
-                        (prev) => [
-                          ...prev,
-                          ...newFiles,
-                        ]
-                      );
-
-                      e.target.value =
-                        "";
-                    }}
-                    className="hidden"
-                  />
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      fileInputRef.current?.click()
-                    }
-                    disabled={
-                      !selectedUser
-                    }
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200/90 bg-slate-50/50 text-slate-500 shadow-sm transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-600 disabled:opacity-40"
-                  >
-                    <Paperclip
-                      size={18}
-                    />
-                  </button>
-
-                  <div className="min-w-0 flex-1">
-                    <textarea
-                      value={message}
-                      onChange={(e) =>
-                        setMessage(
-                          e.target.value
-                        )
-                      }
-                      placeholder={
-                        selectedUser
-                          ? "Write a message..."
-                          : "Select user first..."
-                      }
-                      rows={1}
-                      disabled={
-                        !selectedUser ||
-                        sendingMessage
-                      }
-                      onKeyDown={(e) => {
-                        if (
-                          e.key ===
-                            "Enter" &&
-                          !e.shiftKey
-                        ) {
-                          e.preventDefault();
-
-                          handleSendMessage(
-                            e
-                          );
-                        }
-                      }}
-                      className="min-h-11 max-h-32 w-full resize-none rounded-2xl border border-slate-200/90 bg-slate-50/50 px-4 py-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:bg-white focus:ring-4 focus:ring-violet-500/10 disabled:opacity-60"
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
+                    rows={1}
                     disabled={
                       !selectedUser ||
-                      sendingMessage ||
-                      (!message.trim() &&
-                        selectedFiles.length ===
-                          0)
+                      sendingMessage
                     }
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-violet-600 text-white shadow-md shadow-violet-600/25 transition hover:bg-violet-700 disabled:bg-slate-200 disabled:text-slate-400"
-                  >
-                    {sendingMessage ? (
-                      <Loader2
-                        size={17}
-                        className="animate-spin"
-                      />
-                    ) : (
-                      <Send
-                        size={17}
-                      />
-                    )}
-                  </button>
-                </form>
-              </div>
+                    onKeyDown={(e) => {
+                      if (
+                        e.key ===
+                          "Enter" &&
+                        !e.shiftKey
+                      ) {
+                        e.preventDefault();
+
+                        handleSendMessage(
+                          e
+                        );
+                      }
+                    }}
+                    className="min-h-11 max-h-32 w-full resize-none rounded-2xl border border-slate-200/90 bg-slate-50/50 px-4 py-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:bg-white focus:ring-4 focus:ring-violet-500/10 disabled:opacity-60"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={
+                    !selectedUser ||
+                    sendingMessage ||
+                    (!message.trim() &&
+                      selectedFiles.length ===
+                        0)
+                  }
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-violet-600 text-white shadow-md shadow-violet-600/25 transition hover:bg-violet-700 disabled:bg-slate-200 disabled:text-slate-400"
+                >
+                  {sendingMessage ? (
+                    <Loader2
+                      size={17}
+                      className="animate-spin"
+                    />
+                  ) : (
+                    <Send
+                      size={17}
+                    />
+                  )}
+                </button>
+              </form>
             </div>
-          </section>
-        </main>
+          </div>
+        </section>
       </div>
     </div>
-  );
-}
-
-function AdminNavItem({
-  item,
-  onNavigate,
-}) {
-  const pathname = usePathname();
-  const Icon = item.icon;
-
-  const isActive =
-    pathname === item.href ||
-    (item.href !== "/admin" &&
-      pathname.startsWith(
-        `${item.href}/`
-      ));
-
-  return (
-    <Link
-      href={item.href}
-      onClick={onNavigate}
-      className={`group flex items-center gap-3 rounded-2xl px-3.5 py-3 text-sm font-bold transition duration-150 ${
-        isActive
-          ? "bg-[#2563EB] text-white shadow-md shadow-blue-600/30"
-          : "text-slate-300 hover:bg-white/10 hover:text-white"
-      }`}
-    >
-      <Icon
-        size={18}
-        className={`transition duration-150 ${
-          isActive
-            ? "text-white"
-            : "text-slate-400 group-hover:text-white"
-        }`}
-      />
-
-      <span>{item.label}</span>
-    </Link>
   );
 }
