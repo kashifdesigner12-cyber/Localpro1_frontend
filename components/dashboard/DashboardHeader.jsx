@@ -773,10 +773,6 @@ export default function DashboardHeader({
                 {/* FOOTER */}
                 {notifications.length > 0 && (
                   <div className="border-t border-slate-100 bg-slate-50/70 px-4 py-3">
-                    <p className="text-center text-[11px] font-medium text-slate-400">
-                      Showing your latest
-                      notifications
-                    </p>
                   </div>
                 )}
               </div>

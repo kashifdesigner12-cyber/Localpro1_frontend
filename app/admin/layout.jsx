@@ -198,6 +198,73 @@ function formatNotificationTime(dateValue) {
   );
 }
 
+/* ============================================================
+   NOTIFICATION URL FIX
+============================================================ */
+
+function getAdminNotificationUrl(actionUrl) {
+  if (
+    !actionUrl ||
+    typeof actionUrl !== "string"
+  ) {
+    return "";
+  }
+
+  const trimmedUrl =
+    actionUrl.trim();
+
+  if (!trimmedUrl) {
+    return "";
+  }
+
+  // Keep external URLs unchanged
+  if (
+    trimmedUrl.startsWith("http://") ||
+    trimmedUrl.startsWith("https://")
+  ) {
+    return trimmedUrl;
+  }
+
+  // Fix manager notification paths for Admin
+  if (
+    trimmedUrl ===
+    "/manager/conversations"
+  ) {
+    return "/admin/conversations";
+  }
+
+  if (
+    trimmedUrl.startsWith(
+      "/manager/conversations/"
+    )
+  ) {
+    return trimmedUrl.replace(
+      /^\/manager\/conversations/,
+      "/admin/conversations"
+    );
+  }
+
+  // Also handle manager paths in case
+  // another notification uses an admin
+  // page under the manager prefix.
+  if (
+    trimmedUrl === "/manager"
+  ) {
+    return "/admin";
+  }
+
+  if (
+    trimmedUrl.startsWith("/manager/")
+  ) {
+    return trimmedUrl.replace(
+      /^\/manager(?=\/)/,
+      "/admin"
+    );
+  }
+
+  return trimmedUrl;
+}
+
 export default function AdminLayout({ children }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -262,7 +329,10 @@ export default function AdminLayout({ children }) {
       try {
         const response = await authService.me();
 
-        if (cancelled || !mountedRef.current) {
+        if (
+          cancelled ||
+          !mountedRef.current
+        ) {
           return;
         }
 
@@ -276,7 +346,9 @@ export default function AdminLayout({ children }) {
           return;
         }
 
-        const role = String(user?.role || "")
+        const role = String(
+          user?.role || ""
+        )
           .trim()
           .toLowerCase();
 
@@ -713,7 +785,9 @@ export default function AdminLayout({ children }) {
       );
 
       const actionUrl =
-        notification.actionUrl;
+        getAdminNotificationUrl(
+          notification.actionUrl
+        );
 
       if (
         actionUrl &&
@@ -1195,10 +1269,6 @@ export default function AdminLayout({ children }) {
                   {notifications.length >
                     0 && (
                     <div className="border-t border-slate-100 bg-slate-50/70 px-4 py-3">
-                      <p className="text-center text-[11px] font-medium text-slate-400">
-                        Showing your latest
-                        notifications
-                      </p>
                     </div>
                   )}
                 </div>
