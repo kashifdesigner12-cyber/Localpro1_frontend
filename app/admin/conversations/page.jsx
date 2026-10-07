@@ -64,12 +64,13 @@ const getApiUrl = (path = "") => {
 
 const getFileUrl = (url) => {
   if (!url) return "#";
-
   const value = String(url);
 
   if (
     value.startsWith("http://") ||
-    value.startsWith("https://")
+    value.startsWith("https://") ||
+    value.startsWith("blob:") ||
+    value.startsWith("data:")
   ) {
     return value;
   }
@@ -1022,7 +1023,7 @@ export default function AdminConversationsPage() {
           filename: file.name,
           originalName: file.name,
           mimeType: file.type,
-          url: URL.createObjectURL(file), // Local preview for optimistic update
+          url: URL.createObjectURL(file), // Instant WhatsApp-like local preview
         })),
     };
 
@@ -1059,13 +1060,11 @@ export default function AdminConversationsPage() {
           selectedConversationId
         );
 
-        filesToSend.forEach(
-          (file) =>
-            formData.append(
-              "files",
-              file
-            )
-        );
+        filesToSend.forEach((file) => {
+          formData.append("files", file);
+          formData.append("image", file);
+          formData.append("file", file);
+        });
 
         const token =
           getStoredToken();
@@ -1516,12 +1515,19 @@ export default function AdminConversationsPage() {
                           {attachments.length > 0 && (
                             <div className="mb-2 flex flex-col gap-2">
                               {attachments.map((att, attIdx) => {
-                                const fileUrl =
+                                const rawUrl =
                                   att.url ||
-                                  getFileUrl(att.path || att.filename || att.filenameOriginal);
+                                  att.path ||
+                                  att.filePath ||
+                                  att.fileUrl ||
+                                  att.filename ||
+                                  att.filenameOriginal;
+
+                                const fileUrl = getFileUrl(rawUrl);
                                 const isImage =
                                   att.mimeType?.startsWith("image/") ||
-                                  /\.(png|jpg|jpeg|webp|gif)$/i.test(fileUrl);
+                                  /\.(png|jpg|jpeg|webp|gif)$/i.test(fileUrl) ||
+                                  att.type?.startsWith("image/");
 
                                 if (isImage) {
                                   return (
