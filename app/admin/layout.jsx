@@ -198,11 +198,6 @@ function formatNotificationTime(dateValue) {
   );
 }
 
-/* ============================================================
-   NOTIFICATION URL FIX
-   ALL INTERNAL NOTIFICATION ROUTES OPEN UNDER /admin
-============================================================ */
-
 function getAdminNotificationUrl(actionUrl) {
   if (
     !actionUrl ||
@@ -218,14 +213,6 @@ function getAdminNotificationUrl(actionUrl) {
     return "";
   }
 
-  /*
-   * Handle absolute URLs.
-   *
-   * Example:
-   * https://localpro1.net/dashboard/leave-requests
-   * becomes:
-   * /admin/leave-requests
-   */
   if (
     trimmedUrl.startsWith("http://") ||
     trimmedUrl.startsWith("https://")
@@ -262,9 +249,6 @@ function getAdminNotificationUrl(actionUrl) {
     }
   }
 
-  /*
-   * Remove trailing slash except root.
-   */
   let path = trimmedUrl;
 
   if (
@@ -277,47 +261,12 @@ function getAdminNotificationUrl(actionUrl) {
     );
   }
 
-  /*
-   * ==========================================================
-   * DIRECT ADMIN PATHS
-   * ==========================================================
-   *
-   * If notification already contains /admin,
-   * keep it exactly as an admin route.
-   */
-
   if (
     path === "/admin" ||
     path.startsWith("/admin/")
   ) {
     return path;
   }
-
-  /*
-   * ==========================================================
-   * DASHBOARD PATHS
-   * ==========================================================
-   *
-   * /dashboard/leave-requests
-   *        ↓
-   * /admin/leave-requests
-   *
-   * /dashboard/users
-   *        ↓
-   * /admin/users
-   *
-   * /dashboard/tasks
-   *        ↓
-   * /admin/tasks
-   *
-   * /dashboard/attendance
-   *        ↓
-   * /admin/attendance
-   *
-   * /dashboard/conversations
-   *        ↓
-   * /admin/conversations
-   */
 
   if (path === "/dashboard") {
     return "/admin";
@@ -334,22 +283,6 @@ function getAdminNotificationUrl(actionUrl) {
     );
   }
 
-  /*
-   * ==========================================================
-   * MANAGER PATHS
-   * ==========================================================
-   *
-   * /manager/leave-requests
-   *        ↓
-   * /admin/leave-requests
-   *
-   * /manager/conversations
-   *        ↓
-   * /admin/conversations
-   *
-   * etc.
-   */
-
   if (path === "/manager") {
     return "/admin";
   }
@@ -364,15 +297,6 @@ function getAdminNotificationUrl(actionUrl) {
       "/admin"
     );
   }
-
-  /*
-   * ==========================================================
-   * KNOWN ADMIN PAGES WITHOUT PREFIX
-   * ==========================================================
-   *
-   * This also protects against backend notifications
-   * sending plain page paths.
-   */
 
   const adminPages = [
     "/users",
@@ -394,16 +318,6 @@ function getAdminNotificationUrl(actionUrl) {
     }
   }
 
-  /*
-   * ==========================================================
-   * UNKNOWN INTERNAL PATH
-   * ==========================================================
-   *
-   * If notification gives another internal path,
-   * keep it unchanged rather than incorrectly changing
-   * an external/non-admin route.
-   */
-
   return path;
 }
 
@@ -420,9 +334,8 @@ export default function AdminLayout({ children }) {
   const [sidebarOpen, setSidebarOpen] =
     useState(false);
 
-  const [loading, setLoading] = useState(
-    !globalAdminUserCache.loaded
-  );
+  // FIX: Don't block initial layout render with full-screen loading spinner
+  const [loading, setLoading] = useState(false);
 
   const [loggingOut, setLoggingOut] =
     useState(false);
@@ -457,7 +370,6 @@ export default function AdminLayout({ children }) {
 
   useEffect(() => {
     if (globalAdminUserCache.loaded) {
-      setLoading(false);
       return;
     }
 
@@ -528,13 +440,6 @@ export default function AdminLayout({ children }) {
         }
       } finally {
         checkingAuthRef.current = false;
-
-        if (
-          !cancelled &&
-          mountedRef.current
-        ) {
-          setLoading(false);
-        }
       }
     };
 
@@ -623,10 +528,6 @@ export default function AdminLayout({ children }) {
     }
   }
 
-  // ============================================================
-  // LOAD NOTIFICATIONS
-  // ============================================================
-
   const loadNotifications =
     useCallback(
       async (showLoader = false) => {
@@ -706,15 +607,7 @@ export default function AdminLayout({ children }) {
       []
     );
 
-  // ============================================================
-  // INITIAL LOAD + AUTO REFRESH
-  // ============================================================
-
   useEffect(() => {
-    if (loading) {
-      return;
-    }
-
     loadNotifications(false);
 
     const interval =
@@ -725,14 +618,7 @@ export default function AdminLayout({ children }) {
     return () => {
       clearInterval(interval);
     };
-  }, [
-    loading,
-    loadNotifications,
-  ]);
-
-  // ============================================================
-  // LOAD WHEN OPEN
-  // ============================================================
+  }, [loadNotifications]);
 
   useEffect(() => {
     if (notificationsOpen) {
@@ -742,10 +628,6 @@ export default function AdminLayout({ children }) {
     notificationsOpen,
     loadNotifications,
   ]);
-
-  // ============================================================
-  // OUTSIDE CLICK
-  // ============================================================
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -773,10 +655,6 @@ export default function AdminLayout({ children }) {
       );
     };
   }, [notificationsOpen]);
-
-  // ============================================================
-  // MARK SINGLE AS READ
-  // ============================================================
 
   const markAsRead = async (
     notification
@@ -865,10 +743,6 @@ export default function AdminLayout({ children }) {
     }
   };
 
-  // ============================================================
-  // MARK ALL AS READ
-  // ============================================================
-
   const markAllAsRead = async () => {
     if (
       markingAllRead ||
@@ -933,10 +807,6 @@ export default function AdminLayout({ children }) {
     }
   };
 
-  // ============================================================
-  // NOTIFICATION CLICK
-  // ============================================================
-
   const handleNotificationClick =
     async (notification) => {
       if (!notification) {
@@ -947,11 +817,6 @@ export default function AdminLayout({ children }) {
         notification
       );
 
-      /*
-       * IMPORTANT:
-       * Every internal notification URL is
-       * converted to the correct /admin route.
-       */
       const actionUrl =
         getAdminNotificationUrl(
           notification.actionUrl
@@ -963,9 +828,6 @@ export default function AdminLayout({ children }) {
       ) {
         setNotificationsOpen(false);
 
-        /*
-         * External URLs stay external.
-         */
         if (
           actionUrl.startsWith(
             "http://"
@@ -979,10 +841,6 @@ export default function AdminLayout({ children }) {
           return;
         }
 
-        /*
-         * All normalized internal URLs
-         * use Next.js router.
-         */
         if (
           actionUrl.startsWith("/")
         ) {
@@ -990,17 +848,6 @@ export default function AdminLayout({ children }) {
         }
       }
     };
-
-  if (loading) {
-    return (
-      <div className="flex min-h-screen w-full items-center justify-center bg-[#F8FAFC]">
-        <Loader2
-          size={30}
-          className="animate-spin text-[#2563EB]"
-        />
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen w-full overflow-x-hidden bg-[#F8FAFC]">
@@ -1467,10 +1314,6 @@ export default function AdminLayout({ children }) {
   );
 }
 
-/* ============================================================
-   PROFILE AVATAR
-============================================================ */
-
 function ProfileAvatar({
   user,
   size = "header",
@@ -1513,10 +1356,6 @@ function ProfileAvatar({
     </div>
   );
 }
-
-/* ============================================================
-   PAGE TITLE
-============================================================ */
 
 function getPageTitle(pathname) {
   if (pathname === "/admin") {
