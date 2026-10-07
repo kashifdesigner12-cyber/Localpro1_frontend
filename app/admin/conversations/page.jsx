@@ -372,6 +372,16 @@ const getConversationLastDate = (
 };
 
 /* ============================================================
+   GLOBAL CACHE FOR INSTANT WHATSAPP-LIKE LOAD
+============================================================ */
+let globalAdminConversationsCache = {
+  users: [],
+  conversations: [],
+  messagesCache: {},
+  loaded: false,
+};
+
+/* ============================================================
    MAIN COMPONENT
 ============================================================ */
 
@@ -379,9 +389,11 @@ export default function AdminConversationsPage() {
   const router = useRouter();
 
   const [search, setSearch] = useState("");
-  const [users, setUsers] = useState([]);
+  const [users, setUsers] = useState(
+    globalAdminConversationsCache.users
+  );
   const [conversations, setConversations] =
-    useState([]);
+    useState(globalAdminConversationsCache.conversations);
 
   const [selectedUser, setSelectedUser] =
     useState(null);
@@ -402,12 +414,7 @@ export default function AdminConversationsPage() {
     useState([]);
 
   const [loadingUsers, setLoadingUsers] =
-    useState(false);
-
-  const [
-    loadingConversations,
-    loadingConversationsSet,
-  ] = useState(false);
+    useState(!globalAdminConversationsCache.loaded);
 
   const [
     loadingMessages,
@@ -435,10 +442,12 @@ export default function AdminConversationsPage() {
   const selectedConversationIdRef =
     useRef(null);
 
-  const conversationsRef = useRef([]);
-  const usersRef = useRef([]);
-  const messagesRef = useRef([]);
-  const messagesCache = useRef({});
+  const conversationsRef = useRef(conversations);
+  const usersRef = useRef(users);
+  const messagesRef = useRef(messages);
+  const messagesCache = useRef(
+    globalAdminConversationsCache.messagesCache
+  );
 
   useEffect(() => {
     usersRef.current = users;
@@ -521,6 +530,7 @@ export default function AdminConversationsPage() {
             });
 
           setUsers(availableUsers);
+          globalAdminConversationsCache.users = availableUsers;
         }
       } catch {}
 
@@ -580,8 +590,12 @@ export default function AdminConversationsPage() {
 
           conversationsRef.current =
             updatedConversations;
+          globalAdminConversationsCache.conversations =
+            updatedConversations;
+          globalAdminConversationsCache.loaded = true;
         }
       } catch {}
+      setLoadingUsers(false);
     },
     [router]
   );
@@ -666,16 +680,10 @@ export default function AdminConversationsPage() {
     ) => {
       if (!conversationId) return [];
 
-      if (
-        !silent &&
-        messagesCache.current[
-          conversationId
-        ]
-      ) {
+      // Instant cache check for lightning fast WhatsApp-like opening
+      if (messagesCache.current[conversationId]) {
         setMessages(
-          messagesCache.current[
-            conversationId
-          ]
+          messagesCache.current[conversationId]
         );
         setLoadingMessages(false);
       } else if (!silent) {
@@ -720,6 +728,8 @@ export default function AdminConversationsPage() {
           messagesCache.current[
             conversationId
           ] = messageData;
+          globalAdminConversationsCache.messagesCache =
+            messagesCache.current;
 
           setMessages(messageData);
         }
