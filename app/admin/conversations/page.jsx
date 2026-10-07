@@ -680,7 +680,6 @@ export default function AdminConversationsPage() {
     ) => {
       if (!conversationId) return [];
 
-      // Instant cache check for lightning fast WhatsApp-like opening
       if (messagesCache.current[conversationId]) {
         setMessages(
           messagesCache.current[conversationId]
@@ -1023,6 +1022,7 @@ export default function AdminConversationsPage() {
           filename: file.name,
           originalName: file.name,
           mimeType: file.type,
+          url: URL.createObjectURL(file), // Local preview for optimistic update
         })),
     };
 
@@ -1478,6 +1478,10 @@ export default function AdminConversationsPage() {
                         sender?.role || ""
                       ).toLowerCase() === "admin";
 
+                    const attachments = Array.isArray(item?.attachments)
+                      ? item.attachments
+                      : [];
+
                     return (
                       <div
                         key={
@@ -1508,9 +1512,62 @@ export default function AdminConversationsPage() {
                               </p>
                             )}
 
-                          <p className="whitespace-pre-wrap break-words text-xs font-medium leading-relaxed">
-                            {body}
-                          </p>
+                          {/* Render Attachments / Images */}
+                          {attachments.length > 0 && (
+                            <div className="mb-2 flex flex-col gap-2">
+                              {attachments.map((att, attIdx) => {
+                                const fileUrl =
+                                  att.url ||
+                                  getFileUrl(att.path || att.filename || att.filenameOriginal);
+                                const isImage =
+                                  att.mimeType?.startsWith("image/") ||
+                                  /\.(png|jpg|jpeg|webp|gif)$/i.test(fileUrl);
+
+                                if (isImage) {
+                                  return (
+                                    <a
+                                      key={attIdx}
+                                      href={fileUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="block overflow-hidden rounded-xl border border-white/20 bg-black/10"
+                                    >
+                                      <img
+                                        src={fileUrl}
+                                        alt={att.originalName || att.filename || "Attachment"}
+                                        className="max-h-60 w-full object-cover transition hover:opacity-95"
+                                      />
+                                    </a>
+                                  );
+                                }
+
+                                return (
+                                  <a
+                                    key={attIdx}
+                                    href={fileUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className={`flex items-center gap-2 rounded-xl p-2.5 text-xs font-semibold ${
+                                      isAdmin
+                                        ? "bg-white/10 text-white hover:bg-white/20"
+                                        : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                                    }`}
+                                  >
+                                    <FileText size={16} />
+                                    <span className="truncate">
+                                      {att.originalName || att.filename || "Download File"}
+                                    </span>
+                                  </a>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {body && (
+                            <p className="whitespace-pre-wrap break-words text-xs font-medium leading-relaxed">
+                              {body}
+                            </p>
+                          )}
 
                           <span
                             className={`mt-1.5 block text-right text-[10px] ${
