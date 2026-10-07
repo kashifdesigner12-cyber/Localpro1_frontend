@@ -406,7 +406,7 @@ export default function AdminConversationsPage() {
 
   const [
     loadingConversations,
-    setLoadingConversations,
+    loadingConversationsSet,
   ] = useState(false);
 
   const [
@@ -428,24 +428,6 @@ export default function AdminConversationsPage() {
     messagesError,
     setMessagesError,
   ] = useState("");
-
-  const [refreshing, setRefreshing] =
-    useState(false);
-
-  const [
-    deleteModalOpen,
-    setDeleteModalOpen,
-  ] = useState(false);
-
-  const [
-    messageToDelete,
-    setMessageToDelete,
-  ] = useState(null);
-
-  const [
-    deletingMessage,
-    setDeletingMessage,
-  ] = useState(false);
 
   const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
@@ -565,11 +547,6 @@ export default function AdminConversationsPage() {
           const conversationData =
             normalizeConversations(data);
 
-          /*
-           * Keep unread count from backend.
-           * The currently opened conversation
-           * should stay read on the contacts list.
-           */
           const updatedConversations =
             conversationData.map(
               (conversation) => {
@@ -612,10 +589,6 @@ export default function AdminConversationsPage() {
   useEffect(() => {
     fetchData(false);
 
-    /*
-     * Check for new messages every 5 seconds.
-     * This makes unread badges update automatically.
-     */
     const interval = setInterval(() => {
       fetchData(true);
     }, 5000);
@@ -704,7 +677,6 @@ export default function AdminConversationsPage() {
             conversationId
           ]
         );
-
         setLoadingMessages(false);
       } else if (!silent) {
         setLoadingMessages(true);
@@ -798,10 +770,6 @@ export default function AdminConversationsPage() {
           setSelectedUser(user);
         }
 
-        /*
-         * Immediately clear unread badge
-         * when conversation is opened.
-         */
         setConversations((prev) =>
           prev.map((item) => {
             const itemId =
@@ -1165,10 +1133,6 @@ export default function AdminConversationsPage() {
         );
       }
 
-      /*
-       * Refresh conversations after sending
-       * so latest message/time stays updated.
-       */
       fetchData(true);
     } catch (err) {
       setMessagesError(
@@ -1265,26 +1229,19 @@ export default function AdminConversationsPage() {
     };
 
   return (
-    <div className="flex h-screen min-h-0 w-full flex-1 flex-col overflow-hidden bg-[#f7f8fc] text-slate-950 animate-fadeIn">
-      {/* Background ambient lighting */}
-      <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -left-32 -top-32 h-72 w-72 rounded-full bg-violet-400/10 blur-3xl animate-pulse" />
-        <div className="absolute right-0 top-20 h-80 w-80 rounded-full bg-pink-400/10 blur-3xl" />
-        <div className="absolute bottom-0 left-1/3 h-72 w-72 rounded-full bg-orange-300/10 blur-3xl" />
-      </div>
-
+    <div className="flex h-[calc(100vh-4rem)] min-h-0 w-full flex-1 flex-col overflow-hidden bg-[#f7f8fc] text-slate-950">
       {/* FULL REMAINING PAGE */}
-      <div className="flex h-screen min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {/* CONVERSATION WORKSPACE */}
-        <section className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white animate-slideUp lg:flex-row">
-          {/* CONTACTS */}
-          <div className="flex h-[280px] min-h-0 w-full shrink-0 flex-col overflow-hidden border-b border-slate-100 lg:h-full lg:w-[360px] lg:border-b-0 lg:border-r">
+        <section className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-white lg:flex-row">
+          
+          {/* CONTACTS SIDEBAR */}
+          <div className="flex h-full min-h-0 w-full shrink-0 flex-col overflow-hidden border-b border-slate-100 lg:h-full lg:w-[360px] lg:border-b-0 lg:border-r">
             <div className="shrink-0 border-b border-slate-100 bg-slate-50/50 p-4 sm:p-5">
               <div className="mb-3.5">
                 <h2 className="text-base font-extrabold text-slate-900">
                   Team Contacts
                 </h2>
-
                 <p className="mt-0.5 text-xs text-slate-400">
                   Select a member to chat
                 </p>
@@ -1295,14 +1252,11 @@ export default function AdminConversationsPage() {
                   size={16}
                   className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
                 />
-
                 <input
                   type="text"
                   value={search}
                   onChange={(e) =>
-                    setSearch(
-                      e.target.value
-                    )
+                    setSearch(e.target.value)
                   }
                   placeholder="Search contacts..."
                   className="h-10 w-full rounded-2xl border border-slate-200/90 bg-white pl-9 pr-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10"
@@ -1318,104 +1272,88 @@ export default function AdminConversationsPage() {
                     size={26}
                     className="animate-spin text-violet-600"
                   />
-
                   <p className="mt-3 text-xs font-semibold text-slate-400">
                     Loading contacts...
                   </p>
                 </div>
               ) : filteredUsers.length >
                 0 ? (
-                filteredUsers.map(
-                  (user) => {
-                    const userId =
-                      getId(user);
+                filteredUsers.map((user) => {
+                  const userId = getId(user);
+                  const isSelected =
+                    String(
+                      getId(selectedUser)
+                    ) === String(userId);
 
-                    const isSelected =
-                      String(
-                        getId(
-                          selectedUser
-                        )
-                      ) ===
-                      String(userId);
-
-                    const existingConv =
-                      findConversationForUser(
-                        userId,
-                        conversations
-                      );
-
-                    const unread =
-                      getUnreadCount(
-                        existingConv
-                      );
-
-                    return (
-                      <button
-                        key={userId}
-                        type="button"
-                        onClick={() =>
-                          handleSelectUser(
-                            user
-                          )
-                        }
-                        className={`flex w-full items-start gap-3 border-b border-slate-100/80 px-4 py-3.5 text-left transition duration-150 ${
-                          isSelected
-                            ? "border-violet-200/60 bg-violet-50/70"
-                            : "hover:bg-slate-50/80"
-                        }`}
-                      >
-                        <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-visible rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-sm">
-                          <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-2xl">
-                            {getInitials(
-                              getUserName(
-                                user
-                              )
-                            )}
-                          </div>
-
-                          {/* WhatsApp-style unread badge */}
-                          {unread > 0 &&
-                            !isSelected && (
-                              <span className="absolute -right-1.5 -top-1.5 z-10 flex h-5 min-w-5 items-center justify-center rounded-full bg-violet-600 px-1.5 text-[10px] font-extrabold leading-none text-white shadow-md shadow-violet-600/30 ring-2 ring-white">
-                                {unread >
-                                99
-                                  ? "99+"
-                                  : unread}
-                              </span>
-                            )}
-                        </div>
-
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="truncate text-xs font-bold text-slate-900">
-                              {getUserName(
-                                user
-                              )}
-                            </p>
-
-                            {existingConv && (
-                              <span className="shrink-0 text-[10px] text-slate-400">
-                                {formatConversationTime(
-                                  getConversationLastDate(
-                                    existingConv
-                                  )
-                                )}
-                              </span>
-                            )}
-                          </div>
-
-                          <p className="mt-1 truncate text-xs text-slate-500">
-                            {getConversationLastMessage(
-                              existingConv
-                            ) ||
-                              user?.email ||
-                              "Click to message"}
-                          </p>
-                        </div>
-                      </button>
+                  const existingConv =
+                    findConversationForUser(
+                      userId,
+                      conversations
                     );
-                  }
-                )
+
+                  const unread =
+                    getUnreadCount(
+                      existingConv
+                    );
+
+                  return (
+                    <button
+                      key={userId}
+                      type="button"
+                      onClick={() =>
+                        handleSelectUser(user)
+                      }
+                      className={`flex w-full items-start gap-3 border-b border-slate-100/80 px-4 py-3.5 text-left transition duration-150 ${
+                        isSelected
+                          ? "border-violet-200/60 bg-violet-50/70"
+                          : "hover:bg-slate-50/80"
+                      }`}
+                    >
+                      <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-visible rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-sm">
+                        <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-2xl">
+                          {getInitials(
+                            getUserName(user)
+                          )}
+                        </div>
+
+                        {unread > 0 &&
+                          !isSelected && (
+                            <span className="absolute -right-1.5 -top-1.5 z-10 flex h-5 min-w-5 items-center justify-center rounded-full bg-violet-600 px-1.5 text-[10px] font-extrabold leading-none text-white shadow-md shadow-violet-600/30 ring-2 ring-white">
+                              {unread > 99
+                                ? "99+"
+                                : unread}
+                            </span>
+                          )}
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="truncate text-xs font-bold text-slate-900">
+                            {getUserName(user)}
+                          </p>
+
+                          {existingConv && (
+                            <span className="shrink-0 text-[10px] text-slate-400">
+                              {formatConversationTime(
+                                getConversationLastDate(
+                                  existingConv
+                                )
+                              )}
+                            </span>
+                          )}
+                        </div>
+
+                        <p className="mt-1 truncate text-xs text-slate-500">
+                          {getConversationLastMessage(
+                            existingConv
+                          ) ||
+                            user?.email ||
+                            "Click to message"}
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })
               ) : (
                 <div className="p-8 text-center text-xs text-slate-400">
                   No contacts available.
@@ -1424,39 +1362,32 @@ export default function AdminConversationsPage() {
             </div>
           </div>
 
-          {/* CHAT — FULL REMAINING WIDTH */}
+          {/* CHAT MAIN PANEL */}
           <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-50/20">
+            
             {/* Chat Header */}
             <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-slate-50/50 px-5 py-3.5 sm:px-6">
               <div className="flex min-w-0 items-center gap-3">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-md shadow-purple-500/10">
                   {selectedUser ? (
                     getInitials(
-                      getUserName(
-                        selectedUser
-                      )
+                      getUserName(selectedUser)
                     )
                   ) : (
-                    <MessageSquare
-                      size={18}
-                    />
+                    <MessageSquare size={18} />
                   )}
                 </div>
 
                 <div className="min-w-0">
                   <h2 className="truncate text-sm font-extrabold text-slate-900">
                     {selectedUser
-                      ? getUserName(
-                          selectedUser
-                        )
+                      ? getUserName(selectedUser)
                       : "Select a contact"}
                   </h2>
 
                   <p className="truncate text-xs font-semibold text-violet-600">
                     {selectedUser
-                      ? getRole(
-                          selectedUser
-                        ) ||
+                      ? getRole(selectedUser) ||
                         "Active Member"
                       : "Choose from list"}
                   </p>
@@ -1465,9 +1396,7 @@ export default function AdminConversationsPage() {
 
               {selectedConversationId && (
                 <button
-                  onClick={
-                    handleDeleteConversation
-                  }
+                  onClick={handleDeleteConversation}
                   className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-rose-100 bg-rose-50 text-rose-600 transition hover:bg-rose-100"
                   title="Delete Conversation"
                 >
@@ -1476,7 +1405,7 @@ export default function AdminConversationsPage() {
               )}
             </div>
 
-            {/* Messages */}
+            {/* Scrollable Messages Area */}
             <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-5 py-6 sm:px-6">
               {startingConversation ? (
                 <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
@@ -1484,7 +1413,6 @@ export default function AdminConversationsPage() {
                     size={28}
                     className="animate-spin text-violet-600"
                   />
-
                   <p className="mt-2 text-xs font-semibold text-slate-400">
                     Opening conversation...
                   </p>
@@ -1495,7 +1423,6 @@ export default function AdminConversationsPage() {
                     size={28}
                     className="animate-spin text-violet-600"
                   />
-
                   <p className="mt-2 text-xs font-semibold text-slate-400">
                     Loading messages...
                   </p>
@@ -1503,185 +1430,130 @@ export default function AdminConversationsPage() {
               ) : !selectedUser ? (
                 <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
                   <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
-                    <MessageSquare
-                      size={26}
-                    />
+                    <MessageSquare size={26} />
                   </div>
-
                   <h3 className="mt-4 text-sm font-bold text-slate-900">
                     No contact selected
                   </h3>
-
                   <p className="mt-1 text-xs text-slate-400">
-                    Pick a team member
-                    from the left list
-                    to review chat
-                    histories.
+                    Pick a team member from the left list to review chat histories.
                   </p>
                 </div>
-              ) : messages.length ===
-                0 ? (
+              ) : messages.length === 0 ? (
                 <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
                   <h3 className="text-sm font-bold text-slate-800">
                     Say Hello 👋
                   </h3>
-
                   <p className="mt-1 text-xs text-slate-400">
-                    Start the discussion
-                    below.
+                    Start the discussion below.
                   </p>
                 </div>
               ) : (
                 <div className="flex w-full flex-col gap-3.5">
-                  {messages.map(
-                    (
-                      item,
-                      index
-                    ) => {
-                      const sender =
-                        item?.sender;
+                  {messages.map((item, index) => {
+                    const sender = item?.sender;
+                    const senderName = getUserName(sender);
+                    const isDeleted = Boolean(
+                      item?.isDeletedForEveryone
+                    );
 
-                      const senderName =
-                        getUserName(
-                          sender
-                        );
+                    const body = isDeleted
+                      ? "This message was deleted"
+                      : item?.body ||
+                        item?.message ||
+                        "";
 
-                      const isDeleted =
-                        Boolean(
-                          item?.isDeletedForEveryone
-                        );
+                    const isAdmin =
+                      String(
+                        sender?.role || ""
+                      ).toLowerCase() === "admin";
 
-                      const body =
-                        isDeleted
-                          ? "This message was deleted"
-                          : item?.body ||
-                            item?.message ||
-                            "";
-
-                      const isAdmin =
-                        String(
-                          sender?.role ||
-                            ""
-                        ).toLowerCase() ===
-                        "admin";
-
-                      return (
+                    return (
+                      <div
+                        key={
+                          item?.id ||
+                          item?._id ||
+                          index
+                        }
+                        className={`group relative flex w-full items-center gap-2.5 ${
+                          isAdmin
+                            ? "justify-end"
+                            : "justify-start"
+                        }`}
+                      >
                         <div
-                          key={
-                            item?.id ||
-                              item?._id ||
-                              index
-                          }
-                          className={`group relative flex w-full items-center gap-2.5 ${
-                            isAdmin
-                              ? "justify-end"
-                              : "justify-start"
+                          className={`max-w-[82%] rounded-[20px] px-4 py-3 shadow-sm sm:max-w-[72%] ${
+                            isDeleted
+                              ? "border border-slate-200/80 bg-slate-50 italic text-slate-400"
+                              : isAdmin
+                              ? "rounded-tr-xs bg-violet-600 text-white shadow-violet-600/15"
+                              : "rounded-tl-xs border border-slate-100 bg-white text-slate-800 shadow-[0_4px_20px_rgba(45,35,100,0.03)]"
                           }`}
                         >
-                          <div
-                            className={`max-w-[82%] rounded-[20px] px-4 py-3 shadow-sm sm:max-w-[72%] ${
-                              isDeleted
-                                ? "border border-slate-200/80 bg-slate-50 italic text-slate-400"
-                                : isAdmin
-                                ? "rounded-tr-xs bg-violet-600 text-white shadow-violet-600/15"
-                                : "rounded-tl-xs border border-slate-100 bg-white text-slate-800 shadow-[0_4px_20px_rgba(45,35,100,0.03)]"
+                          {!isAdmin &&
+                            senderName &&
+                            !isDeleted && (
+                              <p className="mb-1 text-[10px] font-bold text-violet-600">
+                                {senderName}
+                              </p>
+                            )}
+
+                          <p className="whitespace-pre-wrap break-words text-xs font-medium leading-relaxed">
+                            {body}
+                          </p>
+
+                          <span
+                            className={`mt-1.5 block text-right text-[10px] ${
+                              isAdmin
+                                ? "text-violet-200"
+                                : "text-slate-400"
                             }`}
                           >
-                            {!isAdmin &&
-                              senderName &&
-                              !isDeleted && (
-                                <p className="mb-1 text-[10px] font-bold text-violet-600">
-                                  {
-                                    senderName
-                                  }
-                                </p>
-                              )}
-
-                            <p className="whitespace-pre-wrap break-words text-xs font-medium leading-relaxed">
-                              {body}
-                            </p>
-
-                            <span
-                              className={`mt-1.5 block text-right text-[10px] ${
-                                isAdmin
-                                  ? "text-violet-200"
-                                  : "text-slate-400"
-                              }`}
-                            >
-                              {formatMessageTime(
-                                item?.createdAt
-                              )}
-                            </span>
-                          </div>
+                            {formatMessageTime(
+                              item?.createdAt
+                            )}
+                          </span>
                         </div>
-                      );
-                    }
-                  )}
-
-                  <div
-                    ref={
-                      messagesEndRef
-                    }
-                  />
+                      </div>
+                    );
+                  })}
+                  <div ref={messagesEndRef} />
                 </div>
               )}
             </div>
 
-            {/* Fixed Message Composer */}
+            {/* Fixed Message Composer Footer */}
             <div className="shrink-0 border-t border-slate-100 bg-white p-4 sm:p-5">
-              {selectedFiles.length >
-                0 && (
+              {selectedFiles.length > 0 && (
                 <div className="mb-3 flex flex-wrap gap-2">
-                  {selectedFiles.map(
-                    (
-                      file,
-                      idx
-                    ) => (
-                      <div
-                        key={idx}
-                        className="flex items-center gap-2 rounded-xl border border-violet-100 bg-violet-50/70 px-3 py-1.5 text-xs text-violet-800"
-                      >
-                        <span className="max-w-[150px] truncate font-semibold">
-                          {
-                            file.name
-                          }
-                        </span>
-
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setSelectedFiles(
-                              (
-                                prev
-                              ) =>
-                                prev.filter(
-                                  (
-                                    _,
-                                    i
-                                  ) =>
-                                    i !==
-                                    idx
-                                )
+                  {selectedFiles.map((file, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center gap-2 rounded-xl border border-violet-100 bg-violet-50/70 px-3 py-1.5 text-xs text-violet-800"
+                    >
+                      <span className="max-w-[150px] truncate font-semibold">
+                        {file.name}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSelectedFiles((prev) =>
+                            prev.filter(
+                              (_, i) => i !== idx
                             )
-                          }
-                          className="text-violet-400 hover:text-rose-600"
-                        >
-                          <X
-                            size={
-                              13
-                            }
-                          />
-                        </button>
-                      </div>
-                    )
-                  )}
+                          )
+                        }
+                        className="text-violet-400 hover:text-rose-600"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                  ))}
                 </div>
               )}
 
               <form
-                onSubmit={
-                  handleSendMessage
-                }
+                onSubmit={handleSendMessage}
                 className="flex items-end gap-2.5"
               >
                 <input
@@ -1691,19 +1563,13 @@ export default function AdminConversationsPage() {
                   onChange={(e) => {
                     const newFiles =
                       Array.from(
-                        e.target
-                          .files || []
+                        e.target.files || []
                       );
-
-                    setSelectedFiles(
-                      (prev) => [
-                        ...prev,
-                        ...newFiles,
-                      ]
-                    );
-
-                    e.target.value =
-                      "";
+                    setSelectedFiles((prev) => [
+                      ...prev,
+                      ...newFiles,
+                    ]);
+                    e.target.value = "";
                   }}
                   className="hidden"
                 />
@@ -1713,23 +1579,17 @@ export default function AdminConversationsPage() {
                   onClick={() =>
                     fileInputRef.current?.click()
                   }
-                  disabled={
-                    !selectedUser
-                  }
+                  disabled={!selectedUser}
                   className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200/90 bg-slate-50/50 text-slate-500 shadow-sm transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-600 disabled:opacity-40"
                 >
-                  <Paperclip
-                    size={18}
-                  />
+                  <Paperclip size={18} />
                 </button>
 
                 <div className="min-w-0 flex-1">
                   <textarea
                     value={message}
                     onChange={(e) =>
-                      setMessage(
-                        e.target.value
-                      )
+                      setMessage(e.target.value)
                     }
                     placeholder={
                       selectedUser
@@ -1738,20 +1598,15 @@ export default function AdminConversationsPage() {
                     }
                     rows={1}
                     disabled={
-                      !selectedUser ||
-                      sendingMessage
+                      !selectedUser || sendingMessage
                     }
                     onKeyDown={(e) => {
                       if (
-                        e.key ===
-                          "Enter" &&
+                        e.key === "Enter" &&
                         !e.shiftKey
                       ) {
                         e.preventDefault();
-
-                        handleSendMessage(
-                          e
-                        );
+                        handleSendMessage(e);
                       }
                     }}
                     className="min-h-11 max-h-32 w-full resize-none rounded-2xl border border-slate-200/90 bg-slate-50/50 px-4 py-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:bg-white focus:ring-4 focus:ring-violet-500/10 disabled:opacity-60"
@@ -1764,8 +1619,7 @@ export default function AdminConversationsPage() {
                     !selectedUser ||
                     sendingMessage ||
                     (!message.trim() &&
-                      selectedFiles.length ===
-                        0)
+                      selectedFiles.length === 0)
                   }
                   className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-violet-600 text-white shadow-md shadow-violet-600/25 transition hover:bg-violet-700 disabled:bg-slate-200 disabled:text-slate-400"
                 >
@@ -1775,9 +1629,7 @@ export default function AdminConversationsPage() {
                       className="animate-spin"
                     />
                   ) : (
-                    <Send
-                      size={17}
-                    />
+                    <Send size={17} />
                   )}
                 </button>
               </form>
