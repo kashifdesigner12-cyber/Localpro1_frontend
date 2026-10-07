@@ -200,6 +200,7 @@ function formatNotificationTime(dateValue) {
 
 /* ============================================================
    NOTIFICATION URL FIX
+   ALL INTERNAL NOTIFICATION ROUTES OPEN UNDER /admin
 ============================================================ */
 
 function getAdminNotificationUrl(actionUrl) {
@@ -217,52 +218,193 @@ function getAdminNotificationUrl(actionUrl) {
     return "";
   }
 
-  // Keep external URLs unchanged
+  /*
+   * Handle absolute URLs.
+   *
+   * Example:
+   * https://localpro1.net/dashboard/leave-requests
+   * becomes:
+   * /admin/leave-requests
+   */
   if (
     trimmedUrl.startsWith("http://") ||
     trimmedUrl.startsWith("https://")
   ) {
-    return trimmedUrl;
+    try {
+      const url = new URL(
+        trimmedUrl
+      );
+
+      const hostname =
+        url.hostname.toLowerCase();
+
+      const isLocalProDomain =
+        hostname === "localpro1.net" ||
+        hostname === "www.localpro1.net";
+
+      if (!isLocalProDomain) {
+        return trimmedUrl;
+      }
+
+      const normalizedPath =
+        getAdminNotificationUrl(
+          `${url.pathname}${url.search}${url.hash}`
+        );
+
+      return normalizedPath;
+    } catch (error) {
+      console.error(
+        "Invalid notification URL:",
+        error
+      );
+
+      return trimmedUrl;
+    }
   }
 
-  // Fix manager notification paths for Admin
-  if (
-    trimmedUrl ===
-    "/manager/conversations"
-  ) {
-    return "/admin/conversations";
-  }
+  /*
+   * Remove trailing slash except root.
+   */
+  let path = trimmedUrl;
 
   if (
-    trimmedUrl.startsWith(
-      "/manager/conversations/"
-    )
+    path.length > 1 &&
+    path.endsWith("/")
   ) {
-    return trimmedUrl.replace(
-      /^\/manager\/conversations/,
-      "/admin/conversations"
+    path = path.replace(
+      /\/+$/,
+      ""
     );
   }
 
-  // Also handle manager paths in case
-  // another notification uses an admin
-  // page under the manager prefix.
+  /*
+   * ==========================================================
+   * DIRECT ADMIN PATHS
+   * ==========================================================
+   *
+   * If notification already contains /admin,
+   * keep it exactly as an admin route.
+   */
+
   if (
-    trimmedUrl === "/manager"
+    path === "/admin" ||
+    path.startsWith("/admin/")
   ) {
+    return path;
+  }
+
+  /*
+   * ==========================================================
+   * DASHBOARD PATHS
+   * ==========================================================
+   *
+   * /dashboard/leave-requests
+   *        ↓
+   * /admin/leave-requests
+   *
+   * /dashboard/users
+   *        ↓
+   * /admin/users
+   *
+   * /dashboard/tasks
+   *        ↓
+   * /admin/tasks
+   *
+   * /dashboard/attendance
+   *        ↓
+   * /admin/attendance
+   *
+   * /dashboard/conversations
+   *        ↓
+   * /admin/conversations
+   */
+
+  if (path === "/dashboard") {
     return "/admin";
   }
 
   if (
-    trimmedUrl.startsWith("/manager/")
+    path.startsWith(
+      "/dashboard/"
+    )
   ) {
-    return trimmedUrl.replace(
+    return path.replace(
+      /^\/dashboard(?=\/)/,
+      "/admin"
+    );
+  }
+
+  /*
+   * ==========================================================
+   * MANAGER PATHS
+   * ==========================================================
+   *
+   * /manager/leave-requests
+   *        ↓
+   * /admin/leave-requests
+   *
+   * /manager/conversations
+   *        ↓
+   * /admin/conversations
+   *
+   * etc.
+   */
+
+  if (path === "/manager") {
+    return "/admin";
+  }
+
+  if (
+    path.startsWith(
+      "/manager/"
+    )
+  ) {
+    return path.replace(
       /^\/manager(?=\/)/,
       "/admin"
     );
   }
 
-  return trimmedUrl;
+  /*
+   * ==========================================================
+   * KNOWN ADMIN PAGES WITHOUT PREFIX
+   * ==========================================================
+   *
+   * This also protects against backend notifications
+   * sending plain page paths.
+   */
+
+  const adminPages = [
+    "/users",
+    "/tasks",
+    "/attendance",
+    "/leave-requests",
+    "/conversations",
+    "/settings",
+  ];
+
+  for (const adminPage of adminPages) {
+    if (
+      path === adminPage ||
+      path.startsWith(
+        `${adminPage}/`
+      )
+    ) {
+      return `/admin${path}`;
+    }
+  }
+
+  /*
+   * ==========================================================
+   * UNKNOWN INTERNAL PATH
+   * ==========================================================
+   *
+   * If notification gives another internal path,
+   * keep it unchanged rather than incorrectly changing
+   * an external/non-admin route.
+   */
+
+  return path;
 }
 
 export default function AdminLayout({ children }) {
@@ -275,7 +417,8 @@ export default function AdminLayout({ children }) {
 
   const notificationRef = useRef(null);
 
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] =
+    useState(false);
 
   const [loading, setLoading] = useState(
     !globalAdminUserCache.loaded
@@ -327,7 +470,8 @@ export default function AdminLayout({ children }) {
 
     const checkAdmin = async () => {
       try {
-        const response = await authService.me();
+        const response =
+          await authService.me();
 
         if (
           cancelled ||
@@ -367,7 +511,9 @@ export default function AdminLayout({ children }) {
           loaded: true,
         };
 
-        setCurrentUser(formattedUser);
+        setCurrentUser(
+          formattedUser
+        );
       } catch (error) {
         if (
           !cancelled &&
@@ -481,73 +627,84 @@ export default function AdminLayout({ children }) {
   // LOAD NOTIFICATIONS
   // ============================================================
 
-  const loadNotifications = useCallback(
-    async (showLoader = false) => {
-      try {
-        if (showLoader) {
-          setNotificationsLoading(true);
-        }
-
-        const response = await fetch(
-          `${API_URL}/notifications?limit=20`,
-          {
-            method: "GET",
-            headers: {
-              Accept: "application/json",
-              ...getAuthHeaders(),
-            },
-            credentials: "include",
-            cache: "no-store",
+  const loadNotifications =
+    useCallback(
+      async (showLoader = false) => {
+        try {
+          if (showLoader) {
+            setNotificationsLoading(
+              true
+            );
           }
-        );
 
-        if (!response.ok) {
-          throw new Error(
-            `Failed to load notifications: ${response.status}`
+          const response =
+            await fetch(
+              `${API_URL}/notifications?limit=20`,
+              {
+                method: "GET",
+                headers: {
+                  Accept:
+                    "application/json",
+                  ...getAuthHeaders(),
+                },
+                credentials: "include",
+                cache: "no-store",
+              }
+            );
+
+          if (!response.ok) {
+            throw new Error(
+              `Failed to load notifications: ${response.status}`
+            );
+          }
+
+          const data =
+            await response.json();
+
+          if (
+            data?.success === false
+          ) {
+            throw new Error(
+              data?.message ||
+                "Unable to load notifications."
+            );
+          }
+
+          const notificationList =
+            Array.isArray(
+              data?.notifications
+            )
+              ? data.notifications
+              : Array.isArray(
+                  data?.data
+                )
+              ? data.data
+              : [];
+
+          setNotifications(
+            notificationList
           );
-        }
 
-        const data =
-          await response.json();
-
-        if (data?.success === false) {
-          throw new Error(
-            data?.message ||
-              "Unable to load notifications."
+          setUnreadCount(
+            Number(
+              data?.unreadCount
+            ) || 0
           );
+        } catch (error) {
+          console.error(
+            "Load notifications error:",
+            error
+          );
+        } finally {
+          if (showLoader) {
+            setNotificationsLoading(
+              false
+            );
+          }
         }
-
-        const notificationList =
-          Array.isArray(
-            data?.notifications
-          )
-            ? data.notifications
-            : Array.isArray(data?.data)
-            ? data.data
-            : [];
-
-        setNotifications(
-          notificationList
-        );
-
-        setUnreadCount(
-          Number(
-            data?.unreadCount
-          ) || 0
-        );
-      } catch (error) {
-        console.error(
-          "Load notifications error:",
-          error
-        );
-      } finally {
-        if (showLoader) {
-          setNotificationsLoading(false);
-        }
-      }
-    },
-    []
-  );
+      },
+      []
+    );
 
   // ============================================================
   // INITIAL LOAD + AUTO REFRESH
@@ -652,18 +809,19 @@ export default function AdminLayout({ children }) {
     }
 
     try {
-      const response = await fetch(
-        `${API_URL}/notifications/${notificationId}/read`,
-        {
-          method: "PATCH",
-          headers: {
-            Accept:
-              "application/json",
-            ...getAuthHeaders(),
-          },
-          credentials: "include",
-        }
-      );
+      const response =
+        await fetch(
+          `${API_URL}/notifications/${notificationId}/read`,
+          {
+            method: "PATCH",
+            headers: {
+              Accept:
+                "application/json",
+              ...getAuthHeaders(),
+            },
+            credentials: "include",
+          }
+        );
 
       if (!response.ok) {
         throw new Error(
@@ -674,7 +832,9 @@ export default function AdminLayout({ children }) {
       const data =
         await response.json();
 
-      if (data?.success === false) {
+      if (
+        data?.success === false
+      ) {
         throw new Error(
           data?.message ||
             "Unable to mark notification as read."
@@ -720,18 +880,19 @@ export default function AdminLayout({ children }) {
     try {
       setMarkingAllRead(true);
 
-      const response = await fetch(
-        `${API_URL}/notifications/read-all`,
-        {
-          method: "PATCH",
-          headers: {
-            Accept:
-              "application/json",
-            ...getAuthHeaders(),
-          },
-          credentials: "include",
-        }
-      );
+      const response =
+        await fetch(
+          `${API_URL}/notifications/read-all`,
+          {
+            method: "PATCH",
+            headers: {
+              Accept:
+                "application/json",
+              ...getAuthHeaders(),
+            },
+            credentials: "include",
+          }
+        );
 
       if (!response.ok) {
         throw new Error(
@@ -742,7 +903,9 @@ export default function AdminLayout({ children }) {
       const data =
         await response.json();
 
-      if (data?.success === false) {
+      if (
+        data?.success === false
+      ) {
         throw new Error(
           data?.message ||
             "Unable to mark all notifications as read."
@@ -784,6 +947,11 @@ export default function AdminLayout({ children }) {
         notification
       );
 
+      /*
+       * IMPORTANT:
+       * Every internal notification URL is
+       * converted to the correct /admin route.
+       */
       const actionUrl =
         getAdminNotificationUrl(
           notification.actionUrl
@@ -795,6 +963,9 @@ export default function AdminLayout({ children }) {
       ) {
         setNotificationsOpen(false);
 
+        /*
+         * External URLs stay external.
+         */
         if (
           actionUrl.startsWith(
             "http://"
@@ -808,6 +979,10 @@ export default function AdminLayout({ children }) {
           return;
         }
 
+        /*
+         * All normalized internal URLs
+         * use Next.js router.
+         */
         if (
           actionUrl.startsWith("/")
         ) {
@@ -1037,9 +1212,7 @@ export default function AdminLayout({ children }) {
 
           <div className="flex items-center gap-2 sm:gap-4">
 
-            {/* ==================================================
-                NOTIFICATION BUTTON
-            ================================================== */}
+            {/* NOTIFICATION BUTTON */}
 
             <div
               ref={notificationRef}
@@ -1077,9 +1250,7 @@ export default function AdminLayout({ children }) {
                 )}
               </button>
 
-              {/* ==================================================
-                  NOTIFICATION DROPDOWN
-              ================================================== */}
+              {/* NOTIFICATION DROPDOWN */}
 
               {notificationsOpen && (
                 <div className="absolute right-0 top-[50px] z-[200] w-[380px] max-w-[calc(100vw-24px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.18)]">
