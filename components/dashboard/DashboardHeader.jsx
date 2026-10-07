@@ -35,12 +35,10 @@ const PAGE_TITLES = {
 function getPageTitle(pathname) {
   if (!pathname) return "Dashboard";
 
-  // Exact page match first
   if (PAGE_TITLES[pathname]) {
     return PAGE_TITLES[pathname];
   }
 
-  // Handle nested pages
   if (pathname.startsWith("/admin/users/")) {
     return "Users";
   }
@@ -107,8 +105,6 @@ function getNotificationIcon(type) {
       return MessageSquare;
 
     case "leave":
-      return CalendarDays;
-
     case "appointment":
     case "event":
       return CalendarDays;
@@ -226,10 +222,6 @@ export default function DashboardHeader({
   const currentPageTitle =
     title || getPageTitle(pathname);
 
-  // ============================================================
-  // LOAD NOTIFICATIONS
-  // ============================================================
-
   const loadNotifications = useCallback(
     async (showLoader = false) => {
       try {
@@ -298,10 +290,6 @@ export default function DashboardHeader({
     []
   );
 
-  // ============================================================
-  // INITIAL LOAD + AUTO REFRESH
-  // ============================================================
-
   useEffect(() => {
     loadNotifications(false);
 
@@ -315,10 +303,6 @@ export default function DashboardHeader({
     };
   }, [loadNotifications]);
 
-  // ============================================================
-  // LOAD WHEN DROPDOWN OPENS
-  // ============================================================
-
   useEffect(() => {
     if (notificationsOpen) {
       loadNotifications(true);
@@ -327,10 +311,6 @@ export default function DashboardHeader({
     notificationsOpen,
     loadNotifications,
   ]);
-
-  // ============================================================
-  // CLOSE DROPDOWN OUTSIDE CLICK
-  // ============================================================
 
   useEffect(() => {
     function handleClickOutside(event) {
@@ -359,10 +339,6 @@ export default function DashboardHeader({
     };
   }, [notificationsOpen]);
 
-  // ============================================================
-  // MARK SINGLE NOTIFICATION AS READ
-  // ============================================================
-
   const markAsRead = async (
     notification
   ) => {
@@ -376,7 +352,6 @@ export default function DashboardHeader({
     const wasUnread =
       !notification.isRead;
 
-    // Optimistic UI update
     setNotifications((current) =>
       current.map((item) =>
         item.id === notificationId
@@ -429,7 +404,6 @@ export default function DashboardHeader({
         error
       );
 
-      // Restore UI if backend update failed
       if (wasUnread) {
         setNotifications((current) =>
           current.map((item) =>
@@ -448,10 +422,6 @@ export default function DashboardHeader({
       }
     }
   };
-
-  // ============================================================
-  // MARK ALL AS READ
-  // ============================================================
 
   const markAllAsRead = async () => {
     if (
@@ -512,10 +482,6 @@ export default function DashboardHeader({
     }
   };
 
-  // ============================================================
-  // NOTIFICATION CLICK
-  // ============================================================
-
   const handleNotificationClick = async (
     notification
   ) => {
@@ -554,9 +520,9 @@ export default function DashboardHeader({
   return (
     <header className="sticky top-0 z-30 h-[82px] border-b border-slate-200 bg-white">
       <div className="flex h-full items-center justify-between gap-4 px-5 sm:px-6 lg:px-8">
+
         {/* LEFT SIDE */}
         <div className="flex min-w-0 items-center gap-3">
-          {/* Mobile Menu */}
           <button
             type="button"
             onClick={onMenuClick}
@@ -566,7 +532,6 @@ export default function DashboardHeader({
             <Menu size={21} />
           </button>
 
-          {/* PAGE TITLE */}
           <div className="min-w-0">
             <h2 className="truncate text-xl font-bold text-[#171B3A]">
               {currentPageTitle}
@@ -582,7 +547,8 @@ export default function DashboardHeader({
 
         {/* RIGHT SIDE */}
         <div className="flex items-center gap-2 sm:gap-4">
-          {/* Search */}
+
+          {/* SEARCH */}
           <button
             type="button"
             className="hidden h-10 w-10 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-100 sm:flex"
@@ -592,11 +558,11 @@ export default function DashboardHeader({
           </button>
 
           {/* ==================================================
-              NOTIFICATIONS
+              NOTIFICATION BUTTON
           ================================================== */}
           <div
-            className="relative"
             ref={notificationRef}
+            className="relative z-[60]"
           >
             <button
               type="button"
@@ -605,29 +571,28 @@ export default function DashboardHeader({
                   (current) => !current
                 )
               }
-              className={`relative flex h-10 w-10 items-center justify-center rounded-xl text-slate-500 transition ${
+              className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition-all duration-200 ${
                 notificationsOpen
-                  ? "bg-[#EEF4FF] text-[#2563EB]"
-                  : "hover:bg-slate-100"
+                  ? "border-[#2563EB] bg-[#EEF4FF] text-[#2563EB] shadow-sm"
+                  : "border-slate-200 bg-white text-[#475569] hover:border-[#2563EB] hover:bg-[#EEF4FF] hover:text-[#2563EB]"
               }`}
               aria-label="Notifications"
               aria-expanded={
                 notificationsOpen
               }
             >
-              <Bell size={19} />
+              <Bell
+                size={20}
+                strokeWidth={2}
+              />
 
-              {/* Unread Dot */}
+              {/* UNREAD BADGE */}
               {unreadCount > 0 && (
-                <>
-                  <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-[#2563EB]" />
-
-                  <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#2563EB] px-1 text-[10px] font-bold text-white">
-                    {unreadCount > 99
-                      ? "99+"
-                      : unreadCount}
-                  </span>
-                </>
+                <span className="absolute -right-1.5 -top-1.5 flex h-[19px] min-w-[19px] items-center justify-center rounded-full border-2 border-white bg-[#2563EB] px-1 text-[9px] font-bold leading-none text-white shadow-sm">
+                  {unreadCount > 99
+                    ? "99+"
+                    : unreadCount}
+                </span>
               )}
             </button>
 
@@ -635,8 +600,9 @@ export default function DashboardHeader({
                 NOTIFICATION DROPDOWN
             ================================================== */}
             {notificationsOpen && (
-              <div className="absolute right-0 top-[52px] z-50 w-[380px] max-w-[calc(100vw-24px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.16)]">
-                {/* Dropdown Header */}
+              <div className="absolute right-0 top-[52px] z-[100] w-[380px] max-w-[calc(100vw-24px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.16)]">
+
+                {/* HEADER */}
                 <div className="flex items-center justify-between border-b border-slate-100 px-4 py-4">
                   <div>
                     <h3 className="text-sm font-bold text-[#171B3A]">
@@ -696,7 +662,7 @@ export default function DashboardHeader({
                   </div>
                 </div>
 
-                {/* Notifications List */}
+                {/* LIST */}
                 <div className="max-h-[420px] overflow-y-auto overscroll-contain">
                   {notificationsLoading ? (
                     <div className="flex items-center justify-center px-6 py-12">
@@ -709,8 +675,7 @@ export default function DashboardHeader({
                         Loading notifications...
                       </div>
                     </div>
-                  ) : notifications.length >
-                    0 ? (
+                  ) : notifications.length > 0 ? (
                     notifications.map(
                       (notification) => {
                         const Icon =
@@ -735,7 +700,6 @@ export default function DashboardHeader({
                                 : "bg-white"
                             }`}
                           >
-                            {/* Icon */}
                             <div
                               className={`relative mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
                                 !notification.isRead
@@ -743,16 +707,13 @@ export default function DashboardHeader({
                                   : "bg-slate-100 text-slate-500"
                               }`}
                             >
-                              <Icon
-                                size={18}
-                              />
+                              <Icon size={18} />
 
                               {!notification.isRead && (
                                 <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-white bg-[#2563EB]" />
                               )}
                             </div>
 
-                            {/* Content */}
                             <div className="min-w-0 flex-1">
                               <div className="flex items-start justify-between gap-2">
                                 <p
@@ -779,9 +740,7 @@ export default function DashboardHeader({
                               </p>
 
                               <div className="mt-1.5 flex items-center gap-1.5 text-[11px] font-medium text-slate-400">
-                                <Clock3
-                                  size={11}
-                                />
+                                <Clock3 size={11} />
 
                                 {formatNotificationTime(
                                   notification.createdAt
@@ -811,9 +770,8 @@ export default function DashboardHeader({
                   )}
                 </div>
 
-                {/* Footer */}
-                {notifications.length >
-                  0 && (
+                {/* FOOTER */}
+                {notifications.length > 0 && (
                   <div className="border-t border-slate-100 bg-slate-50/70 px-4 py-3">
                     <p className="text-center text-[11px] font-medium text-slate-400">
                       Showing your latest
@@ -825,10 +783,10 @@ export default function DashboardHeader({
             )}
           </div>
 
-          {/* Divider */}
+          {/* DIVIDER */}
           <div className="hidden h-8 w-px bg-slate-200 sm:block" />
 
-          {/* User */}
+          {/* USER */}
           <div className="flex items-center gap-2">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#EEF4FF] text-[#2563EB]">
               <UserCircle size={22} />
