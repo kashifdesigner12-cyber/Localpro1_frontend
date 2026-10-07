@@ -26,6 +26,12 @@ const API_URL =
 
 const CACHE_TIME = 30 * 1000;
 
+// Global cache for instant 1-second loading
+let globalAdminUsersCache = {
+  data: [],
+  timestamp: 0,
+};
+
 // ============================================================
 // MONGODB OBJECT ID VALIDATION & RESOLUTION
 // ============================================================
@@ -235,8 +241,10 @@ export default function AdminUsersPage() {
   const [role, setRole] = useState("all");
   const [status, setStatus] = useState("all");
 
-  const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(false); // Instant render enabled
+  const [users, setUsers] = useState(globalAdminUsersCache.data);
+  const [loading, setLoading] = useState(
+    globalAdminUsersCache.data.length === 0
+  );
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
@@ -253,11 +261,10 @@ export default function AdminUsersPage() {
   const [scheduleError, setScheduleError] = useState("");
   const [scheduleSuccess, setScheduleSuccess] = useState("");
 
-  const cacheRef = useRef({ timestamp: 0, data: null });
   const loadingRef = useRef(false);
 
   /* ==========================================================
-     LOAD USERS WITH CACHE & SPEED OPTIMIZATION
+     LOAD USERS WITH GLOBAL CACHE & SPEED OPTIMIZATION
   ========================================================== */
   const loadUsers = useCallback(async (force = false) => {
     if (loadingRef.current) return;
@@ -265,10 +272,11 @@ export default function AdminUsersPage() {
     const now = Date.now();
     if (
       !force &&
-      cacheRef.current.data &&
-      now - cacheRef.current.timestamp < CACHE_TIME
+      globalAdminUsersCache.data.length > 0 &&
+      now - globalAdminUsersCache.timestamp < CACHE_TIME
     ) {
-      setUsers(cacheRef.current.data);
+      setUsers(globalAdminUsersCache.data);
+      setLoading(false);
       return;
     }
 
@@ -324,14 +332,16 @@ export default function AdminUsersPage() {
       }
 
       setUsers(loadedUsers);
-      cacheRef.current = {
+      globalAdminUsersCache = {
         timestamp: Date.now(),
         data: loadedUsers,
       };
     } catch (requestError) {
       console.error("Admin users loading error:", requestError);
       setError(requestError?.message || "Unable to load users from backend.");
-      setUsers([]);
+      if (globalAdminUsersCache.data.length === 0) {
+        setUsers([]);
+      }
     } finally {
       loadingRef.current = false;
       setLoading(false);
@@ -399,7 +409,7 @@ export default function AdminUsersPage() {
 
       setUsers((prev) => {
         const next = prev.filter((u) => getUserId(u) !== userId);
-        cacheRef.current.data = next;
+        globalAdminUsersCache.data = next;
         return next;
       });
 
@@ -622,7 +632,7 @@ export default function AdminUsersPage() {
 
       setUsers((prev) => {
         const next = prev.map((u) => (getUserId(u) === userId ? updateUserObj(u) : u));
-        cacheRef.current.data = next;
+        globalAdminUsersCache.data = next;
         return next;
       });
 
@@ -649,7 +659,7 @@ export default function AdminUsersPage() {
       <div className="relative mx-auto w-full max-w-[1600px] space-y-6 px-4 py-5 sm:px-6 lg:px-8">
         
         {/* =========================================================
-            CLEAN TEXT HEADER (Banner Removed, Direct Clean Header)
+            CLEAN TEXT HEADER
         ========================================================= */}
         <section className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div>
@@ -946,13 +956,6 @@ export default function AdminUsersPage() {
                             <div className="flex items-center justify-end gap-2">
                               {canSchedule ? (
                                 <>
-                                  <Link
-                                    href={`/admin/users/${realUserId}`}
-                                    className="rounded-xl px-3 py-1.5 text-xs font-bold text-violet-600 transition hover:bg-violet-50 hover:text-violet-700"
-                                  >
-                                    View
-                                  </Link>
-
                                   <button
                                     type="button"
                                     onClick={() => openSchedule(user)}
