@@ -22,10 +22,9 @@ const defaultNotifications = {
   messageAlerts: true,
 };
 
-export default function AdminSettingsPage() {
-  const router = useRouter();
-
-  const [profile, setProfile] = useState({
+// Global cache for instant settings/profile load
+let globalAdminProfileCache = {
+  profile: {
     id: "",
     name: "",
     email: "",
@@ -33,16 +32,31 @@ export default function AdminSettingsPage() {
     avatar: null,
     role: "",
     status: "",
-  });
+  },
+  notifications: defaultNotifications,
+  loaded: false,
+};
 
-  const [notifications, setNotifications] = useState(
-    defaultNotifications
+export default function AdminSettingsPage() {
+  const router = useRouter();
+
+  const [profile, setProfile] = useState(
+    globalAdminProfileCache.profile
   );
 
-  const [imagePreview, setImagePreview] = useState("");
+  const [notifications, setNotifications] = useState(
+    globalAdminProfileCache.notifications
+  );
+
+  const [imagePreview, setImagePreview] = useState(
+    globalAdminProfileCache.profile.avatar || ""
+  );
   const [imageFile, setImageFile] = useState(null);
 
-  const [loading, setLoading] = useState(true);
+  // FIX: Start with loading false if cache exists for instant render
+  const [loading, setLoading] = useState(
+    !globalAdminProfileCache.loaded
+  );
   const [saving, setSaving] = useState(false);
   const [savingNotification, setSavingNotification] =
     useState(false);
@@ -57,8 +71,6 @@ export default function AdminSettingsPage() {
 
     const loadProfile = async () => {
       try {
-        setLoading(true);
-
         const response = await authService.me();
 
         if (!response?.user) {
@@ -77,7 +89,7 @@ export default function AdminSettingsPage() {
           return;
         }
 
-        setProfile({
+        const updatedProfile = {
           id: user.id || user._id || "",
           name: user.name || "",
           email: user.email || "",
@@ -85,23 +97,30 @@ export default function AdminSettingsPage() {
           avatar: user.avatar || null,
           role: user.role || "",
           status: user.status || "",
-        });
+        };
 
-        setNotifications({
+        const updatedNotifications = {
           taskUpdates:
             user.notificationPreferences?.taskUpdates ??
             true,
-
           appointmentAlerts:
             user.notificationPreferences
               ?.appointmentAlerts ?? true,
-
           messageAlerts:
             user.notificationPreferences
               ?.messageAlerts ?? true,
-        });
+        };
 
-        if (user.avatar) {
+        globalAdminProfileCache = {
+          profile: updatedProfile,
+          notifications: updatedNotifications,
+          loaded: true,
+        };
+
+        setProfile(updatedProfile);
+        setNotifications(updatedNotifications);
+
+        if (user.avatar && !imageFile) {
           setImagePreview(user.avatar);
         }
       } catch (error) {
@@ -110,7 +129,7 @@ export default function AdminSettingsPage() {
           error
         );
 
-        if (mounted) {
+        if (mounted && !globalAdminProfileCache.loaded) {
           setMessageType("error");
           setMessage("Unable to load your profile.");
         }
@@ -121,12 +140,16 @@ export default function AdminSettingsPage() {
       }
     };
 
-    loadProfile();
+    if (!globalAdminProfileCache.loaded) {
+      loadProfile();
+    } else {
+      loadProfile(); // Background sync
+    }
 
     return () => {
       mounted = false;
     };
-  }, [router]);
+  }, [router, imageFile]);
 
   const handleChange = useCallback((event) => {
     const { name, value } = event.target;
@@ -218,24 +241,27 @@ export default function AdminSettingsPage() {
         const updatedUser = response?.user;
 
         if (updatedUser) {
-          setProfile((previous) => ({
-            ...previous,
+          const newProfile = {
+            ...profile,
             id:
               updatedUser.id ||
               updatedUser._id ||
-              previous.id,
+              profile.id,
             name:
-              updatedUser.name || previous.name,
+              updatedUser.name || profile.name,
             email:
-              updatedUser.email || previous.email,
+              updatedUser.email || profile.email,
             phone: updatedUser.phone || "",
             avatar: updatedUser.avatar || null,
             role:
-              updatedUser.role || previous.role,
+              updatedUser.role || profile.role,
             status:
               updatedUser.status ||
-              previous.status,
-          }));
+              profile.status,
+          };
+
+          setProfile(newProfile);
+          globalAdminProfileCache.profile = newProfile;
 
           if (updatedUser.avatar) {
             setImagePreview(updatedUser.avatar);
@@ -265,9 +291,7 @@ export default function AdminSettingsPage() {
       }
     },
     [
-      profile.name,
-      profile.phone,
-      profile.avatar,
+      profile,
       imageFile,
       fileToDataUrl,
     ]
@@ -278,10 +302,13 @@ export default function AdminSettingsPage() {
       const previousValue = notifications[field];
       const newValue = !previousValue;
 
-      setNotifications((previous) => ({
-        ...previous,
+      const updatedNotifs = {
+        ...notifications,
         [field]: newValue,
-      }));
+      };
+
+      setNotifications(updatedNotifs);
+      globalAdminProfileCache.notifications = updatedNotifs;
 
       try {
         setSavingNotification(true);
@@ -303,10 +330,13 @@ export default function AdminSettingsPage() {
           error
         );
 
-        setNotifications((previous) => ({
-          ...previous,
+        const revertedNotifs = {
+          ...notifications,
           [field]: previousValue,
-        }));
+        };
+
+        setNotifications(revertedNotifs);
+        globalAdminProfileCache.notifications = revertedNotifs;
 
         setMessageType("error");
         setMessage(
