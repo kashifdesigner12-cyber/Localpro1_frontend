@@ -211,9 +211,7 @@ function StatCard({
 
       <div className="relative flex items-start justify-between">
         <div>
-          <p className="text-[13px] font-semibold text-slate-500">
-            {title}
-          </p>
+          <p className="text-[13px] font-semibold text-slate-500">{title}</p>
 
           <h3 className="mt-2 text-[28px] font-bold tracking-tight text-slate-900">
             {value}
@@ -237,9 +235,7 @@ function StatCard({
               </span>
             ) : null}
 
-            <span className="text-[11px] text-slate-400">
-              {subtitle}
-            </span>
+            <span className="text-[11px] text-slate-400">{subtitle}</span>
           </div>
         </div>
 
@@ -312,9 +308,7 @@ function EmptyState({ text }) {
           <Sparkles size={17} />
         </div>
 
-        <p className="mt-3 text-sm font-medium text-slate-500">
-          {text}
-        </p>
+        <p className="mt-3 text-sm font-medium text-slate-500">{text}</p>
       </div>
     </div>
   );
@@ -344,21 +338,16 @@ export default function DashboardPage() {
       }
 
       try {
-        const [
-          usersResult,
-          tasksResult,
-          notificationsResult,
-        ] = await Promise.all([
-          safeFetchJson("/users", []),
-          safeFetchJson("/tasks?limit=100", []),
-          safeFetchJson("/notifications", []),
-        ]);
+        const [usersResult, tasksResult, notificationsResult] =
+          await Promise.all([
+            safeFetchJson("/users", []),
+            safeFetchJson("/tasks?limit=100", []),
+            safeFetchJson("/notifications", []),
+          ]);
 
         setUsers(getArray(usersResult, ["users"]));
         setTasks(getArray(tasksResult, ["tasks"]));
-        setNotifications(
-          getArray(notificationsResult, ["notifications"])
-        );
+        setNotifications(getArray(notificationsResult, ["notifications"]));
         setError("");
       } catch (err) {
         console.error("Dashboard loading error:", err);
@@ -378,7 +367,7 @@ export default function DashboardPage() {
         setRefreshing(false);
       }
     },
-    [router]
+    [router],
   );
 
   useEffect(() => {
@@ -390,9 +379,7 @@ export default function DashboardPage() {
       const status = String(user?.status || "").toLowerCase();
 
       return (
-        user?.isActive === true ||
-        status === "active" ||
-        status === "approved"
+        user?.isActive === true || status === "active" || status === "approved"
       );
     }).length;
 
@@ -408,16 +395,11 @@ export default function DashboardPage() {
 
     const unreadNotifications = notifications.filter(
       (notification) =>
-        notification?.read === false ||
-        notification?.isRead === false
+        notification?.read === false || notification?.isRead === false,
     ).length;
 
     const taskCompletion =
-      tasks.length > 0
-        ? Math.round(
-            (completedTasks / tasks.length) * 100
-          )
-        : 0;
+      tasks.length > 0 ? Math.round((completedTasks / tasks.length) * 100) : 0;
 
     return {
       totalUsers: users.length,
@@ -433,12 +415,10 @@ export default function DashboardPage() {
     () =>
       [...users]
         .sort(
-          (a, b) =>
-            new Date(b?.createdAt || 0) -
-            new Date(a?.createdAt || 0)
+          (a, b) => new Date(b?.createdAt || 0) - new Date(a?.createdAt || 0),
         )
         .slice(0, 5),
-    [users]
+    [users],
   );
 
   const recentTasks = useMemo(
@@ -446,15 +426,11 @@ export default function DashboardPage() {
       [...tasks]
         .sort(
           (a, b) =>
-            new Date(
-              b?.createdAt || b?.updatedAt || 0
-            ) -
-            new Date(
-              a?.createdAt || a?.updatedAt || 0
-            )
+            new Date(b?.createdAt || b?.updatedAt || 0) -
+            new Date(a?.createdAt || a?.updatedAt || 0),
         )
         .slice(0, 5),
-    [tasks]
+    [tasks],
   );
 
   const recentNotifications = useMemo(
@@ -462,28 +438,21 @@ export default function DashboardPage() {
       [...notifications]
         .sort(
           (a, b) =>
-            new Date(
-              b?.createdAt || b?.updatedAt || 0
-            ) -
-            new Date(
-              a?.createdAt || a?.updatedAt || 0
-            )
+            new Date(b?.createdAt || b?.updatedAt || 0) -
+            new Date(a?.createdAt || a?.updatedAt || 0),
         )
         .slice(0, 5),
-    [notifications]
+    [notifications],
   );
 
   const displayName = getName(currentUser);
 
-  const today = new Date().toLocaleDateString(
-    "en-US",
-    {
-      weekday: "long",
-      month: "long",
-      day: "numeric",
-      year: "numeric",
-    }
-  );
+  const today = new Date().toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
 
   return (
     <div className="relative w-full min-w-0 overflow-x-hidden bg-[#f7f8fc] text-slate-900">
@@ -551,7 +520,7 @@ export default function DashboardPage() {
             ) : null}
           </div>
 
-          <section className="grid w-full gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <section className="grid w-full gap-4 sm:grid-cols-2 xl:grid-cols-3">
             <StatCard
               title="Total Users"
               value={dashboardStats.totalUsers}
@@ -580,23 +549,6 @@ export default function DashboardPage() {
               gradient="from-orange-500 to-amber-400"
               trend={`${dashboardStats.taskCompletion}%`}
               href="/admin/tasks"
-            />
-
-            <StatCard
-              title="Notifications"
-              value={dashboardStats.unreadNotifications}
-              subtitle="Unread notifications"
-              icon={Bell}
-              gradient="from-pink-500 to-fuchsia-500"
-              trend={
-                dashboardStats.unreadNotifications > 0
-                  ? "New"
-                  : "Clear"
-              }
-              trendUp={
-                dashboardStats.unreadNotifications === 0
-              }
-              href="/admin/notifications"
             />
           </section>
 
@@ -687,9 +639,7 @@ export default function DashboardPage() {
                   </div>
 
                   <div className="mt-2 w-full">
-                    <ProgressBar
-                      value={dashboardStats.taskCompletion}
-                    />
+                    <ProgressBar value={dashboardStats.taskCompletion} />
                   </div>
 
                   <div className="mt-5 flex w-full items-center justify-between text-sm">
@@ -701,7 +651,7 @@ export default function DashboardPage() {
                       {Math.max(
                         0,
                         dashboardStats.totalTasks -
-                          dashboardStats.completedTasks
+                          dashboardStats.completedTasks,
                       )}
                     </span>
                   </div>
@@ -720,8 +670,7 @@ export default function DashboardPage() {
                     </p>
 
                     <p className="mt-0.5 text-[11px] text-slate-500">
-                      Complete your pending tasks to improve overall
-                      progress.
+                      Complete your pending tasks to improve overall progress.
                     </p>
                   </div>
                 </div>
@@ -810,17 +759,13 @@ export default function DashboardPage() {
                 ) : (
                   recentTasks.map((task, index) => {
                     const status = task?.status || "Pending";
-                    const statusColor =
-                      getStatusColor(status);
+                    const statusColor = getStatusColor(status);
 
                     const colorClasses = {
-                      green:
-                        "bg-emerald-50 text-emerald-600",
-                      orange:
-                        "bg-orange-50 text-orange-600",
+                      green: "bg-emerald-50 text-emerald-600",
+                      orange: "bg-orange-50 text-orange-600",
                       red: "bg-rose-50 text-rose-600",
-                      purple:
-                        "bg-violet-50 text-violet-600",
+                      purple: "bg-violet-50 text-violet-600",
                     };
 
                     return (
@@ -838,10 +783,7 @@ export default function DashboardPage() {
                             </p>
 
                             <p className="mt-1 text-[11px] text-slate-400">
-                              {formatDate(
-                                task?.createdAt ||
-                                  task?.updatedAt
-                              )}
+                              {formatDate(task?.createdAt || task?.updatedAt)}
                             </p>
                           </div>
 
@@ -887,58 +829,52 @@ export default function DashboardPage() {
                 {recentNotifications.length === 0 ? (
                   <EmptyState text="You're all caught up." />
                 ) : (
-                  recentNotifications.map(
-                    (notification, index) => {
-                      const read =
-                        notification?.read === true ||
-                        notification?.isRead === true;
+                  recentNotifications.map((notification, index) => {
+                    const read =
+                      notification?.read === true ||
+                      notification?.isRead === true;
 
-                      return (
+                    return (
+                      <div
+                        key={notification?._id || notification?.id || index}
+                        className={`flex w-full gap-3 rounded-2xl border p-3 transition ${
+                          read
+                            ? "border-slate-100 bg-white"
+                            : "border-pink-100 bg-pink-50/40"
+                        }`}
+                      >
                         <div
-                          key={
-                            notification?._id ||
-                            notification?.id ||
-                            index
-                          }
-                          className={`flex w-full gap-3 rounded-2xl border p-3 transition ${
+                          className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${
                             read
-                              ? "border-slate-100 bg-white"
-                              : "border-pink-100 bg-pink-50/40"
+                              ? "bg-slate-100 text-slate-500"
+                              : "bg-gradient-to-br from-pink-500 to-fuchsia-500 text-white"
                           }`}
                         >
-                          <div
-                            className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${
-                              read
-                                ? "bg-slate-100 text-slate-500"
-                                : "bg-gradient-to-br from-pink-500 to-fuchsia-500 text-white"
-                            }`}
-                          >
-                            {read ? (
-                              <CheckCircle2 size={15} />
-                            ) : (
-                              <Bell size={15} />
-                            )}
-                          </div>
-
-                          <div className="min-w-0 flex-1">
-                            <p className="line-clamp-2 text-xs font-bold leading-5 text-slate-800">
-                              {notification?.title ||
-                                notification?.message ||
-                                notification?.text ||
-                                "New notification"}
-                            </p>
-
-                            <p className="mt-1 text-[10px] text-slate-400">
-                              {formatTime(
-                                notification?.createdAt ||
-                                  notification?.updatedAt
-                              )}
-                            </p>
-                          </div>
+                          {read ? (
+                            <CheckCircle2 size={15} />
+                          ) : (
+                            <Bell size={15} />
+                          )}
                         </div>
-                      );
-                    }
-                  )
+
+                        <div className="min-w-0 flex-1">
+                          <p className="line-clamp-2 text-xs font-bold leading-5 text-slate-800">
+                            {notification?.title ||
+                              notification?.message ||
+                              notification?.text ||
+                              "New notification"}
+                          </p>
+
+                          <p className="mt-1 text-[10px] text-slate-400">
+                            {formatTime(
+                              notification?.createdAt ||
+                                notification?.updatedAt,
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -1041,9 +977,7 @@ export default function DashboardPage() {
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-400 text-white shadow-lg shadow-emerald-500/20">
                   <RefreshCw
                     size={19}
-                    className={
-                      refreshing ? "animate-spin" : ""
-                    }
+                    className={refreshing ? "animate-spin" : ""}
                   />
                 </div>
 
