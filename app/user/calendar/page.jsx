@@ -11,6 +11,7 @@ import {
   Loader2,
   MapPin,
   RefreshCw,
+  ShieldCheck,
   X,
   Sparkles,
 } from "lucide-react";
@@ -92,7 +93,9 @@ export default function UserCalendarPage() {
     const cleanEndpoint = endpoint.startsWith("/api/")
       ? endpoint.replace(/^\/api/, "")
       : endpoint;
-    const finalPath = cleanEndpoint.startsWith("/") ? cleanEndpoint : `/${cleanEndpoint}`;
+    const finalPath = cleanEndpoint.startsWith("/")
+      ? cleanEndpoint
+      : `/${cleanEndpoint}`;
 
     const response = await fetch(`${API_URL}${finalPath}`, {
       ...options,
@@ -119,7 +122,9 @@ export default function UserCalendarPage() {
         window.location.href = "/login";
       }
       throw new Error(
-        data?.message || data?.error || `Request failed with status ${response.status}`
+        data?.message ||
+          data?.error ||
+          `Request failed with status ${response.status}`
       );
     }
 
@@ -137,9 +142,12 @@ export default function UserCalendarPage() {
     return `${year}-${month}-${day}`;
   }, []);
 
-  const formatApiDate = useCallback((date) => {
-    return formatDateKey(date);
-  }, [formatDateKey]);
+  const formatApiDate = useCallback(
+    (date) => {
+      return formatDateKey(date);
+    },
+    [formatDateKey]
+  );
 
   const monthStart = useMemo(() => {
     return new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
@@ -192,20 +200,31 @@ export default function UserCalendarPage() {
         const endDate = formatApiDate(monthEnd);
 
         const [eventsResponse, tasksResponse] = await Promise.all([
-          apiRequest(`/events?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&limit=200`).catch(() => ({ events: [] })),
-          apiRequest(`/calendar/tasks?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`).catch(() => ({ tasks: [] })),
+          apiRequest(
+            `/events?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}&limit=200`
+          ).catch(() => ({ events: [] })),
+          apiRequest(
+            `/calendar/tasks?startDate=${encodeURIComponent(startDate)}&endDate=${encodeURIComponent(endDate)}`
+          ).catch(() => ({ tasks: [] })),
         ]);
 
-        const receivedEvents =
-          Array.isArray(eventsResponse?.events) ? eventsResponse.events :
-          Array.isArray(eventsResponse?.data) ? eventsResponse.data :
-          Array.isArray(eventsResponse) ? eventsResponse : [];
+        const receivedEvents = Array.isArray(eventsResponse?.events)
+          ? eventsResponse.events
+          : Array.isArray(eventsResponse?.data)
+            ? eventsResponse.data
+            : Array.isArray(eventsResponse)
+              ? eventsResponse
+              : [];
 
-        const receivedTasks =
-          Array.isArray(tasksResponse?.tasks) ? tasksResponse.tasks :
-          Array.isArray(tasksResponse?.data?.tasks) ? tasksResponse.data.tasks :
-          Array.isArray(tasksResponse?.data) ? tasksResponse.data :
-          Array.isArray(tasksResponse) ? tasksResponse : [];
+        const receivedTasks = Array.isArray(tasksResponse?.tasks)
+          ? tasksResponse.tasks
+          : Array.isArray(tasksResponse?.data?.tasks)
+            ? tasksResponse.data.tasks
+            : Array.isArray(tasksResponse?.data)
+              ? tasksResponse.data
+              : Array.isArray(tasksResponse)
+                ? tasksResponse
+                : [];
 
         setEvents(receivedEvents);
         setTasks(receivedTasks);
@@ -227,34 +246,50 @@ export default function UserCalendarPage() {
     [apiRequest, formatApiDate, monthStart, monthEnd, currentDate]
   );
 
-  const loadSelectedDay = useCallback(async (date) => {
-    if (!date) return;
-    try {
-      setSelectedLoading(true);
-      const dateKey = formatDateKey(date);
+  const loadSelectedDay = useCallback(
+    async (date) => {
+      if (!date) return;
+      try {
+        setSelectedLoading(true);
+        const dateKey = formatDateKey(date);
 
-      const [eventsResponse, tasksResponse] = await Promise.all([
-        apiRequest(`/events?startDate=${encodeURIComponent(dateKey)}&endDate=${encodeURIComponent(dateKey)}&limit=200`).catch(() => ({ events: [] })),
-        apiRequest(`/calendar/day/${encodeURIComponent(dateKey)}`).catch(() => ({ tasks: [] })),
-      ]);
+        const [eventsResponse, tasksResponse] = await Promise.all([
+          apiRequest(
+            `/events?startDate=${encodeURIComponent(dateKey)}&endDate=${encodeURIComponent(dateKey)}&limit=200`
+          ).catch(() => ({ events: [] })),
+          apiRequest(`/calendar/day/${encodeURIComponent(dateKey)}`).catch(
+            () => ({ tasks: [] })
+          ),
+        ]);
 
-      const receivedEvents = Array.isArray(eventsResponse?.events) ? eventsResponse.events : [];
-      const receivedTasks = Array.isArray(tasksResponse?.tasks) ? tasksResponse.tasks : [];
+        const receivedEvents = Array.isArray(eventsResponse?.events)
+          ? eventsResponse.events
+          : [];
+        const receivedTasks = Array.isArray(tasksResponse?.tasks)
+          ? tasksResponse.tasks
+          : [];
 
-      if (receivedEvents.length > 0 || receivedTasks.length > 0) {
-        setEvents((prev) => {
-          const filtered = prev.filter((e) => getEventDateKey(e) !== dateKey);
-          return [...filtered, ...receivedEvents];
-        });
-        setTasks((prev) => {
-          const filtered = prev.filter((t) => getTaskDateKey(t) !== dateKey);
-          return [...filtered, ...receivedTasks];
-        });
+        if (receivedEvents.length > 0 || receivedTasks.length > 0) {
+          setEvents((prev) => {
+            const filtered = prev.filter(
+              (e) => getEventDateKey(e) !== dateKey
+            );
+            return [...filtered, ...receivedEvents];
+          });
+          setTasks((prev) => {
+            const filtered = prev.filter(
+              (t) => getTaskDateKey(t) !== dateKey
+            );
+            return [...filtered, ...receivedTasks];
+          });
+        }
+      } catch {
+      } finally {
+        setSelectedLoading(false);
       }
-    } catch {} finally {
-      setSelectedLoading(false);
-    }
-  }, [apiRequest, formatDateKey]);
+    },
+    [apiRequest, formatDateKey]
+  );
 
   useEffect(() => {
     loadCurrentUser();
@@ -354,8 +389,12 @@ export default function UserCalendarPage() {
   }, [tasks]);
 
   const selectedDateKey = selectedDate ? formatDateKey(selectedDate) : null;
-  const selectedEvents = selectedDateKey ? eventsByDate[selectedDateKey] || [] : [];
-  const selectedTasks = selectedDateKey ? tasksByDate[selectedDateKey] || [] : [];
+  const selectedEvents = selectedDateKey
+    ? eventsByDate[selectedDateKey] || []
+    : [];
+  const selectedTasks = selectedDateKey
+    ? tasksByDate[selectedDateKey] || []
+    : [];
 
   const selectedItems = useMemo(() => {
     const eventItems = selectedEvents.map((event) => ({
@@ -373,17 +412,22 @@ export default function UserCalendarPage() {
     }));
 
     return [...eventItems, ...taskItems].sort(
-      (a, b) => new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime()
+      (a, b) =>
+        new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime()
     );
   }, [selectedEvents, selectedTasks]);
 
   function goToPreviousMonth() {
-    setCurrentDate((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+    setCurrentDate(
+      (prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1)
+    );
     setSelectedDate(null);
   }
 
   function goToNextMonth() {
-    setCurrentDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+    setCurrentDate(
+      (prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1)
+    );
     setSelectedDate(null);
   }
 
@@ -396,7 +440,9 @@ export default function UserCalendarPage() {
   function handleDateClick(day) {
     setSelectedDate(day.fullDate);
     if (!day.currentMonth) {
-      setCurrentDate(new Date(day.fullDate.getFullYear(), day.fullDate.getMonth(), 1));
+      setCurrentDate(
+        new Date(day.fullDate.getFullYear(), day.fullDate.getMonth(), 1)
+      );
     }
   }
 
@@ -419,10 +465,10 @@ export default function UserCalendarPage() {
   }
 
   return (
-    <div className="relative min-h-screen w-full bg-[#f7f8fc] p-4 text-slate-900 sm:p-6 lg:p-8 animate-fadeIn">
+    <div className="relative min-h-screen w-full animate-fadeIn bg-[#f7f8fc] p-4 text-slate-900 sm:p-6 lg:p-8">
       {/* Background ambient lighting */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -left-32 -top-32 h-72 w-72 rounded-full bg-violet-400/10 blur-3xl animate-pulse" />
+        <div className="absolute -left-32 -top-32 h-72 w-72 animate-pulse rounded-full bg-violet-400/10 blur-3xl" />
         <div className="absolute right-0 top-20 h-80 w-80 rounded-full bg-pink-400/10 blur-3xl" />
         <div className="absolute bottom-0 left-1/3 h-72 w-72 rounded-full bg-orange-300/10 blur-3xl" />
       </div>
@@ -458,7 +504,10 @@ export default function UserCalendarPage() {
           <section className="rounded-2xl border border-rose-100 bg-rose-50 p-4 text-xs font-bold text-rose-700 shadow-sm">
             <div className="flex items-center justify-between">
               <p>{error}</p>
-              <button onClick={() => setError("")} className="text-rose-400 hover:text-rose-600">
+              <button
+                onClick={() => setError("")}
+                className="text-rose-400 hover:text-rose-600"
+              >
                 <X size={16} />
               </button>
             </div>
@@ -530,7 +579,9 @@ export default function UserCalendarPage() {
                       type="button"
                       onClick={() => handleDateClick(day)}
                       className={`relative min-h-[135px] border-b border-r border-slate-100 p-3 text-left transition hover:bg-slate-50/80 ${
-                        !day.currentMonth ? "bg-slate-50/30 opacity-60" : "bg-white"
+                        !day.currentMonth
+                          ? "bg-slate-50/30 opacity-60"
+                          : "bg-white"
                       } ${selected ? "ring-2 ring-inset ring-violet-600" : ""}`}
                     >
                       <span
@@ -538,8 +589,8 @@ export default function UserCalendarPage() {
                           today
                             ? "bg-violet-600 text-white shadow-sm"
                             : day.currentMonth
-                            ? "text-slate-900"
-                            : "text-slate-400"
+                              ? "text-slate-900"
+                              : "text-slate-400"
                         }`}
                       >
                         {day.date}
@@ -551,22 +602,26 @@ export default function UserCalendarPage() {
                             <div
                               key={event.id || event._id}
                               className="truncate rounded-lg px-1.5 py-0.5 text-[9px] font-bold text-white shadow-xs"
-                              style={{ backgroundColor: event?.color || "#7c3aed" }}
+                              style={{
+                                backgroundColor: event?.color || "#7c3aed",
+                              }}
                               title={event?.title || "Event"}
                             >
                               {event?.title || "Event"}
                             </div>
                           ))}
 
-                          {dayTasks.slice(0, Math.max(0, 2 - dayEvents.length)).map((task) => (
-                            <div
-                              key={task.id || task._id}
-                              className="truncate rounded-lg border border-violet-100 bg-violet-50 px-1.5 py-0.5 text-[9px] font-bold text-violet-700"
-                              title={task?.title || "Task"}
-                            >
-                              {task?.title || "Task"}
-                            </div>
-                          ))}
+                          {dayTasks
+                            .slice(0, Math.max(0, 2 - dayEvents.length))
+                            .map((task) => (
+                              <div
+                                key={task.id || task._id}
+                                className="truncate rounded-lg border border-violet-100 bg-violet-50 px-1.5 py-0.5 text-[9px] font-bold text-violet-700"
+                                title={task?.title || "Task"}
+                              >
+                                {task?.title || "Task"}
+                              </div>
+                            ))}
 
                           {totalItems > 2 && (
                             <p className="px-1 text-[9px] font-bold text-slate-400">
@@ -584,7 +639,7 @@ export default function UserCalendarPage() {
         </section>
 
         {/* SELECTED DATE DETAILS */}
-        <section className="overflow-hidden rounded-[26px] border border-slate-200/80 bg-white shadow-[0_10px_35px_rgba(45,35,100,0.05)] p-6 sm:p-8">
+        <section className="overflow-hidden rounded-[26px] border border-slate-200/80 bg-white p-6 shadow-[0_10px_35px_rgba(45,35,100,0.05)] sm:p-8">
           {selectedDate ? (
             <div>
               <div className="flex flex-col gap-4 border-b border-slate-100 pb-5 sm:flex-row sm:items-center sm:justify-between">
@@ -601,7 +656,9 @@ export default function UserCalendarPage() {
                         year: "numeric",
                       })}
                     </h2>
-                    <p className="text-xs text-slate-400">Scheduled items for this date.</p>
+                    <p className="text-xs text-slate-400">
+                      Scheduled items for this date.
+                    </p>
                   </div>
                 </div>
 
@@ -616,8 +673,12 @@ export default function UserCalendarPage() {
               {selectedItems.length === 0 ? (
                 <div className="flex min-h-[180px] flex-col items-center justify-center py-10 text-center">
                   <CalendarDays size={28} className="text-slate-300" />
-                  <p className="mt-3 text-xs font-bold text-slate-800">No events or tasks</p>
-                  <p className="mt-1 text-xs text-slate-400">Nothing scheduled for this date.</p>
+                  <p className="mt-3 text-xs font-bold text-slate-800">
+                    No events or tasks
+                  </p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    Nothing scheduled for this date.
+                  </p>
                 </div>
               ) : (
                 <div className="mt-5 space-y-3">
@@ -632,10 +693,14 @@ export default function UserCalendarPage() {
               )}
             </div>
           ) : (
-            <div className="text-center py-10">
+            <div className="py-10 text-center">
               <CalendarDays size={26} className="mx-auto text-slate-300" />
-              <h3 className="mt-3 text-xs font-bold text-slate-800">Select a date</h3>
-              <p className="mt-1 text-xs text-slate-400">Click any day above to review scheduled tasks and events.</p>
+              <h3 className="mt-3 text-xs font-bold text-slate-800">
+                Select a date
+              </h3>
+              <p className="mt-1 text-xs text-slate-400">
+                Click any day above to review scheduled tasks and events.
+              </p>
             </div>
           )}
         </section>
@@ -652,22 +717,35 @@ function EventListItem({ event }) {
   return (
     <div className="rounded-2xl border border-slate-200/80 bg-white p-4 transition hover:border-violet-200 hover:shadow-sm">
       <div className="flex items-start gap-3.5">
-        <div className="mt-1 h-9 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: color }} />
+        <div
+          className="mt-1 h-9 w-1.5 shrink-0 rounded-full"
+          style={{ backgroundColor: color }}
+        />
         <div className="min-w-0 flex-1">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h3 className="text-xs font-bold text-slate-900">{event?.title || "Untitled Event"}</h3>
+              <h3 className="text-xs font-bold text-slate-900">
+                {event?.title || "Untitled Event"}
+              </h3>
               {event?.description && (
-                <p className="mt-1 text-xs text-slate-500 leading-relaxed">{event.description}</p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                  {event.description}
+                </p>
               )}
             </div>
             <div className="flex shrink-0 items-center gap-2">
               <span className="rounded-full bg-violet-50 px-2.5 py-0.5 text-[10px] font-bold text-violet-700">
                 {eventTypeLabels[eventType] || "Event"}
               </span>
-              <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
-                status === "completed" ? "bg-emerald-50 text-emerald-600" : status === "cancelled" ? "bg-rose-50 text-rose-600" : "bg-slate-100 text-slate-600"
-              }`}>
+              <span
+                className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
+                  status === "completed"
+                    ? "bg-emerald-50 text-emerald-600"
+                    : status === "cancelled"
+                      ? "bg-rose-50 text-rose-600"
+                      : "bg-slate-100 text-slate-600"
+                }`}
+              >
                 {statusLabels[status] || status}
               </span>
             </div>
@@ -677,7 +755,10 @@ function EventListItem({ event }) {
             {(event?.startTime || event?.endTime) && (
               <div className="flex items-center gap-1.5">
                 <Clock3 size={13} className="text-violet-600" />
-                <span>{event?.startTime || "--:--"}{event?.endTime ? ` - ${event.endTime}` : ""}</span>
+                <span>
+                  {event?.startTime || "--:--"}
+                  {event?.endTime ? ` - ${event.endTime}` : ""}
+                </span>
               </div>
             )}
             {event?.location && (
@@ -694,29 +775,49 @@ function EventListItem({ event }) {
 }
 
 function TaskListItem({ task }) {
-  const completed = task?.isCompleted || task?.status === "Completed";
-  const cancelled = task?.isCancelled || task?.status === "Cancelled";
+  const completed =
+    task?.isCompleted || task?.status === "Completed";
+  const cancelled =
+    task?.isCancelled || task?.status === "Cancelled";
 
   return (
     <div className="rounded-2xl border border-slate-200/80 bg-white p-4 transition hover:border-violet-200 hover:shadow-sm">
       <div className="flex items-start gap-3.5">
-        <div className={`mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl ${
-          task?.overdue ? "bg-rose-50 text-rose-500" : completed ? "bg-emerald-50 text-emerald-500" : "bg-violet-50 text-violet-600"
-        }`}>
+        <div
+          className={`mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl ${
+            task?.overdue
+              ? "bg-rose-50 text-rose-500"
+              : completed
+                ? "bg-emerald-50 text-emerald-500"
+                : "bg-violet-50 text-violet-600"
+          }`}
+        >
           {completed ? <CheckCircle2 size={17} /> : <ClipboardList size={17} />}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h3 className="text-xs font-bold text-slate-900">{task?.title || "Untitled Task"}</h3>
+              <h3 className="text-xs font-bold text-slate-900">
+                {task?.title || "Untitled Task"}
+              </h3>
               {task?.description && (
-                <p className="mt-1 text-xs text-slate-500 leading-relaxed">{task.description}</p>
+                <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                  {task.description}
+                </p>
               )}
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
-                task?.overdue ? "bg-rose-50 text-rose-600" : completed ? "bg-emerald-50 text-emerald-600" : cancelled ? "bg-slate-100 text-slate-500" : "bg-violet-50 text-violet-700"
-              }`}>
+              <span
+                className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${
+                  task?.overdue
+                    ? "bg-rose-50 text-rose-600"
+                    : completed
+                      ? "bg-emerald-50 text-emerald-600"
+                      : cancelled
+                        ? "bg-slate-100 text-slate-500"
+                        : "bg-violet-50 text-violet-700"
+                }`}
+              >
                 {task?.overdue ? "Overdue" : task?.status || "Pending"}
               </span>
               {task?.priority && (
@@ -733,5 +834,11 @@ function TaskListItem({ task }) {
 }
 
 function extractUser(response) {
-  return response?.user || response?.data?.user || response?.data || response || null;
+  return (
+    response?.user ||
+    response?.data?.user ||
+    response?.data ||
+    response ||
+    null
+  );
 }
