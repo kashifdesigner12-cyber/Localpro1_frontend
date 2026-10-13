@@ -22,6 +22,7 @@ import {
   CalendarDays,
   Phone,
   Clock3,
+  Shield,
 } from "lucide-react";
 
 import { authService } from "@/services/authService";
@@ -37,14 +38,19 @@ const navigation = [
     icon: LayoutDashboard,
   },
   {
-    label: "Users",
-    href: "/admin/users",
-    icon: Users,
+    label: "Conversations",
+    href: "/admin/conversations",
+    icon: MessageSquare,
   },
   {
     label: "Tasks",
     href: "/admin/tasks",
     icon: ClipboardList,
+  },
+  {
+    label: "Users",
+    href: "/admin/users",
+    icon: Users,
   },
   {
     label: "Attendance",
@@ -55,11 +61,6 @@ const navigation = [
     label: "Leave Requests",
     href: "/admin/leave-requests",
     icon: ClipboardCheck,
-  },
-  {
-    label: "Conversations",
-    href: "/admin/conversations",
-    icon: MessageSquare,
   },
   {
     label: "Settings",
@@ -330,12 +331,10 @@ export default function AdminLayout({ children }) {
   const redirectingRef = useRef(false);
 
   const notificationRef = useRef(null);
+  const profileMenuRef = useRef(null);
 
   const [sidebarOpen, setSidebarOpen] =
     useState(false);
-
-  // FIX: Don't block initial layout render with full-screen loading spinner
-  const [loading, setLoading] = useState(false);
 
   const [loggingOut, setLoggingOut] =
     useState(false);
@@ -346,6 +345,9 @@ export default function AdminLayout({ children }) {
     );
 
   const [notificationsOpen, setNotificationsOpen] =
+    useState(false);
+
+  const [profileDropdownOpen, setProfileDropdownOpen] =
     useState(false);
 
   const [notifications, setNotifications] =
@@ -522,6 +524,7 @@ export default function AdminLayout({ children }) {
       if (mountedRef.current) {
         setSidebarOpen(false);
         setLoggingOut(false);
+        setProfileDropdownOpen(false);
       }
 
       router.replace("/login");
@@ -639,14 +642,21 @@ export default function AdminLayout({ children }) {
       ) {
         setNotificationsOpen(false);
       }
+
+      if (
+        profileMenuRef.current &&
+        !profileMenuRef.current.contains(
+          event.target
+        )
+      ) {
+        setProfileDropdownOpen(false);
+      }
     }
 
-    if (notificationsOpen) {
-      document.addEventListener(
-        "mousedown",
-        handleClickOutside
-      );
-    }
+    document.addEventListener(
+      "mousedown",
+      handleClickOutside
+    );
 
     return () => {
       document.removeEventListener(
@@ -654,7 +664,7 @@ export default function AdminLayout({ children }) {
         handleClickOutside
       );
     };
-  }, [notificationsOpen]);
+  }, []);
 
   const markAsRead = async (
     notification
@@ -865,7 +875,7 @@ export default function AdminLayout({ children }) {
         />
       )}
 
-      {/* SIDEBAR */}
+      {/* SIDEBAR — TEAMS STYLE ICON-ONLY WITH WHITE ICONS */}
 
       <aside
         className={`
@@ -874,8 +884,9 @@ export default function AdminLayout({ children }) {
           left-0
           z-50
           flex
-          w-64
+          w-20
           flex-col
+          items-center
           bg-[#171B3A]
           shadow-xl
           transition-transform
@@ -890,141 +901,69 @@ export default function AdminLayout({ children }) {
       >
         {/* Logo */}
 
-        <div className="flex h-20 shrink-0 items-center justify-between border-b border-white/10 px-5">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#2563EB] text-white shadow-sm">
-              <ShieldCheck size={22} />
-            </div>
-
-            <div className="min-w-0">
-              <h1 className="truncate text-sm font-bold text-white">
-                Local Pro 1
-              </h1>
-
-              <p className="truncate text-[11px] font-medium text-slate-300">
-                Admin Workspace
-              </p>
-            </div>
+        <div className="flex h-20 w-full shrink-0 items-center justify-center border-b border-white/10 px-2">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#2563EB] text-white shadow-sm">
+            <ShieldCheck size={24} />
           </div>
-
-          <button
-            type="button"
-            onClick={() =>
-              setSidebarOpen(false)
-            }
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white transition hover:bg-white/10 lg:hidden"
-            aria-label="Close sidebar"
-          >
-            <X size={19} />
-          </button>
         </div>
 
-        {/* NAVIGATION */}
+        {/* NAVIGATION ICONS ONLY WITH WHITE COLOR */}
 
-        <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-5">
-          <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-300">
-            Administration
-          </p>
+        <nav className="min-h-0 flex-1 w-full overflow-y-auto px-2 py-5 space-y-2">
+          {navigation.map((item) => {
+            const Icon = item.icon;
 
-          <div className="space-y-1.5">
-            {navigation.map((item) => {
-              const Icon = item.icon;
+            const isActive =
+              pathname === item.href ||
+              (item.href !== "/admin" &&
+                pathname.startsWith(
+                  `${item.href}/`
+                ));
 
-              const isActive =
-                pathname === item.href ||
-                (item.href !== "/admin" &&
-                  pathname.startsWith(
-                    `${item.href}/`
-                  ));
-
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={() =>
-                    setSidebarOpen(false)
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                title={item.label}
+                onClick={() =>
+                  setSidebarOpen(false)
+                }
+                className={`
+                  group
+                  relative
+                  flex
+                  h-12
+                  w-full
+                  items-center
+                  justify-center
+                  rounded-xl
+                  transition
+                  ${
+                    isActive
+                      ? "bg-[#2563EB] text-white shadow-sm"
+                      : "text-white hover:bg-white/10 hover:text-white"
                   }
-                  className={`
-                    flex
-                    w-full
-                    items-center
-                    gap-3
-                    rounded-xl
-                    px-3
-                    py-3
-                    text-sm
-                    font-semibold
-                    transition
-                    ${
-                      isActive
-                        ? "bg-[#2563EB] text-white shadow-sm"
-                        : "bg-transparent text-white hover:bg-white/10"
-                    }
-                  `}
-                >
-                  <Icon
-                    size={18}
-                    strokeWidth={2}
-                    className="shrink-0 text-white"
-                  />
+                `}
+              >
+                <Icon
+                  size={20}
+                  strokeWidth={2}
+                  className="shrink-0 text-white"
+                />
 
-                  <span className="truncate text-white">
-                    {item.label}
-                  </span>
-                </Link>
-              );
-            })}
-          </div>
+                {/* Tooltip on hover */}
+                <span className="absolute left-full ml-3 hidden rounded-md bg-slate-900 px-2 py-1 text-xs font-medium text-white shadow-md group-hover:block z-50 whitespace-nowrap">
+                  {item.label}
+                </span>
+              </Link>
+            );
+          })}
         </nav>
-
-        {/* SIDEBAR USER */}
-
-        <div className="shrink-0 border-t border-white/10 p-3">
-          <div className="mb-2 flex items-center gap-3 rounded-xl px-3 py-3">
-            <ProfileAvatar
-              user={currentUser}
-              size="small"
-            />
-
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-white">
-                {currentUser?.name ||
-                  "Administrator"}
-              </p>
-
-              <p className="truncate text-xs font-medium text-slate-300">
-                Admin Account
-              </p>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleSignOut}
-            disabled={loggingOut}
-            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {loggingOut ? (
-              <Loader2
-                size={17}
-                className="animate-spin"
-              />
-            ) : (
-              <LogOut size={17} />
-            )}
-
-            <span>
-              {loggingOut
-                ? "Signing Out..."
-                : "Sign Out"}
-            </span>
-          </button>
-        </div>
       </aside>
 
       {/* MAIN AREA */}
 
-      <div className="min-h-screen w-full lg:pl-64">
+      <div className="min-h-screen w-full lg:pl-20">
 
         {/* HEADER */}
 
@@ -1281,24 +1220,72 @@ export default function AdminLayout({ children }) {
                       </div>
                     )}
                   </div>
-
-                  {/* FOOTER */}
-
-                  {notifications.length >
-                    0 && (
-                    <div className="border-t border-slate-100 bg-slate-50/70 px-4 py-3">
-                    </div>
-                  )}
                 </div>
               )}
             </div>
 
-            {/* PROFILE */}
+            {/* CLICKABLE PROFILE & DROPDOWN */}
 
-            <ProfileAvatar
-              user={currentUser}
-              size="header"
-            />
+            <div
+              ref={profileMenuRef}
+              className="relative z-[100]"
+            >
+              <button
+                type="button"
+                onClick={() =>
+                  setProfileDropdownOpen(
+                    (current) => !current
+                  )
+                }
+                className="flex items-center gap-2 rounded-xl p-1 transition hover:bg-slate-100 focus:outline-none"
+                aria-label="User profile menu"
+                aria-expanded={profileDropdownOpen}
+              >
+                <ProfileAvatar
+                  user={currentUser}
+                  size="header"
+                />
+              </button>
+
+              {/* PROFILE DROPDOWN */}
+
+              {profileDropdownOpen && (
+                <div className="absolute right-0 top-[50px] z-[200] w-64 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.18)]">
+                  
+                  {/* USER INFO HEADER */}
+                  <div className="border-b border-slate-100 px-4 py-3.5">
+                    <p className="text-xs font-medium text-slate-400">Signed in as</p>
+                    <p className="truncate text-sm font-bold text-[#171B3A]">
+                      {currentUser?.name || "Administrator"}
+                    </p>
+                    <span className="mt-1 inline-flex items-center gap-1 rounded-md bg-[#EEF4FF] px-2 py-0.5 text-[11px] font-semibold text-[#2563EB] capitalize">
+                      <Shield size={12} />
+                      {currentUser?.role || "Admin"}
+                    </span>
+                  </div>
+
+                  {/* LOGOUT BUTTON */}
+                  <div className="p-2">
+                    <button
+                      type="button"
+                      onClick={handleSignOut}
+                      disabled={loggingOut}
+                      className="flex w-full items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-60"
+                    >
+                      {loggingOut ? (
+                        <Loader2
+                          size={16}
+                          className="animate-spin text-red-600"
+                        />
+                      ) : (
+                        <LogOut size={16} />
+                      )}
+                      <span>{loggingOut ? "Signing out..." : "Sign Out"}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 

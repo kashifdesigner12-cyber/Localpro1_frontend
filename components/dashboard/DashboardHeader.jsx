@@ -14,9 +14,12 @@ import {
   CalendarDays,
   Phone,
   Clock3,
+  LogOut,
+  Shield,
 } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { authService } from "@/services/authService";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -216,7 +219,16 @@ export default function DashboardHeader({
   const [markingAllRead, setMarkingAllRead] =
     useState(false);
 
+  const [profileDropdownOpen, setProfileDropdownOpen] =
+    useState(false);
+
+  const [loggingOut, setLoggingOut] =
+    useState(false);
+
   const notificationRef =
+    useRef(null);
+
+  const profileMenuRef =
     useRef(null);
 
   const currentPageTitle =
@@ -322,14 +334,21 @@ export default function DashboardHeader({
       ) {
         setNotificationsOpen(false);
       }
+
+      if (
+        profileMenuRef.current &&
+        !profileMenuRef.current.contains(
+          event.target
+        )
+      ) {
+        setProfileDropdownOpen(false);
+      }
     }
 
-    if (notificationsOpen) {
-      document.addEventListener(
-        "mousedown",
-        handleClickOutside
-      );
-    }
+    document.addEventListener(
+      "mousedown",
+      handleClickOutside
+    );
 
     return () => {
       document.removeEventListener(
@@ -337,7 +356,7 @@ export default function DashboardHeader({
         handleClickOutside
       );
     };
-  }, [notificationsOpen]);
+  }, []);
 
   const markAsRead = async (
     notification
@@ -517,6 +536,30 @@ export default function DashboardHeader({
     }
   };
 
+  const handleSignOut = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+
+    try {
+      if (typeof authService.logout === "function") {
+        await authService.logout();
+      }
+    } catch (error) {
+      console.error("Logout error:", error);
+    } finally {
+      try {
+        if (typeof authService.clearToken === "function") {
+          authService.clearToken();
+        }
+      } catch (err) {
+        console.error("Clear token error:", err);
+      }
+      setLoggingOut(false);
+      setProfileDropdownOpen(false);
+      router.replace("/login");
+    }
+  };
+
   return (
     <header className="sticky top-0 z-30 h-[82px] border-b border-slate-200 bg-white">
       <div className="flex h-full items-center justify-between gap-4 px-5 sm:px-6 lg:px-8">
@@ -557,9 +600,7 @@ export default function DashboardHeader({
             <Search size={19} />
           </button>
 
-          {/* ==================================================
-              NOTIFICATION BUTTON
-          ================================================== */}
+          {/* NOTIFICATION BUTTON */}
           <div
             ref={notificationRef}
             className="relative z-[60]"
@@ -586,7 +627,6 @@ export default function DashboardHeader({
                 strokeWidth={2}
               />
 
-              {/* UNREAD BADGE */}
               {unreadCount > 0 && (
                 <span className="absolute -right-1.5 -top-1.5 flex h-[19px] min-w-[19px] items-center justify-center rounded-full border-2 border-white bg-[#2563EB] px-1 text-[9px] font-bold leading-none text-white shadow-sm">
                   {unreadCount > 99
@@ -596,13 +636,10 @@ export default function DashboardHeader({
               )}
             </button>
 
-            {/* ==================================================
-                NOTIFICATION DROPDOWN
-            ================================================== */}
+            {/* NOTIFICATION DROPDOWN */}
             {notificationsOpen && (
               <div className="absolute right-0 top-[52px] z-[100] w-[380px] max-w-[calc(100vw-24px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.16)]">
 
-                {/* HEADER */}
                 <div className="flex items-center justify-between border-b border-slate-100 px-4 py-4">
                   <div>
                     <h3 className="text-sm font-bold text-[#171B3A]">
@@ -662,7 +699,6 @@ export default function DashboardHeader({
                   </div>
                 </div>
 
-                {/* LIST */}
                 <div className="max-h-[420px] overflow-y-auto overscroll-contain">
                   {notificationsLoading ? (
                     <div className="flex items-center justify-center px-6 py-12">
@@ -769,12 +805,6 @@ export default function DashboardHeader({
                     </div>
                   )}
                 </div>
-
-                {/* FOOTER */}
-                {notifications.length > 0 && (
-                  <div className="border-t border-slate-100 bg-slate-50/70 px-4 py-3">
-                  </div>
-                )}
               </div>
             )}
           </div>
@@ -782,21 +812,67 @@ export default function DashboardHeader({
           {/* DIVIDER */}
           <div className="hidden h-8 w-px bg-slate-200 sm:block" />
 
-          {/* USER */}
-          <div className="flex items-center gap-2">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#EEF4FF] text-[#2563EB]">
-              <UserCircle size={22} />
-            </div>
+          {/* CLICKABLE USER PROFILE & DROPDOWN */}
+          <div
+            ref={profileMenuRef}
+            className="relative z-[60]"
+          >
+            <button
+              type="button"
+              onClick={() =>
+                setProfileDropdownOpen((current) => !current)
+              }
+              className="flex items-center gap-2 rounded-xl p-1.5 transition hover:bg-slate-100 focus:outline-none"
+              aria-label="User menu"
+              aria-expanded={profileDropdownOpen}
+            >
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#EEF4FF] text-[#2563EB]">
+                <UserCircle size={22} />
+              </div>
 
-            <div className="hidden min-w-0 md:block">
-              <p className="max-w-[140px] truncate text-sm font-semibold text-[#26344D]">
-                {userName}
-              </p>
+              <div className="hidden min-w-0 text-left md:block">
+                <p className="max-w-[140px] truncate text-sm font-semibold text-[#26344D]">
+                  {userName}
+                </p>
 
-              <p className="text-xs capitalize text-[#64748B]">
-                {userRole}
-              </p>
-            </div>
+                <p className="text-xs capitalize text-[#64748B]">
+                  {userRole}
+                </p>
+              </div>
+            </button>
+
+            {/* PROFILE DROPDOWN */}
+            {profileDropdownOpen && (
+              <div className="absolute right-0 top-[52px] z-[100] w-64 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.16)]">
+                
+                {/* USER INFO HEADER */}
+                <div className="border-b border-slate-100 px-4 py-3.5">
+                  <p className="text-xs font-medium text-slate-400">Signed in as</p>
+                  <p className="truncate text-sm font-bold text-[#171B3A]">{userName}</p>
+                  <span className="mt-1 inline-flex items-center gap-1 rounded-md bg-[#EEF4FF] px-2 py-0.5 text-[11px] font-semibold text-[#2563EB] capitalize">
+                    <Shield size={12} />
+                    {userRole}
+                  </span>
+                </div>
+
+                {/* DROPDOWN ACTIONS / LOGOUT */}
+                <div className="p-2">
+                  <button
+                    type="button"
+                    onClick={handleSignOut}
+                    disabled={loggingOut}
+                    className="flex w-full items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-60"
+                  >
+                    {loggingOut ? (
+                      <Loader2 size={16} className="animate-spin text-red-600" />
+                    ) : (
+                      <LogOut size={16} />
+                    )}
+                    <span>{loggingOut ? "Signing out..." : "Sign Out"}</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

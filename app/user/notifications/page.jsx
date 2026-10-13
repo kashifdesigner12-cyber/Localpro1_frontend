@@ -1,31 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity,
   Bell,
   CalendarDays,
   Check,
   CheckCheck,
   ClipboardList,
-  Clock3,
+  ExternalLink,
   FileText,
-  LayoutDashboard,
   Loader2,
-  LogOut,
-  Menu,
   MessageSquare,
   RefreshCw,
   Search,
-  Settings,
-  ShieldCheck,
-  Trash2,
-  UserRound,
-  X,
   Sparkles,
-  ExternalLink,
+  Trash2,
+  X,
 } from "lucide-react";
 
 import { authService } from "@/services/authService";
@@ -35,22 +27,8 @@ const API_URL =
 
 const CACHE_TIME = 60 * 1000;
 
-const navigation = [
-  { label: "Dashboard", href: "/user", icon: LayoutDashboard },
-  { label: "My Tasks", href: "/user/tasks", icon: ClipboardList },
-  { label: "Calendar", href: "/user/calendar", icon: CalendarDays },
-  { label: "Attendance", href: "/user/attendance", icon: Clock3 },
-  { label: "Messages", href: "/user/messages", icon: MessageSquare },
-  { label: "Notifications", href: "/user/notifications", icon: Bell },
-  { label: "Leave Requests", href: "/user/leave-requests", icon: FileText },
-  { label: "Profile", href: "/user/profile", icon: UserRound },
-  { label: "Settings", href: "/user/settings", icon: Settings },
-  { label: "Policies", href: "/user/policies", icon: ShieldCheck },
-];
-
 export default function UserNotificationsPage() {
   const router = useRouter();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [notifications, setNotifications] = useState([]);
   const [currentUser, setCurrentUser] = useState(() => extractUser(authService?.getUser?.()));
@@ -283,24 +261,8 @@ export default function UserNotificationsPage() {
     }
   }
 
-  async function handleLogout() {
-    try {
-      setActionLoading(true);
-      if (typeof authService?.logout === "function") {
-        await authService.logout();
-      }
-    } catch {} finally {
-      setActionLoading(false);
-      router.replace("/login");
-    }
-  }
-
-  const userName = currentUser?.name || currentUser?.fullName || currentUser?.email || "User";
-  const userInitial = String(userName).trim().charAt(0).toUpperCase() || "U";
-  const userEmail = currentUser?.email || "User Account";
-
   return (
-    <div className="relative min-h-screen w-full bg-[#f7f8fc] text-slate-900 animate-fadeIn">
+    <div className="relative min-h-screen w-full bg-[#f7f8fc] p-4 text-slate-900 sm:p-6 lg:p-8 animate-fadeIn">
       {/* Background ambient lighting */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute -left-32 -top-32 h-72 w-72 rounded-full bg-violet-400/10 blur-3xl animate-pulse" />
@@ -308,278 +270,143 @@ export default function UserNotificationsPage() {
         <div className="absolute bottom-0 left-1/3 h-72 w-72 rounded-full bg-orange-300/10 blur-3xl" />
       </div>
 
-      {/* MOBILE OVERLAY */}
-      {sidebarOpen && (
-        <button
-          type="button"
-          aria-label="Close sidebar"
-          onClick={() => setSidebarOpen(false)}
-          className="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-sm lg:hidden"
-        />
-      )}
-
-      {/* SIDEBAR (Matching Admin Dark Theme & Animations) */}
-      <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-[#171B3A] text-white shadow-2xl transition-transform duration-300 ease-in-out lg:translate-x-0 ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
-      >
-        <div className="flex h-20 shrink-0 items-center justify-between border-b border-white/10 px-5">
-          <Link
-            href="/user"
-            onClick={() => setSidebarOpen(false)}
-            className="flex items-center gap-3 text-white"
-          >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-purple-600 text-white shadow-md shadow-purple-600/20">
-              <ShieldCheck size={22} />
+      <div className="mx-auto w-full max-w-3xl space-y-6">
+        {/* HEADER CONTROLS FEED STYLE */}
+        <section className="flex flex-col gap-4 rounded-[26px] border border-slate-200/80 bg-white p-5 shadow-[0_10px_35px_rgba(45,35,100,0.05)] sm:flex-row sm:items-center sm:justify-between sm:p-6">
+          <div>
+            <div className="mb-1 inline-flex items-center gap-1.5 rounded-full border border-violet-200/80 bg-violet-50/80 px-2.5 py-0.5 text-[10px] font-bold tracking-wide text-violet-700">
+              <Sparkles size={12} />
+              FEED STREAM
             </div>
+            <h1 className="text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">
+              Notifications
+            </h1>
+            <p className="text-xs text-slate-400">
+              {unreadNotifications} unread notification{unreadNotifications !== 1 ? "s" : ""}
+            </p>
+          </div>
 
-            <div>
-              <h1 className="text-sm font-bold text-white">Local Pro 1</h1>
-              <p className="text-[11px] font-semibold text-violet-400">
-                User Workspace
-              </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleMarkAllRead}
+              disabled={actionLoading || unreadNotifications === 0}
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200/90 bg-white px-3 text-xs font-bold text-slate-700 shadow-xs transition hover:bg-slate-50 disabled:opacity-50"
+            >
+              <CheckCheck size={14} className="text-violet-600" /> Mark All Read
+            </button>
+
+            <button
+              type="button"
+              onClick={handleClearAll}
+              disabled={actionLoading || readNotifications === 0}
+              className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-rose-100 bg-rose-50 px-3 text-xs font-bold text-rose-600 transition hover:bg-rose-100 disabled:opacity-50"
+            >
+              <Trash2 size={14} /> Clear Read
+            </button>
+          </div>
+        </section>
+
+        {error && (
+          <section className="rounded-2xl border border-rose-100 bg-rose-50 p-4 text-xs font-bold text-rose-700 shadow-sm">
+            <div className="flex items-center justify-between">
+              <p>{error}</p>
+              <button onClick={() => setError("")} className="text-rose-400 hover:text-rose-600">
+                <X size={15} />
+              </button>
             </div>
-          </Link>
+          </section>
+        )}
 
-          <button
-            type="button"
-            onClick={() => setSidebarOpen(false)}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-white/10 hover:text-white lg:hidden"
-            aria-label="Close sidebar"
-          >
-            <X size={19} />
-          </button>
-        </div>
-
-        <nav className="flex-1 overflow-y-auto px-3 py-5">
-          <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-            Workspace
-          </p>
-
-          <div className="space-y-1.5">
-            {navigation.map((item) => (
-              <UserNavItem
-                key={item.href}
-                item={item}
-                onNavigate={() => setSidebarOpen(false)}
-              />
+        {/* FILTER & SEARCH TABS */}
+        <section className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-1.5 rounded-2xl bg-white p-1.5 border border-slate-200/80 shadow-xs">
+            {[
+              { key: "all", label: "All" },
+              { key: "unread", label: `Unread (${unreadNotifications})` },
+              { key: "read", label: "Read" },
+            ].map((tab) => (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setFilter(tab.key)}
+                className={`rounded-xl px-4 py-2 text-xs font-bold transition duration-150 ${
+                  filter === tab.key
+                    ? "bg-violet-600 text-white shadow-sm"
+                    : "text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                {tab.label}
+              </button>
             ))}
           </div>
-        </nav>
 
-        <div className="shrink-0 border-t border-white/10 p-3">
-          <div className="mb-2 flex items-center gap-3 rounded-2xl bg-white/[0.04] px-3 py-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-violet-600 text-xs font-bold text-white">
-              {currentUser?.avatar ? (
-                <img src={currentUser.avatar} alt={userName} className="h-full w-full object-cover" />
-              ) : (
-                userInitial
-              )}
-            </div>
-
-            <div className="min-w-0">
-              <p className="truncate text-sm font-bold text-white">{userName}</p>
-              <p className="truncate text-xs font-medium text-slate-400">{userEmail}</p>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleLogout}
-            disabled={actionLoading}
-            className="flex w-full items-center gap-3 rounded-2xl px-3.5 py-3 text-sm font-bold text-rose-400 transition hover:bg-rose-500/10 hover:text-rose-300 disabled:opacity-60"
-          >
-            {actionLoading ? <Loader2 size={18} className="animate-spin" /> : <LogOut size={18} />}
-            <span>Sign Out</span>
-          </button>
-        </div>
-      </aside>
-
-      {/* MAIN CONTAINER */}
-      <div className="min-h-screen w-full lg:pl-64">
-        {/* TOP BAR */}
-        <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200/80 bg-white/95 px-5 backdrop-blur-sm sm:px-6 lg:px-8">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setSidebarOpen(true)}
-              className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50 lg:hidden"
-              aria-label="Open sidebar"
-            >
-              <Menu size={20} />
-            </button>
-
-            <div>
-              <p className="text-xs font-semibold text-slate-400">Workspace</p>
-              <p className="text-sm font-bold text-slate-900">Notifications</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => loadNotifications(true)}
-              disabled={refreshing}
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition hover:bg-violet-50 hover:text-violet-600 disabled:opacity-50"
-              title="Refresh"
-            >
-              <RefreshCw size={16} className={refreshing ? "animate-spin text-violet-600" : ""} />
-            </button>
-
-            <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-sm">
-              {currentUser?.avatar ? (
-                <img src={currentUser.avatar} alt={userName} className="h-full w-full object-cover" />
-              ) : (
-                userInitial
-              )}
-            </div>
-          </div>
-        </header>
-
-        {/* CONTENT - FACEBOOK STYLE FEED */}
-        <main className="min-h-[calc(100vh-4rem)] p-4 sm:p-6 lg:p-8 animate-slideUp">
-          <div className="mx-auto w-full max-w-3xl space-y-6">
-
-            {/* HEADER CONTROLS FEED STYLE */}
-            <section className="flex flex-col gap-4 rounded-[26px] border border-slate-200/80 bg-white p-5 shadow-[0_10px_35px_rgba(45,35,100,0.05)] sm:flex-row sm:items-center sm:justify-between sm:p-6">
-              <div>
-                <div className="mb-1 inline-flex items-center gap-1.5 rounded-full border border-violet-200/80 bg-violet-50/80 px-2.5 py-0.5 text-[10px] font-bold tracking-wide text-violet-700">
-                  <Sparkles size={12} />
-                  FEED STREAM
-                </div>
-                <h1 className="text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">
-                  Notifications
-                </h1>
-                <p className="text-xs text-slate-400">
-                  {unreadNotifications} unread notification{unreadNotifications !== 1 ? "s" : ""}
-                </p>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleMarkAllRead}
-                  disabled={actionLoading || unreadNotifications === 0}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-200/90 bg-white px-3 text-xs font-bold text-slate-700 shadow-xs transition hover:bg-slate-50 disabled:opacity-50"
-                >
-                  <CheckCheck size={14} className="text-violet-600" /> Mark All Read
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleClearAll}
-                  disabled={actionLoading || readNotifications === 0}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-rose-100 bg-rose-50 px-3 text-xs font-bold text-rose-600 transition hover:bg-rose-100 disabled:opacity-50"
-                >
-                  <Trash2 size={14} /> Clear Read
-                </button>
-              </div>
-            </section>
-
-            {error && (
-              <section className="rounded-2xl border border-rose-100 bg-rose-50 p-4 text-xs font-bold text-rose-700 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <p>{error}</p>
-                  <button onClick={() => setError("")} className="text-rose-400 hover:text-rose-600">
-                    <X size={15} />
-                  </button>
-                </div>
-              </section>
+          <div className="relative min-w-0 sm:w-64">
+            <Search size={15} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search alerts..."
+              className="h-10 w-full rounded-2xl border border-slate-200/90 bg-white pl-9 pr-8 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10"
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                <X size={13} />
+              </button>
             )}
-
-            {/* FILTER & SEARCH TABS */}
-            <section className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-1.5 rounded-2xl bg-white p-1.5 border border-slate-200/80 shadow-xs">
-                {[
-                  { key: "all", label: "All" },
-                  { key: "unread", label: `Unread (${unreadNotifications})` },
-                  { key: "read", label: "Read" },
-                ].map((tab) => (
-                  <button
-                    key={tab.key}
-                    type="button"
-                    onClick={() => setFilter(tab.key)}
-                    className={`rounded-xl px-4 py-2 text-xs font-bold transition duration-150 ${
-                      filter === tab.key
-                        ? "bg-violet-600 text-white shadow-sm"
-                        : "text-slate-600 hover:bg-slate-50"
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="relative min-w-0 sm:w-64">
-                <Search size={15} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search alerts..."
-                  className="h-10 w-full rounded-2xl border border-slate-200/90 bg-white pl-9 pr-8 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10"
-                />
-                {search && (
-                  <button
-                    type="button"
-                    onClick={() => setSearch("")}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                  >
-                    <X size={13} />
-                  </button>
-                )}
-              </div>
-            </section>
-
-            {/* NOTIFICATIONS FEED STREAM */}
-            <section className="overflow-hidden rounded-[26px] border border-slate-200/80 bg-white shadow-[0_10px_35px_rgba(45,35,100,0.05)]">
-              {loading && notifications.length === 0 ? (
-                <div className="flex min-h-[320px] flex-col items-center justify-center p-8 text-center">
-                  <Loader2 size={28} className="animate-spin text-violet-600" />
-                  <p className="mt-3 text-xs font-semibold text-slate-400">Loading your notifications feed...</p>
-                </div>
-              ) : filteredNotifications.length === 0 ? (
-                <div className="flex min-h-[320px] flex-col items-center justify-center p-8 text-center">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
-                    <Bell size={22} />
-                  </div>
-                  <h3 className="mt-3 text-xs font-bold text-slate-900">
-                    {search || filter !== "all" ? "No matching notifications" : "No notifications right now"}
-                  </h3>
-                  <p className="mt-1 text-xs text-slate-400 max-w-xs">
-                    {search || filter !== "all" ? "Try adjusting your search criteria." : "You are completely up to date with workspace events."}
-                  </p>
-                </div>
-              ) : (
-                <div className="divide-y divide-slate-100">
-                  {filteredNotifications.map((notification) => {
-                    const Icon = getNotificationIcon(notification.type);
-                    const typeLabel = getNotificationTypeLabel(notification.type);
-                    const isRead = Boolean(notification.isRead || notification.read);
-                    const actionUrl = getNotificationActionUrl(notification);
-
-                    return (
-                      <FacebookFeedItem
-                        key={notification.id || notification._id}
-                        notification={notification}
-                        Icon={Icon}
-                        typeLabel={typeLabel}
-                        onRead={handleMarkAsRead}
-                        onDelete={handleDeleteNotification}
-                        formatDate={formatNotificationDate}
-                        actionLoading={actionLoading}
-                        actionUrl={actionUrl}
-                        isRead={isRead}
-                      />
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-
           </div>
-        </main>
+        </section>
+
+        {/* NOTIFICATIONS FEED STREAM */}
+        <section className="overflow-hidden rounded-[26px] border border-slate-200/80 bg-white shadow-[0_10px_35px_rgba(45,35,100,0.05)]">
+          {loading && notifications.length === 0 ? (
+            <div className="flex min-h-[320px] flex-col items-center justify-center p-8 text-center">
+              <Loader2 size={28} className="animate-spin text-violet-600" />
+              <p className="mt-3 text-xs font-semibold text-slate-400">Loading your notifications feed...</p>
+            </div>
+          ) : filteredNotifications.length === 0 ? (
+            <div className="flex min-h-[320px] flex-col items-center justify-center p-8 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
+                <Bell size={22} />
+              </div>
+              <h3 className="mt-3 text-xs font-bold text-slate-900">
+                {search || filter !== "all" ? "No matching notifications" : "No notifications right now"}
+              </h3>
+              <p className="mt-1 text-xs text-slate-400 max-w-xs">
+                {search || filter !== "all" ? "Try adjusting your search criteria." : "You are completely up to date with workspace events."}
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {filteredNotifications.map((notification) => {
+                const Icon = getNotificationIcon(notification.type);
+                const typeLabel = getNotificationTypeLabel(notification.type);
+                const isRead = Boolean(notification.isRead || notification.read);
+                const actionUrl = getNotificationActionUrl(notification);
+
+                return (
+                  <FacebookFeedItem
+                    key={notification.id || notification._id}
+                    notification={notification}
+                    Icon={Icon}
+                    typeLabel={typeLabel}
+                    onRead={handleMarkAsRead}
+                    onDelete={handleDeleteNotification}
+                    formatDate={formatNotificationDate}
+                    actionLoading={actionLoading}
+                    actionUrl={actionUrl}
+                    isRead={isRead}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );
@@ -588,29 +415,6 @@ export default function UserNotificationsPage() {
 /* =========================================================
    SUB COMPONENTS (Facebook Feed Style Card)
 ========================================================= */
-
-function UserNavItem({ item, onNavigate }) {
-  const pathname = usePathname();
-  const Icon = item.icon;
-  const isActive =
-    pathname === item.href ||
-    (item.href !== "/user" && pathname.startsWith(`${item.href}/`));
-
-  return (
-    <Link
-      href={item.href}
-      onClick={onNavigate}
-      className={`group flex items-center gap-3 rounded-2xl px-3.5 py-3 text-sm font-bold transition duration-150 ${
-        isActive
-          ? "bg-violet-600 text-white shadow-md shadow-violet-600/30"
-          : "text-slate-300 hover:bg-white/10 hover:text-white"
-      }`}
-    >
-      <Icon size={18} className={`transition duration-150 ${isActive ? "text-white" : "text-slate-400 group-hover:text-white"}`} />
-      <span>{item.label}</span>
-    </Link>
-  );
-}
 
 function FacebookFeedItem({
   notification,

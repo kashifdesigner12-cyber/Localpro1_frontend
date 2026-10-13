@@ -10,29 +10,17 @@ import {
 import {
   FileText,
   MessageSquare,
-  MoreVertical,
   Paperclip,
   Search,
   Send,
-  RefreshCw,
   Trash2,
   X,
   Loader2,
-  ShieldCheck,
-  LogOut,
-  LayoutDashboard,
+  Plus,
   Users,
-  ClipboardList,
-  ClipboardCheck,
-  CalendarDays,
-  Activity,
-  Settings,
-  Menu,
-  UserCheck,
 } from "lucide-react";
-import Link from "next/link";
-import { authService } from "@/services/authService";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { io } from "socket.io-client";
 
 /* ============================================================
    API CONFIG
@@ -373,16 +361,6 @@ const getConversationLastDate = (
 };
 
 /* ============================================================
-   GLOBAL CACHE FOR INSTANT WHATSAPP-LIKE LOAD
-============================================================ */
-let globalAdminConversationsCache = {
-  users: [],
-  conversations: [],
-  messagesCache: {},
-  loaded: false,
-};
-
-/* ============================================================
    MAIN COMPONENT
 ============================================================ */
 
@@ -390,11 +368,9 @@ export default function AdminConversationsPage() {
   const router = useRouter();
 
   const [search, setSearch] = useState("");
-  const [users, setUsers] = useState(
-    globalAdminConversationsCache.users
-  );
-  const [conversations, setConversations] =
-    useState(globalAdminConversationsCache.conversations);
+  const [users, setUsers] = useState([]);
+  const [conversations, setConversations] = useState([]);
+  const [isClient, setIsClient] = useState(false);
 
   const [selectedUser, setSelectedUser] =
     useState(null);
@@ -415,7 +391,7 @@ export default function AdminConversationsPage() {
     useState([]);
 
   const [loadingUsers, setLoadingUsers] =
-    useState(!globalAdminConversationsCache.loaded);
+    useState(true);
 
   const [
     loadingMessages,
@@ -428,17 +404,20 @@ export default function AdminConversationsPage() {
   ] = useState(false);
 
   const [
-    sendingMessage,
-    setSendingMessage,
-  ] = useState(false);
-
-  const [
     messagesError,
     setMessagesError,
   ] = useState("");
 
+  const [onlineUsers, setOnlineUsers] = useState({});
+
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [groupName, setGroupName] = useState("");
+  const [selectedGroupMembers, setSelectedGroupMembers] = useState([]);
+  const [creatingGroup, setCreatingGroup] = useState(false);
+
   const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const socketRef = useRef(null);
 
   const selectedConversationIdRef =
     useRef(null);
@@ -446,9 +425,48 @@ export default function AdminConversationsPage() {
   const conversationsRef = useRef(conversations);
   const usersRef = useRef(users);
   const messagesRef = useRef(messages);
-  const messagesCache = useRef(
-    globalAdminConversationsCache.messagesCache
-  );
+  const messagesCache = useRef({});
+
+  // Request Browser Notification Permission on mount
+  useEffect(() => {
+    setIsClient(true);
+    if (typeof window !== "undefined" && "Notification" in window) {
+      if (Notification.permission === "default") {
+        Notification.requestPermission();
+      }
+    }
+
+    try {
+      const cachedUsers = localStorage.getItem("localpro_admin_users");
+      const cachedConvs = localStorage.getItem("localpro_admin_convs");
+      const cachedMsgs = localStorage.getItem("localpro_admin_msgs");
+
+      if (cachedUsers) {
+        const parsedUsers = JSON.parse(cachedUsers);
+        setUsers(parsedUsers);
+        usersRef.current = parsedUsers;
+      }
+      if (cachedConvs) {
+        const parsedConvs = JSON.parse(cachedConvs);
+        setConversations(parsedConvs);
+        conversationsRef.current = parsedConvs;
+        setLoadingUsers(false);
+      }
+      if (cachedMsgs) {
+        messagesCache.current = JSON.parse(cachedMsgs);
+      }
+    } catch {}
+  }, []);
+
+  const saveCache = (uList, cList, mCache) => {
+    try {
+      if (uList?.length > 0) localStorage.setItem("localpro_admin_users", JSON.stringify(uList));
+      if (cList?.length > 0) localStorage.setItem("localpro_admin_convs", JSON.stringify(cList));
+      if (Object.keys(mCache || {}).length > 0) {
+        localStorage.setItem("localpro_admin_msgs", JSON.stringify(mCache));
+      }
+    } catch {}
+  };
 
   useEffect(() => {
     usersRef.current = users;
@@ -484,6 +502,99 @@ export default function AdminConversationsPage() {
       scrollToBottom(false);
     }
   }, [messages, scrollToBottom]);
+
+  /* ==========================================================
+     SOCKET.IO REAL-TIME SETUP (WHATSAPP-STYLE DESKTOP NOTIFICATION)
+  ========================================================== */
+  useEffect(() => {
+    const token = getStoredToken();
+    const socket = io(BACKEND_BASE_URL, {
+      auth: { token },
+      transports: ["websocket", "polling"],
+    });
+
+    socketRef.current = socket;
+
+    socket.on("receive_message", (incomingMsg) => {
+      if (!incomingMsg) return;
+
+      const incomingConvId =
+        incomingMsg.conversationId || incomingMsg.conversation;
+
+      const senderObj = incomingMsg.sender;
+      const senderRole = String(senderObj?.role || "").toLowerCase();
+      const isFromAdmin = senderRole === "admin" || senderObj?.name === "You";
+
+      // Trigger Desktop Browser Notification if message is from someone else
+      if (!isFromAdmin && typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
+        const senderTitle = getUserName(senderObj) || "New Message";
+        const msgBodyText = incomingMsg.body || "You received a new file/attachment";
+        
+        try {
+          const notification = new Notification(senderTitle, {
+            body: msgBodyText,
+            icon: "/favicon.ico",
+          });
+
+          notification.onclick = () => {
+            window.focus();
+            notification.close();
+          };
+        } catch (err) {
+          console.error("Desktop notification error:", err);
+        }
+      }
+
+      if (
+        selectedConversationIdRef.current &&
+        String(incomingConvId) ===
+          String(selectedConversationIdRef.current)
+      ) {
+        setMessages((prev) => {
+          const exists = prev.some(
+            (m) =>
+              String(m.id || m._id) ===
+                String(incomingMsg.id || incomingMsg._id) ||
+              (m.body === incomingMsg.body &&
+                String(m.sender?.id || m.sender?._id || m.sender) ===
+                  String(incomingMsg.sender?.id || incomingMsg.sender?._id || incomingMsg.sender) &&
+                Math.abs(new Date(m.createdAt) - new Date(incomingMsg.createdAt)) < 5000)
+          );
+          if (exists) {
+            return prev.map((m) =>
+              String(m.id || m._id).startsWith("temp-") &&
+              m.body === incomingMsg.body
+                ? incomingMsg
+                : m
+            );
+          }
+          const updated = [...prev, incomingMsg];
+          messagesCache.current[incomingConvId] = updated;
+          saveCache(usersRef.current, conversationsRef.current, messagesCache.current);
+          return updated;
+        });
+      }
+
+      fetchData(true);
+    });
+
+    socket.on("update_user_status", ({ userId, status }) => {
+      setOnlineUsers((prev) => ({
+        ...prev,
+        [userId]: status,
+      }));
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (socketRef.current && selectedConversationId) {
+      socketRef.current.emit("join_room", selectedConversationId);
+    }
+  }, [selectedConversationId]);
 
   /* ==========================================================
      FETCH USERS & CONVERSATIONS
@@ -526,12 +637,14 @@ export default function AdminConversationsPage() {
 
               return (
                 role === "user" ||
-                role === "manager"
+                role === "manager" ||
+                role === "admin"
               );
             });
 
           setUsers(availableUsers);
-          globalAdminConversationsCache.users = availableUsers;
+          usersRef.current = availableUsers;
+          saveCache(availableUsers, conversationsRef.current, messagesCache.current);
         }
       } catch {}
 
@@ -591,9 +704,7 @@ export default function AdminConversationsPage() {
 
           conversationsRef.current =
             updatedConversations;
-          globalAdminConversationsCache.conversations =
-            updatedConversations;
-          globalAdminConversationsCache.loaded = true;
+          saveCache(usersRef.current, updatedConversations, messagesCache.current);
         }
       } catch {}
       setLoadingUsers(false);
@@ -602,14 +713,15 @@ export default function AdminConversationsPage() {
   );
 
   useEffect(() => {
+    if (!isClient) return;
     fetchData(false);
 
     const interval = setInterval(() => {
       fetchData(true);
-    }, 5000);
+    }, 10000);
 
     return () => clearInterval(interval);
-  }, [fetchData]);
+  }, [fetchData, isClient]);
 
   const findConversationForUser =
     useCallback((userId, list) => {
@@ -621,6 +733,7 @@ export default function AdminConversationsPage() {
 
       return (
         convList.find((conversation) => {
+          if (conversation?.isGroup) return false;
           const participants =
             Array.isArray(
               conversation?.participants
@@ -681,19 +794,6 @@ export default function AdminConversationsPage() {
     ) => {
       if (!conversationId) return [];
 
-      if (messagesCache.current[conversationId]) {
-        setMessages(
-          messagesCache.current[conversationId]
-        );
-        setLoadingMessages(false);
-      } else if (!silent) {
-        setLoadingMessages(true);
-      }
-
-      if (!silent) {
-        setMessagesError("");
-      }
-
       try {
         const response = await fetch(
           getApiUrl(
@@ -728,8 +828,7 @@ export default function AdminConversationsPage() {
           messagesCache.current[
             conversationId
           ] = messageData;
-          globalAdminConversationsCache.messagesCache =
-            messagesCache.current;
+          saveCache(usersRef.current, conversationsRef.current, messagesCache.current);
 
           setMessages(messageData);
         }
@@ -778,6 +877,12 @@ export default function AdminConversationsPage() {
 
         if (user) {
           setSelectedUser(user);
+        } else if (conversation?.isGroup) {
+          setSelectedUser({
+            name: conversation.groupName || "Team Group",
+            role: "Group Chat",
+            isGroup: true,
+          });
         }
 
         setConversations((prev) =>
@@ -803,37 +908,22 @@ export default function AdminConversationsPage() {
           })
         );
 
-        conversationsRef.current =
-          conversationsRef.current.map(
-            (item) => {
-              const itemId =
-                item?.id ||
-                item?._id;
-
-              if (
-                String(itemId) ===
-                String(conversationId)
-              ) {
-                return {
-                  ...item,
-                  unreadCount: 0,
-                  unreadMessages: 0,
-                  unread: 0,
-                  unreadMessageCount: 0,
-                };
-              }
-
-              return item;
-            }
-          );
-
         setMessagesError("");
         setSelectedFiles([]);
 
+        if (messagesCache.current[conversationId]) {
+          setMessages(messagesCache.current[conversationId]);
+          setLoadingMessages(false);
+        } else {
+          setMessages([]);
+          setLoadingMessages(true);
+        }
+
         await fetchMessages(
           conversationId,
-          false
+          true
         );
+        setLoadingMessages(false);
 
         try {
           await fetch(
@@ -929,20 +1019,17 @@ export default function AdminConversationsPage() {
                       )
                   );
 
-                return exists
+                const updated = exists
                   ? prev
                   : [
                       newConversation,
                       ...prev,
                     ];
+                conversationsRef.current = updated;
+                saveCache(usersRef.current, updated, messagesCache.current);
+                return updated;
               }
             );
-
-            conversationsRef.current =
-              [
-                newConversation,
-                ...conversationsRef.current,
-              ];
 
             await openConversation(
               newConversation,
@@ -965,6 +1052,48 @@ export default function AdminConversationsPage() {
         openConversation,
       ]
     );
+
+  const handleCreateGroup = async (e) => {
+    e.preventDefault();
+    if (!groupName.trim() || selectedGroupMembers.length === 0) return;
+
+    try {
+      setCreatingGroup(true);
+      const response = await fetch(getApiUrl("/conversations"), {
+        method: "POST",
+        credentials: "include",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          isGroup: true,
+          groupName: groupName.trim(),
+          participants: selectedGroupMembers,
+        }),
+      });
+
+      const data = await parseResponse(response);
+      if (!response.ok) {
+        throw new Error(data?.message || "Failed to create group.");
+      }
+
+      const newGroupConv = data?.conversation || data?.data?.conversation || data?.data;
+      if (newGroupConv) {
+        setConversations((prev) => {
+          const updated = [newGroupConv, ...prev];
+          conversationsRef.current = updated;
+          saveCache(usersRef.current, updated, messagesCache.current);
+          return updated;
+        });
+        setShowGroupModal(false);
+        setGroupName("");
+        setSelectedGroupMembers([]);
+        await openConversation(newGroupConv);
+      }
+    } catch (err) {
+      alert(err.message || "Error creating group");
+    } finally {
+      setCreatingGroup(false);
+    }
+  };
 
   const filteredUsers = useMemo(() => {
     const query =
@@ -996,18 +1125,11 @@ export default function AdminConversationsPage() {
       return;
     }
 
-    const recipientId =
-      getId(selectedUser);
+    const recipientId = getId(selectedUser);
+    const tempId = `temp-${Date.now()}`;
+    const filesToSend = [...selectedFiles];
 
-    if (!recipientId) return;
-
-    const tempId =
-      `temp-${Date.now()}`;
-
-    const filesToSend = [
-      ...selectedFiles,
-    ];
-
+    // INSTANT OPTIMISTIC UI MESSAGE (Shows instantly without any loading wait)
     const optimisticMessage = {
       _id: tempId,
       id: tempId,
@@ -1016,79 +1138,55 @@ export default function AdminConversationsPage() {
         role: "admin",
         name: "You",
       },
-      createdAt:
-        new Date().toISOString(),
-      attachments:
-        filesToSend.map((file) => ({
-          filename: file.name,
-          originalName: file.name,
-          mimeType: file.type,
-          url: URL.createObjectURL(file), // Instant WhatsApp-like local preview
-        })),
+      createdAt: new Date().toISOString(),
+      attachments: filesToSend.map((file) => ({
+        filename: file.name,
+        originalName: file.name,
+        mimeType: file.type,
+        url: URL.createObjectURL(file),
+      })),
     };
 
-    setMessages((prev) => [
-      ...prev,
-      optimisticMessage,
-    ]);
+    setMessages((prev) => {
+      const updated = [...prev, optimisticMessage];
+      messagesCache.current[selectedConversationId] = updated;
+      saveCache(usersRef.current, conversationsRef.current, messagesCache.current);
+      return updated;
+    });
 
     setMessage("");
     setSelectedFiles([]);
     scrollToBottom(true);
 
     try {
-      setSendingMessage(true);
-
       let response;
 
       if (filesToSend.length > 0) {
-        const formData =
-          new FormData();
+        const formData = new FormData();
+        formData.append("body", cleanBody);
 
-        formData.append(
-          "body",
-          cleanBody
-        );
+        if (recipientId) {
+          formData.append("recipientId", recipientId);
+        }
 
-        formData.append(
-          "recipientId",
-          recipientId
-        );
-
-        formData.append(
-          "conversationId",
-          selectedConversationId
-        );
+        formData.append("conversationId", selectedConversationId);
 
         filesToSend.forEach((file) => {
           formData.append("files", file);
-          formData.append("image", file);
-          formData.append("file", file);
         });
 
-        const token =
-          getStoredToken();
-
-        const headers = {
-          Accept:
-            "application/json",
-        };
-
+        const token = getStoredToken();
+        const headers = { Accept: "application/json" };
         if (token) {
-          headers.Authorization =
-            `Bearer ${token}`;
+          headers.Authorization = `Bearer ${token}`;
         }
 
-        response = await fetch(
-          getApiUrl("/messages"),
-          {
-            method: "POST",
-            credentials:
-              "include",
-            headers,
-            body: formData,
-          }
-        );
+        response = await fetch(getApiUrl("/messages"), {
+          method: "POST",
+          credentials: "include",
+          headers,
+          body: formData,
+        });
       } else {
         response = await fetch(
           getApiUrl(
@@ -1096,10 +1194,8 @@ export default function AdminConversationsPage() {
           ),
           {
             method: "POST",
-            credentials:
-              "include",
-            headers:
-              getAuthHeaders(),
+            credentials: "include",
+            headers: getAuthHeaders(),
             body: JSON.stringify({
               body: cleanBody,
               recipientId,
@@ -1108,60 +1204,44 @@ export default function AdminConversationsPage() {
         );
       }
 
-      const data =
-        await parseResponse(
-          response
-        );
+      const data = await parseResponse(response);
 
       if (!response.ok) {
-        throw new Error(
-          "Failed to send message."
-        );
+        throw new Error("Failed to send message.");
       }
 
       const confirmedMessage =
         data?.message ||
         data?.data?.message ||
-        data?.data;
+        data?.data ||
+        data?.messageData;
 
-      if (
-        confirmedMessage &&
-        typeof confirmedMessage ===
-          "object"
-      ) {
-        setMessages((prev) =>
-          prev.map((item) =>
-            String(
-              item?.id ||
-                item?._id
-            ) ===
-            String(tempId)
+      if (confirmedMessage && typeof confirmedMessage === "object") {
+        setMessages((prev) => {
+          const updated = prev.map((item) =>
+            String(item?.id || item?._id) === String(tempId)
               ? confirmedMessage
               : item
-          )
-        );
+          );
+          messagesCache.current[selectedConversationId] = updated;
+          saveCache(usersRef.current, conversationsRef.current, messagesCache.current);
+          return updated;
+        });
+      } else {
+        await fetchMessages(selectedConversationId, true);
       }
 
       fetchData(true);
     } catch (err) {
       setMessagesError(
-        "Message failed to sync: " +
-          (err?.message ||
-            "Error")
+        "Message failed to sync: " + (err?.message || "Error")
       );
 
       setMessages((prev) =>
         prev.filter(
-          (item) =>
-            String(
-              item?.id ||
-                item?._id
-            ) !==
-            String(tempId)
+          (item) => String(item?.id || item?._id) !== String(tempId)
         )
       );
-    } finally {
-      setSendingMessage(false);
     }
   };
 
@@ -1172,7 +1252,7 @@ export default function AdminConversationsPage() {
 
       if (
         !window.confirm(
-          "Are you sure you want to delete this entire conversation?"
+          "Are you sure you want to delete this conversation?"
         )
       ) {
         return;
@@ -1202,19 +1282,23 @@ export default function AdminConversationsPage() {
         const deletedId =
           selectedConversationId;
 
-        setConversations((prev) =>
-          prev.filter(
+        setConversations((prev) => {
+          const updated = prev.filter(
             (c) =>
               String(
                 c?.id ||
                   c?._id
               ) !==
               String(deletedId)
-          )
-        );
+          );
+          conversationsRef.current = updated;
+          saveCache(usersRef.current, updated, messagesCache.current);
+          return updated;
+        });
 
         delete messagesCache
           .current[deletedId];
+        saveCache(usersRef.current, conversationsRef.current, messagesCache.current);
 
         selectedConversationIdRef.current =
           null;
@@ -1239,22 +1323,60 @@ export default function AdminConversationsPage() {
 
   return (
     <div className="flex h-[calc(100vh-4rem)] min-h-0 w-full flex-1 flex-col overflow-hidden bg-[#f7f8fc] text-slate-950">
-      {/* FULL REMAINING PAGE */}
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        {/* CONVERSATION WORKSPACE */}
+        
+        {/* TEAMS STYLE CONVERSATION WORKSPACE */}
         <section className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-white lg:flex-row">
           
-          {/* CONTACTS SIDEBAR */}
+          {/* CONTACTS / TEAMS CHAT LIST */}
           <div className="flex h-full min-h-0 w-full shrink-0 flex-col overflow-hidden border-b border-slate-100 lg:h-full lg:w-[360px] lg:border-b-0 lg:border-r">
             <div className="shrink-0 border-b border-slate-100 bg-slate-50/50 p-4 sm:p-5">
-              <div className="mb-3.5">
-                <h2 className="text-base font-extrabold text-slate-900">
-                  Team Contacts
-                </h2>
-                <p className="mt-0.5 text-xs text-slate-400">
-                  Select a member to chat
-                </p>
+              <div className="mb-3.5 flex items-center justify-between">
+                <div>
+                  <h2 className="text-base font-extrabold text-slate-900">
+                    Chats & Teams
+                  </h2>
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    Direct messages & groups
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowGroupModal(true)}
+                  className="flex items-center gap-1.5 rounded-xl bg-[#2563EB] px-3 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-blue-700"
+                >
+                  <Plus size={15} />
+                  New Group
+                </button>
               </div>
+
+              {conversations.some(c => c.isGroup) && (
+                <div className="mb-3 space-y-1">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Groups</p>
+                  {conversations.filter(c => c.isGroup).map(group => {
+                    const isSelected = String(selectedConversationId) === String(group._id || group.id);
+                    return (
+                      <button
+                        key={group._id || group.id}
+                        type="button"
+                        onClick={() => openConversation(group)}
+                        className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${
+                          isSelected ? "bg-blue-50 text-blue-700" : "hover:bg-slate-100 text-slate-700"
+                        }`}
+                      >
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white text-xs font-bold">
+                          <Users size={16} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-xs font-bold">{group.groupName || "Team Group"}</p>
+                          <p className="truncate text-[11px] text-slate-400">{group.lastMessage || "Group chat"}</p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
               <div className="relative">
                 <Search
@@ -1268,7 +1390,7 @@ export default function AdminConversationsPage() {
                     setSearch(e.target.value)
                   }
                   placeholder="Search contacts..."
-                  className="h-10 w-full rounded-2xl border border-slate-200/90 bg-white pl-9 pr-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10"
+                  className="h-10 w-full rounded-2xl border border-slate-200/90 bg-white pl-9 pr-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-4 focus:ring-blue-500/10"
                 />
               </div>
             </div>
@@ -1279,7 +1401,7 @@ export default function AdminConversationsPage() {
                 <div className="flex min-h-[260px] flex-col items-center justify-center p-6 text-center">
                   <Loader2
                     size={26}
-                    className="animate-spin text-violet-600"
+                    className="animate-spin text-[#2563EB]"
                   />
                   <p className="mt-3 text-xs font-semibold text-slate-400">
                     Loading contacts...
@@ -1305,6 +1427,8 @@ export default function AdminConversationsPage() {
                       existingConv
                     );
 
+                  const isOnline = onlineUsers[userId] === "online" || user.status === "active";
+
                   return (
                     <button
                       key={userId}
@@ -1314,20 +1438,24 @@ export default function AdminConversationsPage() {
                       }
                       className={`flex w-full items-start gap-3 border-b border-slate-100/80 px-4 py-3.5 text-left transition duration-150 ${
                         isSelected
-                          ? "border-violet-200/60 bg-violet-50/70"
+                          ? "border-blue-200/60 bg-blue-50/70"
                           : "hover:bg-slate-50/80"
                       }`}
                     >
-                      <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-visible rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-sm">
+                      <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-visible rounded-2xl bg-[#2563EB] text-xs font-bold text-white shadow-sm">
                         <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-2xl">
                           {getInitials(
                             getUserName(user)
                           )}
                         </div>
 
+                        <span className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white ${
+                          isOnline ? "bg-emerald-500" : "bg-slate-300"
+                        }`} />
+
                         {unread > 0 &&
                           !isSelected && (
-                            <span className="absolute -right-1.5 -top-1.5 z-10 flex h-5 min-w-5 items-center justify-center rounded-full bg-violet-600 px-1.5 text-[10px] font-extrabold leading-none text-white shadow-md shadow-violet-600/30 ring-2 ring-white">
+                            <span className="absolute -right-1.5 -top-1.5 z-10 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#2563EB] px-1.5 text-[10px] font-extrabold leading-none text-white shadow-md ring-2 ring-white">
                               {unread > 99
                                 ? "99+"
                                 : unread}
@@ -1377,7 +1505,7 @@ export default function AdminConversationsPage() {
             {/* Chat Header */}
             <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-slate-50/50 px-5 py-3.5 sm:px-6">
               <div className="flex min-w-0 items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-md shadow-purple-500/10">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[#2563EB] text-xs font-bold text-white shadow-md">
                   {selectedUser ? (
                     getInitials(
                       getUserName(selectedUser)
@@ -1394,7 +1522,7 @@ export default function AdminConversationsPage() {
                       : "Select a contact"}
                   </h2>
 
-                  <p className="truncate text-xs font-semibold text-violet-600">
+                  <p className="truncate text-xs font-semibold text-[#2563EB]">
                     {selectedUser
                       ? getRole(selectedUser) ||
                         "Active Member"
@@ -1420,25 +1548,15 @@ export default function AdminConversationsPage() {
                 <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
                   <Loader2
                     size={28}
-                    className="animate-spin text-violet-600"
+                    className="animate-spin text-[#2563EB]"
                   />
                   <p className="mt-2 text-xs font-semibold text-slate-400">
                     Opening conversation...
                   </p>
                 </div>
-              ) : loadingMessages ? (
-                <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
-                  <Loader2
-                    size={28}
-                    className="animate-spin text-violet-600"
-                  />
-                  <p className="mt-2 text-xs font-semibold text-slate-400">
-                    Loading messages...
-                  </p>
-                </div>
               ) : !selectedUser ? (
                 <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-[#2563EB]">
                     <MessageSquare size={26} />
                   </div>
                   <h3 className="mt-4 text-sm font-bold text-slate-900">
@@ -1499,19 +1617,18 @@ export default function AdminConversationsPage() {
                             isDeleted
                               ? "border border-slate-200/80 bg-slate-50 italic text-slate-400"
                               : isAdmin
-                              ? "rounded-tr-xs bg-violet-600 text-white shadow-violet-600/15"
+                              ? "rounded-tr-xs bg-[#2563EB] text-white shadow-blue-600/15"
                               : "rounded-tl-xs border border-slate-100 bg-white text-slate-800 shadow-[0_4px_20px_rgba(45,35,100,0.03)]"
                           }`}
                         >
                           {!isAdmin &&
                             senderName &&
                             !isDeleted && (
-                              <p className="mb-1 text-[10px] font-bold text-violet-600">
+                              <p className="mb-1 text-[10px] font-bold text-[#2563EB]">
                                 {senderName}
                               </p>
                             )}
 
-                          {/* Render Attachments / Images */}
                           {attachments.length > 0 && (
                             <div className="mb-2 flex flex-col gap-2">
                               {attachments.map((att, attIdx) => {
@@ -1520,8 +1637,7 @@ export default function AdminConversationsPage() {
                                   att.path ||
                                   att.filePath ||
                                   att.fileUrl ||
-                                  att.filename ||
-                                  att.filenameOriginal;
+                                  att.filename;
 
                                 const fileUrl = getFileUrl(rawUrl);
                                 const isImage =
@@ -1578,7 +1694,7 @@ export default function AdminConversationsPage() {
                           <span
                             className={`mt-1.5 block text-right text-[10px] ${
                               isAdmin
-                                ? "text-violet-200"
+                                ? "text-blue-200"
                                 : "text-slate-400"
                             }`}
                           >
@@ -1602,7 +1718,7 @@ export default function AdminConversationsPage() {
                   {selectedFiles.map((file, idx) => (
                     <div
                       key={idx}
-                      className="flex items-center gap-2 rounded-xl border border-violet-100 bg-violet-50/70 px-3 py-1.5 text-xs text-violet-800"
+                      className="flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50/70 px-3 py-1.5 text-xs text-blue-800"
                     >
                       <span className="max-w-[150px] truncate font-semibold">
                         {file.name}
@@ -1616,7 +1732,7 @@ export default function AdminConversationsPage() {
                             )
                           )
                         }
-                        className="text-violet-400 hover:text-rose-600"
+                        className="text-blue-400 hover:text-rose-600"
                       >
                         <X size={13} />
                       </button>
@@ -1653,7 +1769,7 @@ export default function AdminConversationsPage() {
                     fileInputRef.current?.click()
                   }
                   disabled={!selectedUser}
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200/90 bg-slate-50/50 text-slate-500 shadow-sm transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-600 disabled:opacity-40"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200/90 bg-slate-50/50 text-slate-500 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-[#2563EB] disabled:opacity-40"
                 >
                   <Paperclip size={18} />
                 </button>
@@ -1671,7 +1787,7 @@ export default function AdminConversationsPage() {
                     }
                     rows={1}
                     disabled={
-                      !selectedUser || sendingMessage
+                      !selectedUser
                     }
                     onKeyDown={(e) => {
                       if (
@@ -1682,7 +1798,7 @@ export default function AdminConversationsPage() {
                         handleSendMessage(e);
                       }
                     }}
-                    className="min-h-11 max-h-32 w-full resize-none rounded-2xl border border-slate-200/90 bg-slate-50/50 px-4 py-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:bg-white focus:ring-4 focus:ring-violet-500/10 disabled:opacity-60"
+                    className="min-h-11 max-h-32 w-full resize-none rounded-2xl border border-slate-200/90 bg-slate-50/50 px-4 py-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-[#2563EB] focus:bg-white focus:ring-4 focus:ring-blue-500/10 disabled:opacity-60"
                   />
                 </div>
 
@@ -1690,26 +1806,97 @@ export default function AdminConversationsPage() {
                   type="submit"
                   disabled={
                     !selectedUser ||
-                    sendingMessage ||
                     (!message.trim() &&
                       selectedFiles.length === 0)
                   }
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-violet-600 text-white shadow-md shadow-violet-600/25 transition hover:bg-violet-700 disabled:bg-slate-200 disabled:text-slate-400"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#2563EB] text-white shadow-md shadow-blue-600/25 transition hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400"
                 >
-                  {sendingMessage ? (
-                    <Loader2
-                      size={17}
-                      className="animate-spin"
-                    />
-                  ) : (
-                    <Send size={17} />
-                  )}
+                  <Send size={17} />
                 </button>
               </form>
             </div>
           </div>
         </section>
       </div>
+
+      {/* CREATE GROUP MODAL */}
+      {showGroupModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <div className="flex items-center justify-between border-b pb-4">
+              <h3 className="text-base font-bold text-slate-900">Create Team Group</h3>
+              <button
+                type="button"
+                onClick={() => setShowGroupModal(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateGroup} className="mt-4 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700">Group Name</label>
+                <input
+                  type="text"
+                  value={groupName}
+                  onChange={(e) => setGroupName(e.target.value)}
+                  placeholder="e.g. Weekend Escape, Dev Team"
+                  required
+                  className="mt-1 h-10 w-full rounded-xl border px-3 text-xs outline-none focus:border-[#2563EB]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Select Members</label>
+                <div className="max-h-48 overflow-y-auto space-y-1 rounded-xl border p-2">
+                  {users.map((u) => {
+                    const uId = getId(u);
+                    const isChecked = selectedGroupMembers.includes(uId);
+                    return (
+                      <label
+                        key={uId}
+                        className="flex items-center gap-2 rounded-lg p-2 text-xs hover:bg-slate-50 cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedGroupMembers((prev) => [...prev, uId]);
+                            } else {
+                              setSelectedGroupMembers((prev) => prev.filter((id) => id !== uId));
+                            }
+                          }}
+                        />
+                        <span className="font-semibold text-slate-800">{getUserName(u)}</span>
+                        <span className="text-[10px] text-slate-400">({u.role})</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowGroupModal(false)}
+                  className="rounded-xl border px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={creatingGroup || !groupName.trim() || selectedGroupMembers.length === 0}
+                  className="rounded-xl bg-[#2563EB] px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {creatingGroup ? "Creating..." : "Create Group"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

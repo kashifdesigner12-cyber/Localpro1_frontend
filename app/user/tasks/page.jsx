@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
@@ -14,20 +14,12 @@ import {
   ExternalLink,
   Eye,
   FileText,
-  LayoutDashboard,
   Loader2,
-  LogOut,
-  Menu,
   Paperclip,
   RefreshCw,
   Search,
-  Settings,
-  ShieldCheck,
   SlidersHorizontal,
   User,
-  Bell,
-  MessageSquare,
-  UserRound,
   X,
 } from "lucide-react";
 
@@ -45,29 +37,12 @@ const BACKEND_BASE_URL = API_URL.replace(/\/api\/?$/, "");
 const CACHE_TIME = 60 * 1000;
 
 /* =========================================================
-   NAVIGATION
-========================================================= */
-
-const navigation = [
-  { label: "Dashboard", href: "/user", icon: LayoutDashboard },
-  { label: "My Tasks", href: "/user/tasks", icon: ClipboardList },
-  { label: "Attendance", href: "/user/attendance", icon: Clock3 },
-  { label: "Messages", href: "/user/messages", icon: MessageSquare },
-  { label: "Notifications", href: "/user/notifications", icon: Bell },
-  { label: "Leave Requests", href: "/user/leave-requests", icon: FileText },
-  { label: "Profile", href: "/user/profile", icon: UserRound },
-  { label: "Settings", href: "/user/settings", icon: Settings },
-  { label: "Policies", href: "/user/policies", icon: ShieldCheck },
-];
-
-/* =========================================================
    PAGE
 ========================================================= */
 
 export default function UserTasksPage() {
   const router = useRouter();
 
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [tasks, setTasks] = useState([]);
   const [currentUser, setCurrentUser] = useState(() => extractUser(authService?.getUser?.()));
 
@@ -78,7 +53,6 @@ export default function UserTasksPage() {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [updatingTaskId, setUpdatingTaskId] = useState(null);
-  const [loggingOut, setLoggingOut] = useState(false);
 
   const [error, setError] = useState("");
   const [updateError, setUpdateError] = useState("");
@@ -160,27 +134,6 @@ export default function UserTasksPage() {
   useEffect(() => {
     loadTasks(false);
   }, [loadTasks]);
-
-  /* =======================================================
-     LOGOUT
-  ====================================================== */
-
-  async function handleSignOut() {
-    if (loggingOut) return;
-    setLoggingOut(true);
-
-    try {
-      if (typeof authService.logout === "function") {
-        await authService.logout();
-      }
-    } catch (logoutError) {
-      console.error("Logout error:", logoutError);
-    } finally {
-      setSidebarOpen(false);
-      setLoggingOut(false);
-      router.replace("/login");
-    }
-  }
 
   function clearFilters() {
     setSearch("");
@@ -285,11 +238,8 @@ export default function UserTasksPage() {
     }
   }
 
-  const userName = currentUser?.name || currentUser?.fullName || currentUser?.email || "User";
-  const userInitial = String(userName).trim().charAt(0).toUpperCase() || "U";
-
   return (
-    <div className="relative min-h-screen w-full bg-[#f7f8fc] text-slate-950 animate-fadeIn">
+    <div className="relative min-h-screen w-full bg-[#f7f8fc] p-4 text-slate-950 sm:p-6 lg:p-8 animate-fadeIn">
       {/* Background ambient lighting */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute -left-32 -top-32 h-72 w-72 rounded-full bg-violet-400/10 blur-3xl animate-pulse" />
@@ -297,303 +247,168 @@ export default function UserTasksPage() {
         <div className="absolute bottom-0 left-1/3 h-72 w-72 rounded-full bg-orange-300/10 blur-3xl" />
       </div>
 
-      {/* MOBILE OVERLAY */}
-      {sidebarOpen && (
-        <button
-          type="button"
-          aria-label="Close sidebar"
-          onClick={() => setSidebarOpen(false)}
-          className="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-sm lg:hidden transition-opacity duration-300"
-        />
-      )}
-
-      {/* SIDEBAR */}
-      <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-[#171B3A] text-white shadow-2xl transition-transform duration-300 ease-in-out lg:translate-x-0 ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
-      >
-        <div className="flex h-20 shrink-0 items-center justify-between border-b border-white/10 px-5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-purple-600 text-white shadow-md shadow-purple-600/20">
-              <ShieldCheck size={22} />
-            </div>
-
-            <div>
-              <h1 className="text-sm font-bold text-white">Local Pro 1</h1>
-              <p className="text-[11px] font-semibold text-violet-400">
-                User Workspace
-              </p>
-            </div>
+      <div className="mx-auto w-full max-w-7xl space-y-6">
+        {/* CLEAN HEADER SECTION */}
+        <section className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold text-slate-400">Workspace</p>
+            <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">
+              My Tasks
+            </h1>
+            <p className="mt-0.5 text-xs font-medium text-slate-500">
+              View, filter, and update the status of tasks assigned to your workspace account.
+            </p>
           </div>
 
           <button
             type="button"
-            onClick={() => setSidebarOpen(false)}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-white/10 hover:text-white lg:hidden"
-            aria-label="Close sidebar"
+            onClick={() => loadTasks(true)}
+            disabled={refreshing}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200/90 bg-white px-4 text-xs font-bold text-slate-700 shadow-sm transition hover:border-violet-200 hover:bg-violet-50/50 hover:text-violet-700 disabled:opacity-60"
           >
-            <X size={19} />
+            <RefreshCw size={14} className={refreshing ? "animate-spin text-violet-600" : ""} />
+            Refresh Tasks
           </button>
-        </div>
+        </section>
 
-        <nav className="flex-1 overflow-y-auto px-3 py-5">
-          <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-            Workspace
-          </p>
-
-          <div className="space-y-1.5">
-            {navigation.map((item) => (
-              <UserNavItem
-                key={item.href}
-                item={item}
-                onNavigate={() => setSidebarOpen(false)}
-              />
-            ))}
-          </div>
-        </nav>
-
-        <div className="shrink-0 border-t border-white/10 p-3">
-          <button
-            type="button"
-            onClick={handleSignOut}
-            disabled={loggingOut}
-            className="flex w-full items-center gap-3 rounded-2xl px-3.5 py-3 text-sm font-bold text-rose-400 transition hover:bg-rose-500/10 hover:text-rose-300 disabled:opacity-60"
-          >
-            {loggingOut ? <Loader2 size={18} className="animate-spin" /> : <LogOut size={18} />}
-            <span>{loggingOut ? "Signing Out..." : "Logout"}</span>
-          </button>
-        </div>
-      </aside>
-
-      {/* MAIN CONTAINER */}
-      <div className="min-h-screen w-full lg:pl-64">
-        {/* TOP HEADER BAR */}
-        <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200/80 bg-white/95 px-5 backdrop-blur-sm sm:px-6 lg:px-8">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setSidebarOpen(true)}
-              className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50 lg:hidden"
-              aria-label="Open sidebar"
-            >
-              <Menu size={20} />
-            </button>
-
-            <div>
-              <p className="text-xs font-semibold text-slate-400">Workspace</p>
-              <p className="text-sm font-bold text-slate-900">My Tasks</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
+        {error && (
+          <section className="rounded-2xl border border-rose-100 bg-rose-50 p-4 text-rose-700 shadow-sm">
+            <h2 className="text-sm font-bold">Unable to load tasks</h2>
+            <p className="mt-1 text-xs">{error}</p>
             <button
               type="button"
               onClick={() => loadTasks(true)}
-              disabled={refreshing}
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition hover:bg-violet-50 hover:text-violet-600 disabled:opacity-50"
-              title="Refresh"
+              className="mt-3 rounded-xl bg-rose-600 px-4 py-2 text-xs font-bold text-white hover:bg-rose-700"
             >
-              <RefreshCw size={16} className={refreshing ? "animate-spin text-violet-600" : ""} />
+              Try Again
             </button>
+          </section>
+        )}
 
-            <Link
-              href="/user/notifications"
-              className="relative flex h-9 w-9 items-center justify-center rounded-full bg-violet-50 text-violet-600 transition hover:bg-violet-100"
-              title="Notifications"
+        {updateError && (
+          <section className="rounded-2xl border border-rose-100 bg-rose-50 p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-bold text-rose-700">{updateError}</p>
+              <button type="button" onClick={() => setUpdateError("")} className="text-rose-400 hover:text-rose-600">
+                <X size={16} />
+              </button>
+            </div>
+          </section>
+        )}
+
+        {/* SUMMARY CARDS */}
+        <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <TaskSummaryCard icon={ClipboardList} label="Total Tasks" value={loading ? "..." : summary.total} />
+          <TaskSummaryCard icon={Clock3} label="Pending" value={loading ? "..." : summary.pending} />
+          <TaskSummaryCard icon={Activity} label="In Progress" value={loading ? "..." : summary.inProgress} />
+          <TaskSummaryCard icon={CheckCircle2} label="Completed" value={loading ? "..." : summary.completed} />
+        </section>
+
+        {/* FILTERS */}
+        <section className="rounded-[24px] border border-slate-200/80 bg-white p-4 shadow-[0_10px_35px_rgba(45,35,100,0.05)] sm:p-5">
+          <div className="flex flex-col gap-3 lg:flex-row">
+            <div className="relative min-w-0 flex-1">
+              <Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by title or description..."
+                className="h-11 w-full rounded-2xl border border-slate-200/90 bg-slate-50/50 pl-10 pr-4 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:bg-white focus:ring-4 focus:ring-violet-500/10"
+              />
+            </div>
+
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              className="h-11 rounded-2xl border border-slate-200/90 bg-slate-50/50 px-4 text-xs font-bold text-slate-600 outline-none focus:border-violet-500 focus:bg-white"
             >
-              <Bell size={17} />
-            </Link>
+              <option value="all">All Statuses</option>
+              <option value="Pending">Pending</option>
+              <option value="In Progress">In Progress</option>
+              <option value="Completed">Completed</option>
+              <option value="Cancelled">Cancelled</option>
+            </select>
 
-            <div className="hidden items-center gap-2.5 border-l border-slate-200 pl-3 sm:flex">
-              <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-sm">
-                {currentUser?.avatar ? (
-                  <img src={currentUser.avatar} alt={userName} className="h-full w-full object-cover" />
-                ) : (
-                  userInitial
-                )}
+            <select
+              value={priority}
+              onChange={(e) => setPriority(e.target.value)}
+              className="h-11 rounded-2xl border border-slate-200/90 bg-slate-50/50 px-4 text-xs font-bold text-slate-600 outline-none focus:border-violet-500 focus:bg-white"
+            >
+              <option value="all">All Priorities</option>
+              <option value="Low">Low</option>
+              <option value="Medium">Medium</option>
+              <option value="High">High</option>
+              <option value="Urgent">Urgent</option>
+            </select>
+
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200/90 bg-white px-4 text-xs font-bold text-slate-600 shadow-sm transition hover:bg-slate-50"
+            >
+              <SlidersHorizontal size={15} />
+              Clear
+            </button>
+          </div>
+        </section>
+
+        {/* TABLE SECTION */}
+        <section className="overflow-hidden rounded-[26px] border border-slate-200/80 bg-white shadow-[0_10px_35px_rgba(45,35,100,0.05)]">
+          <div className="border-b border-slate-100 bg-slate-50/50 px-6 py-4.5">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-base font-bold text-slate-900">Assigned Tasks List</h2>
+                <p className="text-xs text-slate-500">Manage work items assigned to your profile.</p>
               </div>
-              <div className="max-w-[150px]">
-                <p className="truncate text-xs font-bold text-slate-900">{userName}</p>
-                <p className="text-[10px] font-semibold capitalize text-violet-600">
-                  {currentUser?.role || "user"}
-                </p>
-              </div>
+              {!loading && (
+                <span className="text-xs font-semibold text-slate-400">
+                  Showing {filteredTasks.length} of {tasks.length} tasks
+                </span>
+              )}
             </div>
           </div>
-        </header>
 
-        {/* CONTENT */}
-        <main className="min-h-[calc(100vh-4rem)] p-4 sm:p-6 lg:p-8 animate-slideUp">
-          <div className="mx-auto w-full max-w-7xl space-y-6">
-
-            {/* CLEAN HEADER SECTION (NO BANNER) */}
-            <section className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <div className="mb-1.5 inline-flex items-center gap-1.5 rounded-full border border-violet-200/80 bg-violet-50/80 px-2.5 py-0.5 text-[11px] font-bold tracking-wide text-violet-700">
-                  <ShieldCheck size={13} />
-                  WORKSPACE
-                </div>
-                <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">
-                  My Tasks
-                </h1>
-                <p className="mt-0.5 text-xs font-medium text-slate-500">
-                  View, filter, and update the status of tasks assigned to your workspace account.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => loadTasks(true)}
-                disabled={refreshing}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200/90 bg-white px-4 text-xs font-bold text-slate-700 shadow-sm transition hover:border-violet-200 hover:bg-violet-50/50 hover:text-violet-700 disabled:opacity-60"
-              >
-                <RefreshCw size={14} className={refreshing ? "animate-spin text-violet-600" : ""} />
-                Refresh Tasks
-              </button>
-            </section>
-
-            {error && (
-              <section className="rounded-2xl border border-rose-100 bg-rose-50 p-4 text-rose-700 shadow-sm">
-                <h2 className="text-sm font-bold">Unable to load tasks</h2>
-                <p className="mt-1 text-xs">{error}</p>
-                <button
-                  type="button"
-                  onClick={() => loadTasks(true)}
-                  className="mt-3 rounded-xl bg-rose-600 px-4 py-2 text-xs font-bold text-white hover:bg-rose-700"
-                >
-                  Try Again
-                </button>
-              </section>
-            )}
-
-            {updateError && (
-              <section className="rounded-2xl border border-rose-100 bg-rose-50 p-4 shadow-sm">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs font-bold text-rose-700">{updateError}</p>
-                  <button type="button" onClick={() => setUpdateError("")} className="text-rose-400 hover:text-rose-600">
-                    <X size={16} />
-                  </button>
-                </div>
-              </section>
-            )}
-
-            {/* SUMMARY CARDS */}
-            <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <TaskSummaryCard icon={ClipboardList} label="Total Tasks" value={loading ? "..." : summary.total} />
-              <TaskSummaryCard icon={Clock3} label="Pending" value={loading ? "..." : summary.pending} />
-              <TaskSummaryCard icon={Activity} label="In Progress" value={loading ? "..." : summary.inProgress} />
-              <TaskSummaryCard icon={CheckCircle2} label="Completed" value={loading ? "..." : summary.completed} />
-            </section>
-
-            {/* FILTERS */}
-            <section className="rounded-[24px] border border-slate-200/80 bg-white p-4 shadow-[0_10px_35px_rgba(45,35,100,0.05)] sm:p-5">
-              <div className="flex flex-col gap-3 lg:flex-row">
-                <div className="relative min-w-0 flex-1">
-                  <Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    type="text"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search by title or description..."
-                    className="h-11 w-full rounded-2xl border border-slate-200/90 bg-slate-50/50 pl-10 pr-4 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:bg-white focus:ring-4 focus:ring-violet-500/10"
-                  />
-                </div>
-
-                <select
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value)}
-                  className="h-11 rounded-2xl border border-slate-200/90 bg-slate-50/50 px-4 text-xs font-bold text-slate-600 outline-none focus:border-violet-500 focus:bg-white"
-                >
-                  <option value="all">All Statuses</option>
-                  <option value="Pending">Pending</option>
-                  <option value="In Progress">In Progress</option>
-                  <option value="Completed">Completed</option>
-                  <option value="Cancelled">Cancelled</option>
-                </select>
-
-                <select
-                  value={priority}
-                  onChange={(e) => setPriority(e.target.value)}
-                  className="h-11 rounded-2xl border border-slate-200/90 bg-slate-50/50 px-4 text-xs font-bold text-slate-600 outline-none focus:border-violet-500 focus:bg-white"
-                >
-                  <option value="all">All Priorities</option>
-                  <option value="Low">Low</option>
-                  <option value="Medium">Medium</option>
-                  <option value="High">High</option>
-                  <option value="Urgent">Urgent</option>
-                </select>
-
-                <button
-                  type="button"
-                  onClick={clearFilters}
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200/90 bg-white px-4 text-xs font-bold text-slate-600 shadow-sm transition hover:bg-slate-50"
-                >
-                  <SlidersHorizontal size={15} />
-                  Clear
-                </button>
-              </div>
-            </section>
-
-            {/* TABLE SECTION */}
-            <section className="overflow-hidden rounded-[26px] border border-slate-200/80 bg-white shadow-[0_10px_35px_rgba(45,35,100,0.05)]">
-              <div className="border-b border-slate-100 bg-slate-50/50 px-6 py-4.5">
-                <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <h2 className="text-base font-bold text-slate-900">Assigned Tasks List</h2>
-                    <p className="text-xs text-slate-500">Manage work items assigned to your profile.</p>
-                  </div>
-                  {!loading && (
-                    <span className="text-xs font-semibold text-slate-400">
-                      Showing {filteredTasks.length} of {tasks.length} tasks
-                    </span>
+          {loading ? (
+            <TasksLoading />
+          ) : (
+            <div className="w-full overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50/30">
+                    <th className="px-6 py-3.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">Task</th>
+                    <th className="px-6 py-3.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">Status</th>
+                    <th className="px-6 py-3.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">Priority</th>
+                    <th className="px-6 py-3.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">Due Date</th>
+                    <th className="px-6 py-3.5 text-right text-[11px] font-bold uppercase tracking-wider text-slate-400 sm:pr-6">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredTasks.length === 0 ? (
+                    <tr>
+                      <td colSpan="5">
+                        <EmptyTasks
+                          hasFilters={Boolean(search.trim()) || status !== "all" || priority !== "all"}
+                          clearFilters={clearFilters}
+                        />
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredTasks.map((task) => (
+                      <TaskRow
+                        key={getTaskId(task)}
+                        task={task}
+                        updating={updatingTaskId === getTaskId(task)}
+                        onStatusChange={handleStatusChange}
+                        onViewDetails={() => setSelectedTask(task)}
+                      />
+                    ))
                   )}
-                </div>
-              </div>
-
-              {loading ? (
-                <TasksLoading />
-              ) : (
-                <div className="w-full overflow-x-auto">
-                  <table className="w-full text-left">
-                    <thead>
-                      <tr className="border-b border-slate-100 bg-slate-50/30">
-                        <th className="px-6 py-3.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">Task</th>
-                        <th className="px-6 py-3.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">Status</th>
-                        <th className="px-6 py-3.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">Priority</th>
-                        <th className="px-6 py-3.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">Due Date</th>
-                        <th className="px-6 py-3.5 text-right text-[11px] font-bold uppercase tracking-wider text-slate-400 sm:pr-6">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {filteredTasks.length === 0 ? (
-                        <tr>
-                          <td colSpan="5">
-                            <EmptyTasks
-                              hasFilters={Boolean(search.trim()) || status !== "all" || priority !== "all"}
-                              clearFilters={clearFilters}
-                            />
-                          </td>
-                        </tr>
-                      ) : (
-                        filteredTasks.map((task) => (
-                          <TaskRow
-                            key={getTaskId(task)}
-                            task={task}
-                            updating={updatingTaskId === getTaskId(task)}
-                            onStatusChange={handleStatusChange}
-                            onViewDetails={() => setSelectedTask(task)}
-                          />
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-
-          </div>
-        </main>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
       </div>
 
       {/* =====================================================
@@ -738,29 +553,6 @@ export default function UserTasksPage() {
 /* =========================================================
    SUB COMPONENTS & HELPERS
 ========================================================= */
-
-function UserNavItem({ item, onNavigate }) {
-  const pathname = usePathname();
-  const Icon = item.icon;
-  const isActive =
-    pathname === item.href ||
-    (item.href !== "/user" && pathname.startsWith(`${item.href}/`));
-
-  return (
-    <Link
-      href={item.href}
-      onClick={onNavigate}
-      className={`group flex items-center gap-3 rounded-2xl px-3.5 py-3 text-sm font-bold transition duration-150 ${
-        isActive
-          ? "bg-violet-600 text-white shadow-md shadow-violet-600/30"
-          : "text-slate-300 hover:bg-white/10 hover:text-white"
-      }`}
-    >
-      <Icon size={18} className={`transition duration-150 ${isActive ? "text-white" : "text-slate-400 group-hover:text-white"}`} />
-      <span>{item.label}</span>
-    </Link>
-  );
-}
 
 function TaskRow({ task, updating, onStatusChange, onViewDetails }) {
   const title = getTaskTitle(task);

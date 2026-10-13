@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import {
   CalendarDays,
   Clock3,
@@ -10,17 +9,7 @@ import {
   RefreshCw,
   CheckCircle2,
   AlertCircle,
-  LayoutDashboard,
-  UserRound,
-  ClipboardList,
-  Bell,
-  Settings,
-  Menu,
-  X,
-  MessageSquare,
   MapPin,
-  FileText,
-  Activity,
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
@@ -29,32 +18,19 @@ const API_URL =
   process.env.NEXT_PUBLIC_API_URL ||
   "https://api.localpro1.net/api";
 
-const navigation = [
-  { name: "Dashboard", href: "/user", icon: LayoutDashboard },
-  { name: "My Tasks", href: "/user/tasks", icon: ClipboardList },
-  { name: "Calendar", href: "/user/calendar", icon: CalendarDays },
-  { name: "Attendance", href: "/user/attendance", icon: Clock3, active: true },
-  { name: "Messages", href: "/user/messages", icon: MessageSquare },
-  { name: "Notifications", href: "/user/notifications", icon: Bell },
-  { name: "Leave Requests", href: "/user/leave-requests", icon: FileText },
-  { name: "Profile", href: "/user/profile", icon: UserRound },
-  { name: "Settings", href: "/user/settings", icon: Settings },
-  { name: "Policies", href: "/user/policies", icon: ShieldCheck },
-];
-
 export default function UserAttendancePage() {
   const [user, setUser] = useState(null);
   const [attendance, setAttendance] = useState(null);
   const [liveSettings, setLiveSettings] = useState(null);
 
-  const [loading, setLoading] = useState(false); // Instant render enabled
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [checkingIn, setCheckingIn] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
   const [attendanceWindowExpired, setAttendanceWindowExpired] = useState(false);
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const loadPage = useCallback(async (isSilent = false) => {
     try {
@@ -337,7 +313,9 @@ export default function UserAttendancePage() {
   async function handleRefresh() {
     setSuccess("");
     setError("");
+    setRefreshing(true);
     await loadPage(false);
+    setRefreshing(false);
   }
 
   const resolveActiveSchedule = () => {
@@ -412,274 +390,182 @@ export default function UserAttendancePage() {
   const hasSchedule = Boolean(scheduledTime || windowStart);
 
   return (
-    <div className="relative min-h-screen w-full bg-[#f7f8fc] text-slate-900 animate-fadeIn">
+    <div className="relative min-h-screen w-full bg-[#f7f8fc] p-4 text-slate-900 sm:p-6 lg:p-8 animate-fadeIn">
       {/* Background ambient lighting */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -left-32 -top-32 h-72 w-72 rounded-full bg-violet-400/10 blur-3xl" />
+        <div className="absolute -left-32 -top-32 h-72 w-72 rounded-full bg-violet-400/10 blur-3xl animate-pulse" />
         <div className="absolute right-0 top-20 h-80 w-80 rounded-full bg-pink-400/10 blur-3xl" />
         <div className="absolute bottom-0 left-1/3 h-72 w-72 rounded-full bg-orange-300/10 blur-3xl" />
       </div>
 
-      {sidebarOpen && (
-        <button
-          type="button"
-          aria-label="Close sidebar"
-          onClick={() => setSidebarOpen(false)}
-          className="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-sm lg:hidden"
-        />
-      )}
-
-      {/* SIDEBAR */}
-      <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-[#171B3A] text-white shadow-2xl transition-transform duration-300 ease-in-out lg:translate-x-0 ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
-      >
-        <div className="flex h-20 shrink-0 items-center justify-between border-b border-white/10 px-5">
-          <Link href="/user" onClick={() => setSidebarOpen(false)} className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-purple-600 text-white shadow-md shadow-purple-600/20">
-              <ShieldCheck size={21} />
+      <div className="mx-auto max-w-5xl space-y-6">
+        {/* CLEAN BANNER HEADER */}
+        <section className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="mb-1.5 inline-flex items-center gap-1.5 rounded-full border border-violet-200/80 bg-violet-50/80 px-2.5 py-0.5 text-[11px] font-bold tracking-wide text-violet-700">
+              <ShieldCheck size={13} />
+              TIME & ATTENDANCE
             </div>
-            <div className="min-w-0">
-              <p className="text-sm font-bold text-white">Local Pro 1</p>
-              <p className="text-[11px] font-semibold text-violet-400">User Workspace</p>
-            </div>
-          </Link>
+            <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">
+              My Attendance
+            </h1>
+            <p className="mt-0.5 text-xs font-medium text-slate-500">
+              Check in when you start work and check out when you finish.
+            </p>
+          </div>
 
           <button
             type="button"
-            onClick={() => setSidebarOpen(false)}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-white/10 hover:text-white lg:hidden"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-slate-200/90 bg-white px-4 text-xs font-bold text-slate-700 shadow-sm transition hover:border-violet-200 hover:bg-violet-50/50 hover:text-violet-700 disabled:opacity-60"
           >
-            <X size={19} />
+            <RefreshCw size={14} className={refreshing ? "animate-spin text-violet-600" : ""} />
+            Refresh
           </button>
-        </div>
+        </section>
 
-        <nav className="flex-1 overflow-y-auto px-3 py-5">
-          <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-            Workspace
-          </p>
-          <div className="space-y-1.5">
-            {navigation.map((item) => {
-              const Icon = item.icon;
-              return (
-                <Link
-                  key={item.name}
-                  href={item.href}
-                  onClick={() => setSidebarOpen(false)}
-                  className={`group flex items-center gap-3 rounded-2xl px-3.5 py-3 text-sm font-bold transition duration-150 ${
-                    item.active
-                      ? "bg-violet-600 text-white shadow-md shadow-violet-600/30"
-                      : "text-slate-300 hover:bg-white/10 hover:text-white"
-                  }`}
-                >
-                  <Icon size={18} className={`transition duration-150 ${item.active ? "text-white" : "text-slate-400 group-hover:text-white"}`} />
-                  <span>{item.name}</span>
-                </Link>
-              );
-            })}
-          </div>
-        </nav>
-      </aside>
-
-      {/* MAIN CONTAINER */}
-      <div className="min-h-screen w-full lg:pl-64">
-        <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200/80 bg-white/95 px-5 backdrop-blur-sm sm:px-6 lg:px-8">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setSidebarOpen(true)}
-              className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-700 transition hover:bg-slate-50 lg:hidden"
-            >
-              <Menu size={20} />
-            </button>
-            <div>
-              <p className="text-xs font-semibold text-slate-400">Workspace</p>
-              <p className="text-sm font-bold text-slate-900">Attendance</p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <Link
-              href="/user/notifications"
-              className="relative flex h-9 w-9 items-center justify-center rounded-full bg-violet-50 text-violet-600 transition hover:bg-violet-100"
-            >
-              <Bell size={17} />
-            </Link>
-            <button
-              type="button"
-              onClick={handleRefresh}
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition hover:bg-violet-50 hover:text-violet-600"
-              title="Refresh"
-            >
-              <RefreshCw size={16} className={loading ? "animate-spin text-violet-600" : ""} />
-            </button>
-          </div>
-        </header>
-
-        <main className="min-h-[calc(100vh-4rem)] p-4 sm:p-6 lg:p-8 animate-slideUp">
-          <div className="mx-auto w-full max-w-5xl space-y-6">
-            
-            {/* CLEAN BANNER HEADER */}
-            <section className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        {error && (
+          <div className="rounded-2xl border border-rose-100 bg-rose-50 p-4 text-rose-700 shadow-sm">
+            <div className="flex items-start gap-3">
+              <AlertCircle size={18} className="mt-0.5 shrink-0 text-rose-600" />
               <div>
-                <div className="mb-1.5 inline-flex items-center gap-1.5 rounded-full border border-violet-200/80 bg-violet-50/80 px-2.5 py-0.5 text-[11px] font-bold tracking-wide text-violet-700">
-                  <ShieldCheck size={13} />
-                  TIME & ATTENDANCE
+                <p className="text-xs font-bold">Attendance Error</p>
+                <p className="mt-1 text-xs">{error}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {success && (
+          <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-emerald-700 shadow-sm">
+            <div className="flex items-center gap-3">
+              <CheckCircle2 size={18} className="shrink-0 text-emerald-600" />
+              <p className="text-xs font-bold">{success}</p>
+            </div>
+          </div>
+        )}
+
+        {attendanceWindowExpired && !success && (
+          <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4 text-amber-800 shadow-sm">
+            <div className="flex items-start gap-3">
+              <AlertCircle size={18} className="mt-0.5 shrink-0 text-amber-600" />
+              <div>
+                <p className="text-xs font-bold">Check-in window closed</p>
+                <p className="mt-1 text-xs">The attendance window for today has expired. Marked absent.</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MAIN ATTENDANCE CARD */}
+        <div className="rounded-[26px] border border-slate-200/80 bg-white p-6 shadow-[0_10px_35px_rgba(45,35,100,0.05)] sm:p-8">
+          <div className="text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
+              <Clock3 size={24} />
+            </div>
+            <h2 className="mt-3 text-lg font-extrabold text-slate-900">{userName}</h2>
+            <p className="text-xs text-slate-400">{formatDate(new Date())}</p>
+          </div>
+
+          <div className="mx-auto mt-6 max-w-xl rounded-2xl bg-slate-50/70 p-4 text-center border border-slate-100">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Today&apos;s Status</p>
+            <p className={`mt-1 text-base font-extrabold ${
+              isCheckedOut ? "text-emerald-600" : isCheckedIn ? "text-violet-600" : status === "Absent" ? "text-rose-600" : "text-slate-700"
+            }`}>
+              {isCheckedOut ? "Checked Out" : isCheckedIn ? "Checked In" : status === "Absent" ? "Absent" : "Not Checked In"}
+            </p>
+          </div>
+
+          {hasSchedule && (
+            <div className="mx-auto mt-5 max-w-xl rounded-2xl border border-violet-100 bg-violet-50/40 p-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-600 text-white">
+                  <Clock3 size={16} />
                 </div>
-                <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">
-                  My Attendance
-                </h1>
-                <p className="mt-0.5 text-xs font-medium text-slate-500">
-                  Check in when you start work and check out when you finish.
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Shift Schedule</p>
+                  <p className="text-sm font-extrabold text-slate-900">{scheduledTime ? formatTime(scheduledTime) : "Not assigned"}</p>
+                </div>
+              </div>
+              {windowStart && windowEnd && (
+                <p className="mt-2 text-xs text-slate-500">
+                  Window: <span className="font-bold text-slate-700">{formatTime(windowStart)}</span> to <span className="font-bold text-slate-700">{formatTime(windowEnd)}</span>
                 </p>
-              </div>
-            </section>
-
-            {error && (
-              <div className="rounded-2xl border border-rose-100 bg-rose-50 p-4 text-rose-700 shadow-sm">
-                <div className="flex items-start gap-3">
-                  <AlertCircle size={18} className="mt-0.5 shrink-0 text-rose-600" />
-                  <div>
-                    <p className="text-xs font-bold">Attendance Error</p>
-                    <p className="mt-1 text-xs">{error}</p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {success && (
-              <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-emerald-700 shadow-sm">
-                <div className="flex items-center gap-3">
-                  <CheckCircle2 size={18} className="shrink-0 text-emerald-600" />
-                  <p className="text-xs font-bold">{success}</p>
-                </div>
-              </div>
-            )}
-
-            {attendanceWindowExpired && !success && (
-              <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4 text-amber-800 shadow-sm">
-                <div className="flex items-start gap-3">
-                  <AlertCircle size={18} className="mt-0.5 shrink-0 text-amber-600" />
-                  <div>
-                    <p className="text-xs font-bold">Check-in window closed</p>
-                    <p className="mt-1 text-xs">The attendance window for today has expired. Marked absent.</p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* MAIN ATTENDANCE CARD */}
-            <div className="rounded-[26px] border border-slate-200/80 bg-white p-6 shadow-[0_10px_35px_rgba(45,35,100,0.05)] sm:p-8">
-              <div className="text-center">
-                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
-                  <Clock3 size={24} />
-                </div>
-                <h2 className="mt-3 text-lg font-extrabold text-slate-900">{userName}</h2>
-                <p className="text-xs text-slate-400">{formatDate(new Date())}</p>
-              </div>
-
-              <div className="mx-auto mt-6 max-w-xl rounded-2xl bg-slate-50/70 p-4 text-center border border-slate-100">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Today&apos;s Status</p>
-                <p className={`mt-1 text-base font-extrabold ${
-                  isCheckedOut ? "text-emerald-600" : isCheckedIn ? "text-violet-600" : status === "Absent" ? "text-rose-600" : "text-slate-700"
-                }`}>
-                  {isCheckedOut ? "Checked Out" : isCheckedIn ? "Checked In" : status === "Absent" ? "Absent" : "Not Checked In"}
-                </p>
-              </div>
-
-              {hasSchedule && (
-                <div className="mx-auto mt-5 max-w-xl rounded-2xl border border-violet-100 bg-violet-50/40 p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-600 text-white">
-                      <Clock3 size={16} />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Shift Schedule</p>
-                      <p className="text-sm font-extrabold text-slate-900">{scheduledTime ? formatTime(scheduledTime) : "Not assigned"}</p>
-                    </div>
-                  </div>
-                  {windowStart && windowEnd && (
-                    <p className="mt-2 text-xs text-slate-500">
-                      Window: <span className="font-bold text-slate-700">{formatTime(windowStart)}</span> to <span className="font-bold text-slate-700">{formatTime(windowEnd)}</span>
-                    </p>
-                  )}
-                  <div className="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-violet-700">
-                    <MapPin size={13} className="shrink-0" />
-                    <span>GPS location verification required.</span>
-                  </div>
-                </div>
               )}
-
-              <div className="mx-auto mt-6 grid max-w-xl grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
-                      <LogIn size={17} />
-                    </div>
-                    <div>
-                      <p className="text-[11px] font-bold text-slate-400">Check In</p>
-                      <p className="text-sm font-extrabold text-slate-900">{formatTime(checkIn) || "—"}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-50 text-rose-500">
-                      <LogOut size={17} />
-                    </div>
-                    <div>
-                      <p className="text-[11px] font-bold text-slate-400">Check Out</p>
-                      <p className="text-sm font-extrabold text-slate-900">{formatTime(checkOut) || "—"}</p>
-                    </div>
-                  </div>
-                </div>
+              <div className="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-violet-700">
+                <MapPin size={13} className="shrink-0" />
+                <span>GPS location verification required.</span>
               </div>
+            </div>
+          )}
 
-              <div className="mx-auto mt-6 grid max-w-xl grid-cols-1 gap-3 sm:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={handleCheckIn}
-                  disabled={checkingIn || checkingOut || isCheckedIn || isCheckedOut || attendanceWindowExpired}
-                  className="flex h-11 items-center justify-center gap-2 rounded-2xl bg-violet-600 px-5 text-xs font-bold text-white shadow-md shadow-violet-600/25 transition hover:bg-violet-700 disabled:opacity-50"
-                >
-                  {checkingIn ? (
-                    <>
-                      <RefreshCw size={15} className="animate-spin" />
-                      Verifying GPS...
-                    </>
-                  ) : (
-                    <>
-                      <LogIn size={16} />
-                      Check In (GPS)
-                    </>
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleCheckOut}
-                  disabled={checkingIn || checkingOut || !isCheckedIn}
-                  className="flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200/90 bg-white px-5 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
-                >
-                  {checkingOut ? (
-                    <>
-                      <RefreshCw size={15} className="animate-spin" />
-                      Checking Out...
-                    </>
-                  ) : (
-                    <>
-                      <LogOut size={16} />
-                      Check Out
-                    </>
-                  )}
-                </button>
+          <div className="mx-auto mt-6 grid max-w-xl grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+                  <LogIn size={17} />
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold text-slate-400">Check In</p>
+                  <p className="text-sm font-extrabold text-slate-900">{formatTime(checkIn) || "—"}</p>
+                </div>
               </div>
             </div>
 
+            <div className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-50 text-rose-500">
+                  <LogOut size={17} />
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold text-slate-400">Check Out</p>
+                  <p className="text-sm font-extrabold text-slate-900">{formatTime(checkOut) || "—"}</p>
+                </div>
+              </div>
+            </div>
           </div>
-        </main>
+
+          <div className="mx-auto mt-6 grid max-w-xl grid-cols-1 gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={handleCheckIn}
+              disabled={checkingIn || checkingOut || isCheckedIn || isCheckedOut || attendanceWindowExpired}
+              className="flex h-11 items-center justify-center gap-2 rounded-2xl bg-violet-600 px-5 text-xs font-bold text-white shadow-md shadow-violet-600/25 transition hover:bg-violet-700 disabled:opacity-50"
+            >
+              {checkingIn ? (
+                <>
+                  <RefreshCw size={15} className="animate-spin" />
+                  Verifying GPS...
+                </>
+              ) : (
+                <>
+                  <LogIn size={16} />
+                  Check In (GPS)
+                </>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleCheckOut}
+              disabled={checkingIn || checkingOut || !isCheckedIn}
+              className="flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200/90 bg-white px-5 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
+            >
+              {checkingOut ? (
+                <>
+                  <RefreshCw size={15} className="animate-spin" />
+                  Checking Out...
+                </>
+              ) : (
+                <>
+                  <LogOut size={16} />
+                  Check Out
+                </>
+              )}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
