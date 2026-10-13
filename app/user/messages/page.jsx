@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -31,21 +30,13 @@ const BACKEND_BASE_URL = API_URL.endsWith("/api")
 
 const getFileUrl = (url) => {
   if (!url) return "#";
-
-  if (/^(https?:\/\/|blob:|data:)/i.test(url)) {
-    return url;
-  }
-
+  if (/^(https?:\/\/|blob:|data:)/i.test(url)) return url;
   return `${BACKEND_BASE_URL}${url.startsWith("/") ? "" : "/"}${url}`;
 };
 
 function getUserId(user) {
   if (!user) return null;
-
-  if (typeof user === "string" || typeof user === "number") {
-    return user;
-  }
-
+  if (typeof user === "string" || typeof user === "number") return user;
   return (
     user?._id ||
     user?.id ||
@@ -75,7 +66,6 @@ function getAdminParticipant(conversation, currentUser) {
 
   const otherParticipants = participants.filter((participant) => {
     const participantId = getUserId(participant);
-
     return !(
       currentUserId &&
       participantId &&
@@ -92,7 +82,7 @@ function getAdminParticipant(conversation, currentUser) {
     otherParticipants[0] ||
     conversation?.admin ||
     conversation?.support ||
-    null
+    { name: "Admin / Support", role: "admin" }
   );
 }
 
@@ -102,7 +92,6 @@ function getOtherParticipant(conversation, currentUser) {
 
 function getParticipantName(conversation, currentUser) {
   const participant = getOtherParticipant(conversation, currentUser);
-
   return (
     participant?.name ||
     participant?.fullName ||
@@ -132,7 +121,6 @@ function getParticipantRole(conversation, currentUser) {
 
 function getParticipantAvatar(conversation, currentUser) {
   const participant = getOtherParticipant(conversation, currentUser);
-
   return (
     participant?.avatar ||
     participant?.profileImage ||
@@ -148,13 +136,8 @@ function normalizeConversations(response) {
     response?.results ??
     response?.data;
 
-  if (Array.isArray(possible)) {
-    return possible.filter(Boolean);
-  }
-
-  if (possible && typeof possible === "object") {
-    return [possible];
-  }
+  if (Array.isArray(possible)) return possible.filter(Boolean);
+  if (possible && typeof possible === "object") return [possible];
 
   return [];
 }
@@ -166,20 +149,14 @@ function normalizeMessages(response) {
     response?.results ??
     response?.data;
 
-  if (Array.isArray(possible)) {
-    return possible.filter(Boolean);
-  }
-
-  if (possible && typeof possible === "object") {
-    return [possible];
-  }
+  if (Array.isArray(possible)) return possible.filter(Boolean);
+  if (possible && typeof possible === "object") return [possible];
 
   return [];
 }
 
 function getInitials(name) {
   if (!name) return "A";
-
   return (
     name
       .split(" ")
@@ -202,20 +179,15 @@ function extractUser(response) {
 
 function formatDateTime(date) {
   if (!date) return "";
-
   const parsed = new Date(date);
-
   if (Number.isNaN(parsed.getTime())) return "";
-
   const now = new Date();
-
   if (parsed.toDateString() === now.toDateString()) {
     return parsed.toLocaleTimeString("en-US", {
       hour: "numeric",
       minute: "2-digit",
     });
   }
-
   return parsed.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -224,11 +196,8 @@ function formatDateTime(date) {
 
 function formatTime(date) {
   if (!date) return "";
-
   const parsed = new Date(date);
-
   if (Number.isNaN(parsed.getTime())) return "";
-
   return parsed.toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
@@ -237,7 +206,6 @@ function formatTime(date) {
 
 async function apiRequest(endpoint, options = {}) {
   let token = "";
-
   try {
     if (typeof window !== "undefined") {
       token =
@@ -268,10 +236,8 @@ async function apiRequest(endpoint, options = {}) {
   });
 
   let data = null;
-
   try {
     const responseText = await response.text();
-
     if (responseText) {
       try {
         data = JSON.parse(responseText);
@@ -287,7 +253,6 @@ async function apiRequest(endpoint, options = {}) {
         data?.error ||
         `Request failed with status ${response.status}`
     );
-
     error.status = response.status;
     throw error;
   }
@@ -299,19 +264,15 @@ async function safeApiRequest(endpoint) {
   try {
     return await apiRequest(endpoint, { method: "GET" });
   } catch (error) {
-    if (error?.status === 401) {
-      throw error;
-    }
-
+    if (error?.status === 401) throw error;
     return null;
   }
 }
 
 async function getConversationMessages(conversationId) {
-  if (!conversationId) {
-    throw new Error("Conversation ID is missing.");
+  if (!conversationId || conversationId === "admin-default-chat") {
+    return { messages: [] };
   }
-
   return apiRequest(
     `/conversations/${encodeURIComponent(conversationId)}/messages`,
     { method: "GET" }
@@ -319,8 +280,7 @@ async function getConversationMessages(conversationId) {
 }
 
 async function markConversationRead(conversationId) {
-  if (!conversationId) return;
-
+  if (!conversationId || conversationId === "admin-default-chat") return;
   return apiRequest(
     `/conversations/${encodeURIComponent(conversationId)}/read`,
     { method: "PUT" }
@@ -328,18 +288,63 @@ async function markConversationRead(conversationId) {
 }
 
 export default function UserMessagesPage() {
-  const [conversations, setConversations] = useState([]);
-  const [selectedConversation, setSelectedConversation] = useState(null);
-  const [messages, setMessages] = useState([]);
+  const [conversations, setConversations] = useState(() => {
+    try {
+      const cached = localStorage.getItem("cached_user_admin_chats");
+      if (cached) return JSON.parse(cached);
+    } catch {}
+    return [
+      {
+        id: "admin-default-chat",
+        _id: "admin-default-chat",
+        participants: [{ name: "Admin / Support", role: "admin", email: "admin@localpro1.net" }],
+        lastMessage: "Welcome to support chat",
+        updatedAt: new Date().toISOString(),
+      }
+    ];
+  });
+
+  const [selectedConversation, setSelectedConversation] = useState(() => {
+    try {
+      const cached = localStorage.getItem("cached_user_admin_chats");
+      const parsed = cached ? JSON.parse(cached) : [];
+      return parsed[0] || {
+        id: "admin-default-chat",
+        _id: "admin-default-chat",
+        participants: [{ name: "Admin / Support", role: "admin", email: "admin@localpro1.net" }],
+      };
+    } catch {
+      return null;
+    }
+  });
+
+  const [messages, setMessages] = useState(() => {
+    try {
+      const cachedMsg = localStorage.getItem("cached_user_messages_admin-default-chat");
+      return cachedMsg ? JSON.parse(cachedMsg) : [];
+    } catch {
+      return [];
+    }
+  });
+
   const [search, setSearch] = useState("");
   const [message, setMessage] = useState("");
   const [selectedFiles, setSelectedFiles] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [messagesError, setMessagesError] = useState("");
-  const [currentUser, setCurrentUser] = useState(null);
+  
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const cachedUser = localStorage.getItem("user");
+      return cachedUser ? JSON.parse(cachedUser) : null;
+    } catch {
+      return null;
+    }
+  });
+
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [messageToDelete, setMessageToDelete] = useState(null);
   const [deletingMessage, setDeletingMessage] = useState(false);
@@ -352,6 +357,7 @@ export default function UserMessagesPage() {
   const messagesCache = useRef({});
   const loadMessagesRequestRef = useRef(0);
   const conversationsRequestRef = useRef(false);
+  const incomingMessageIdsRef = useRef(new Set());
 
   const scrollToBottom = useCallback((instant = false) => {
     messagesEndRef.current?.scrollIntoView({
@@ -364,71 +370,84 @@ export default function UserMessagesPage() {
   }, [currentUser]);
 
   useEffect(() => {
-    if (messages.length > 0) {
-      scrollToBottom(false);
-    }
+    if (messages.length > 0) scrollToBottom(false);
   }, [messages, scrollToBottom]);
 
   const loadConversations = useCallback(async (silent = false) => {
     if (conversationsRequestRef.current) return;
-
     conversationsRequestRef.current = true;
 
     try {
-      if (!silent) setLoading(true);
-
+      if (!silent && conversations.length === 0) setLoading(true);
       setError("");
 
-      const me = await authService.me();
-      const user = extractUser(me);
+      let user = currentUserRef.current;
+      let response;
 
-      if (!user || !getUserId(user)) {
-        throw new Error("Unable to identify the logged-in user.");
+      if (!user) {
+        const [meResponse, conversationsResponse] = await Promise.all([
+          authService.me().catch(() => null),
+          safeApiRequest("/conversations"),
+        ]);
+
+        user = extractUser(meResponse);
+        response = conversationsResponse;
+
+        if (user) {
+          currentUserRef.current = user;
+          setCurrentUser(user);
+          try {
+            localStorage.setItem("user", JSON.stringify(user));
+          } catch {}
+        }
+      } else {
+        response = await safeApiRequest("/conversations");
       }
-
-      currentUserRef.current = user;
-      setCurrentUser(user);
-
-      let response = await safeApiRequest("/conversations");
 
       if (!response) {
         response = await safeApiRequest("/messages/conversations");
       }
 
-      if (!response) {
-        throw new Error("Unable to load conversations from the server.");
-      }
-
       const rawConversations = normalizeConversations(response);
-
       const adminConversations = rawConversations.filter((conversation) => {
-        const conversationId = getConversationId(conversation);
-        const admin = getAdminParticipant(conversation, user);
-
-        return Boolean(conversationId && admin);
+        return Boolean(
+          getConversationId(conversation) &&
+            getAdminParticipant(conversation, user || currentUser)
+        );
       });
 
-      setConversations(adminConversations);
+      const finalConvs = adminConversations.length > 0 ? adminConversations : [
+        {
+          id: "admin-default-chat",
+          _id: "admin-default-chat",
+          participants: [{ name: "Admin / Support", role: "admin", email: "admin@localpro1.net" }],
+          lastMessage: "Welcome to support chat",
+          updatedAt: new Date().toISOString(),
+        }
+      ];
+
+      setConversations(finalConvs);
+      try {
+        localStorage.setItem("cached_user_admin_chats", JSON.stringify(finalConvs));
+      } catch {}
 
       setSelectedConversation((previous) => {
         const previousId = getConversationId(previous);
-
-        const matchingConversation = adminConversations.find(
-          (conversation) =>
-            previousId &&
-            String(getConversationId(conversation)) === String(previousId)
-        );
-
-        return matchingConversation || adminConversations[0] || null;
+        if (previousId) {
+          const stillExists = finalConvs.some(
+            (conversation) =>
+              String(getConversationId(conversation)) === String(previousId)
+          );
+          if (stillExists) return previous;
+        }
+        return finalConvs[0] || null;
       });
     } catch (err) {
       console.error("User conversations error:", err);
-
       if (err?.status === 401) {
         window.location.href = "/login";
         return;
       }
-
       if (!silent) {
         setError(err?.message || "Unable to load conversations.");
       }
@@ -436,67 +455,13 @@ export default function UserMessagesPage() {
       conversationsRequestRef.current = false;
       setLoading(false);
     }
-  }, []);
+  }, [conversations.length, currentUser]);
 
   useEffect(() => {
     loadConversations(false);
   }, [loadConversations]);
 
-  const loadMessages = useCallback(
-    async (conversationId, silent = false) => {
-      if (!conversationId) {
-        setMessages([]);
-        setMessagesError("");
-        setMessagesLoading(false);
-        return;
-      }
-
-      const requestId = ++loadMessagesRequestRef.current;
-
-      try {
-        if (!silent) setMessagesLoading(true);
-
-        setMessagesError("");
-
-        const response = await getConversationMessages(conversationId);
-
-        if (requestId !== loadMessagesRequestRef.current) return;
-
-        if (
-          String(selectedConversationIdRef.current) !==
-          String(conversationId)
-        ) {
-          return;
-        }
-
-        const fetchedMessages = normalizeMessages(response);
-
-        messagesCache.current[conversationId] = fetchedMessages;
-        setMessages(fetchedMessages);
-      } catch (err) {
-        if (requestId !== loadMessagesRequestRef.current) return;
-
-        console.error("Load conversation messages error:", err);
-
-        if (!silent) {
-          setMessagesError(
-            err?.message || "Unable to load conversation messages."
-          );
-        }
-      } finally {
-        if (requestId === loadMessagesRequestRef.current) {
-          setMessagesLoading(false);
-        }
-      }
-    },
-    []
-  );
-
-  useEffect(() => {
-    const conversationId = getConversationId(selectedConversation);
-
-    selectedConversationIdRef.current = conversationId;
-
+  const loadMessages = useCallback(async (conversationId, silent = false) => {
     if (!conversationId) {
       setMessages([]);
       setMessagesError("");
@@ -504,17 +469,70 @@ export default function UserMessagesPage() {
       return;
     }
 
-    const cachedMessages = messagesCache.current[conversationId];
+    const requestId = ++loadMessagesRequestRef.current;
 
-    if (cachedMessages) {
-      setMessages(cachedMessages);
-    } else {
+    try {
+      if (!silent) setMessagesLoading(true);
+      setMessagesError("");
+
+      const response = await getConversationMessages(conversationId);
+      if (requestId !== loadMessagesRequestRef.current) return;
+
+      const fetchedMessages = normalizeMessages(response);
+      messagesCache.current[conversationId] = fetchedMessages;
+      setMessages(fetchedMessages);
+
+      try {
+        localStorage.setItem(`cached_user_messages_${conversationId}`, JSON.stringify(fetchedMessages));
+      } catch {}
+    } catch (err) {
+      if (requestId !== loadMessagesRequestRef.current) return;
+      console.error("Load conversation messages error:", err);
+      if (!silent) {
+        setMessagesError(err?.message || "Unable to load conversation messages.");
+      }
+    } finally {
+      if (requestId === loadMessagesRequestRef.current) {
+        setMessagesLoading(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const conversationId = getConversationId(selectedConversation);
+    selectedConversationIdRef.current = conversationId;
+
+    if (!conversationId) {
+      ++loadMessagesRequestRef.current;
       setMessages([]);
+      setMessagesError("");
+      setMessagesLoading(false);
+      return;
     }
 
-    loadMessages(conversationId);
+    const cachedMessages = messagesCache.current[conversationId];
+    if (cachedMessages) {
+      setMessages(cachedMessages);
+      setMessagesLoading(false);
+    } else {
+      try {
+        const localCached = localStorage.getItem(`cached_user_messages_${conversationId}`);
+        if (localCached) {
+          const parsed = JSON.parse(localCached);
+          setMessages(parsed);
+          messagesCache.current[conversationId] = parsed;
+          setMessagesLoading(false);
+        } else {
+          setMessages([]);
+        }
+      } catch {
+        setMessages();
+      }
+    }
 
-    if (socketRef.current) {
+    loadMessages(conversationId, Boolean(cachedMessages));
+
+    if (socketRef.current?.connected) {
       socketRef.current.emit("join_room", conversationId);
       socketRef.current.emit("join", conversationId);
     }
@@ -522,7 +540,6 @@ export default function UserMessagesPage() {
 
   useEffect(() => {
     let token = "";
-
     try {
       token =
         localStorage.getItem("token") ||
@@ -539,20 +556,34 @@ export default function UserMessagesPage() {
 
     socketRef.current = socket;
 
+    const joinSelectedRoom = () => {
+      const conversationId = selectedConversationIdRef.current;
+      if (!conversationId) return;
+      socket.emit("join_room", conversationId);
+      socket.emit("join", conversationId);
+    };
+
     const handleIncomingMessage = (incomingMessage) => {
       if (!incomingMessage) return;
+
+      const incomingId =
+        incomingMessage?._id ||
+        incomingMessage?.id ||
+        incomingMessage?.messageId;
+
+      if (incomingId) {
+        const id = String(incomingId);
+        if (incomingMessageIdsRef.current.has(id)) return;
+        incomingMessageIdsRef.current.add(id);
+      }
 
       const incomingConversationId =
         incomingMessage.conversationId?._id ||
         incomingMessage.conversationId ||
         incomingMessage.conversation?._id ||
         incomingMessage.conversation ||
-        incomingMessage.conversation_id;
-
-      if (!incomingConversationId) {
-        loadConversations(true);
-        return;
-      }
+        incomingMessage.conversation_id ||
+        "admin-default-chat";
 
       const activeConversationId = selectedConversationIdRef.current;
 
@@ -561,11 +592,10 @@ export default function UserMessagesPage() {
         String(incomingConversationId) === String(activeConversationId)
       ) {
         setMessages((previous) => {
-          const incomingId = getUserId(incomingMessage) || incomingMessage?._id;
-
+          const id = incomingMessage?._id || incomingMessage?.id;
           const exists = previous.some(
             (item) =>
-              String(item?._id || item?.id) === String(incomingId) ||
+              (id && String(item?._id || item?.id) === String(id)) ||
               (item?.body === incomingMessage?.body &&
                 String(getUserId(item?.sender)) ===
                   String(getUserId(incomingMessage?.sender)) &&
@@ -577,17 +607,13 @@ export default function UserMessagesPage() {
                 ) < 5000)
           );
 
-          const updated = exists
-            ? previous.map((item) =>
-                String(item?._id || item?.id).startsWith("temp-") &&
-                item?.body === incomingMessage?.body
-                  ? incomingMessage
-                  : item
-              )
-            : [...previous, incomingMessage];
+          if (exists) return previous;
 
+          const updated = [...previous, incomingMessage];
           messagesCache.current[activeConversationId] = updated;
-
+          try {
+            localStorage.setItem(`cached_user_messages_${activeConversationId}`, JSON.stringify(updated));
+          } catch {}
           return updated;
         });
 
@@ -597,11 +623,13 @@ export default function UserMessagesPage() {
       loadConversations(true);
     };
 
+    socket.on("connect", joinSelectedRoom);
     socket.on("receive_message", handleIncomingMessage);
     socket.on("message", handleIncomingMessage);
     socket.on("new_message", handleIncomingMessage);
 
     return () => {
+      socket.off("connect", joinSelectedRoom);
       socket.off("receive_message", handleIncomingMessage);
       socket.off("message", handleIncomingMessage);
       socket.off("new_message", handleIncomingMessage);
@@ -612,14 +640,12 @@ export default function UserMessagesPage() {
 
   const filteredConversations = useMemo(() => {
     const query = search.trim().toLowerCase();
-
     if (!query) return conversations;
 
     return conversations.filter((conversation) => {
       const name = getParticipantName(conversation, currentUser);
       const email = getParticipantEmail(conversation, currentUser);
       const role = getParticipantRole(conversation, currentUser);
-
       const lastMessage = String(
         conversation?.lastMessage ||
           conversation?.lastMessageText ||
@@ -635,14 +661,9 @@ export default function UserMessagesPage() {
 
   function handleFileChange(event) {
     const files = Array.from(event.target.files || []);
-
     if (!files.length) return;
-
     setSelectedFiles((previous) => [...previous, ...files].slice(0, 5));
-
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
+    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   function removeSelectedFile(index) {
@@ -653,29 +674,37 @@ export default function UserMessagesPage() {
 
   async function handleSelectConversation(conversation) {
     if (!conversation) return;
+    const conversationId = getConversationId(conversation) || "admin-default-chat";
 
     setSelectedFiles([]);
     setMessagesError("");
     setSelectedConversation(conversation);
 
-    const conversationId = getConversationId(conversation);
-
-    if (!conversationId) {
-      setMessages([]);
-      setMessagesError("This conversation has no valid ID.");
-      return;
+    const cached = messagesCache.current[conversationId];
+    if (cached) {
+      setMessages(cached);
+    } else {
+      try {
+        const local = localStorage.getItem(`cached_user_messages_${conversationId}`);
+        if (local) {
+          const parsed = JSON.parse(local);
+          setMessages(parsed);
+          messagesCache.current[conversationId] = parsed;
+        } else {
+          setMessages([]);
+        }
+      } catch {
+        setMessages([]);
+      }
     }
-
-    await loadMessages(conversationId);
 
     const unreadCount = Number(
       conversation?.unreadCount || conversation?.unread || 0
     );
 
-    if (unreadCount > 0) {
+    if (unreadCount > 0 && conversationId !== "admin-default-chat") {
       try {
         await markConversationRead(conversationId);
-
         setConversations((previous) =>
           previous.map((item) =>
             String(getConversationId(item)) === String(conversationId)
@@ -683,9 +712,7 @@ export default function UserMessagesPage() {
               : item
           )
         );
-      } catch (err) {
-        console.error("Mark conversation read error:", err);
-      }
+      } catch {}
     }
   }
 
@@ -693,16 +720,9 @@ export default function UserMessagesPage() {
     event?.preventDefault();
 
     const body = message.trim();
-    const conversationId = getConversationId(selectedConversation);
+    const conversationId = getConversationId(selectedConversation) || "admin-default-chat";
 
     if ((!body && selectedFiles.length === 0) || sending) return;
-
-    if (!conversationId) {
-      setMessagesError(
-        "A real conversation could not be found. Refresh the page and try again."
-      );
-      return;
-    }
 
     const contact = getOtherParticipant(selectedConversation, currentUser);
     const recipientId = getUserId(contact);
@@ -728,6 +748,9 @@ export default function UserMessagesPage() {
     setMessages((previous) => {
       const updated = [...previous, optimisticMessage];
       messagesCache.current[conversationId] = updated;
+      try {
+        localStorage.setItem(`cached_user_messages_${conversationId}`, JSON.stringify(updated));
+      } catch {}
       return updated;
     });
 
@@ -742,7 +765,6 @@ export default function UserMessagesPage() {
 
       if (filesToSend.length > 0) {
         const formData = new FormData();
-
         formData.append("body", body);
         formData.append("recipientId", String(recipientId || ""));
         formData.append("conversationId", String(conversationId));
@@ -752,7 +774,6 @@ export default function UserMessagesPage() {
         });
 
         let token = "";
-
         try {
           token =
             localStorage.getItem("token") ||
@@ -771,38 +792,41 @@ export default function UserMessagesPage() {
         });
 
         let responseData = null;
-
         try {
           const responseText = await res.text();
           if (responseText) responseData = JSON.parse(responseText);
         } catch {}
 
         if (!res.ok) {
-          const sendError = new Error(
-            responseData?.message ||
-              responseData?.error ||
-              `Failed to send attachment (${res.status}).`
-          );
-
-          sendError.status = res.status;
-          throw sendError;
+          throw new Error(responseData?.message || "Failed to send attachment.");
         }
-
         response = responseData;
       } else {
-        response = await apiRequest(
-          `/conversations/${encodeURIComponent(conversationId)}/messages`,
-          {
-            method: "POST",
-            body: JSON.stringify({
-              body,
-              message: body,
-              messageType: "text",
-              channel: "chat",
-              direction: "internal",
-            }),
-          }
-        );
+        response = conversationId === "admin-default-chat" && recipientId
+          ? await apiRequest(`/messages`, {
+              method: "POST",
+              body: JSON.stringify({ recipientId, body, message: body }),
+            })
+          : await apiRequest(
+              `/conversations/${encodeURIComponent(conversationId)}/messages`,
+              {
+                method: "POST",
+                body: JSON.stringify({
+                  body,
+                  message: body,
+                  messageType: "text",
+                  channel: "chat",
+                  direction: "internal",
+                }),
+              }
+            ).catch(() =>
+              recipientId
+                ? apiRequest(`/messages`, {
+                    method: "POST",
+                    body: JSON.stringify({ recipientId, body, message: body }),
+                  })
+                : null
+            );
       }
 
       const sentMessage =
@@ -810,7 +834,7 @@ export default function UserMessagesPage() {
         response?.data?.data ||
         response?.data ||
         response?.messageData ||
-        (typeof response?.message === "object" ? response.message : null);
+        null;
 
       if (sentMessage && typeof sentMessage === "object") {
         setMessages((previous) => {
@@ -819,30 +843,25 @@ export default function UserMessagesPage() {
               ? sentMessage
               : item
           );
-
           messagesCache.current[conversationId] = updated;
-
+          try {
+            localStorage.setItem(`cached_user_messages_${conversationId}`, JSON.stringify(updated));
+          } catch {}
           return updated;
         });
       }
 
       await loadConversations(true);
-      await loadMessages(conversationId, true);
     } catch (err) {
       console.error("Send message error:", err);
-
       setMessagesError(err?.message || "Unable to send message.");
-
       setMessages((previous) => {
         const updated = previous.filter(
           (item) => String(item?._id || item?.id) !== String(tempId)
         );
-
         messagesCache.current[conversationId] = updated;
-
         return updated;
       });
-
       setMessage(body);
       setSelectedFiles(filesToSend);
     } finally {
@@ -857,42 +876,33 @@ export default function UserMessagesPage() {
 
   async function executeDeleteMessage(type) {
     if (!messageToDelete) return;
-
     const messageId = messageToDelete?._id || messageToDelete?.id;
-
     if (!messageId || String(messageId).startsWith("temp-")) return;
 
     try {
       setDeletingMessage(true);
-
       const endpoint =
         type === "everyone"
           ? `/messages/${messageId}/delete-for-everyone`
           : `/messages/${messageId}/delete-for-me`;
 
       const response = await apiRequest(endpoint, { method: "POST" });
+      const conversationId = getConversationId(selectedConversation) || "admin-default-chat";
 
       setMessages((previous) => {
         const updated =
           type === "me"
             ? previous.filter(
-                (item) =>
-                  String(item?._id || item?.id) !== String(messageId)
+                (item) => String(item?._id || item?.id) !== String(messageId)
               )
             : previous.map((item) => {
-                if (
-                  String(item?._id || item?.id) !== String(messageId)
-                ) {
+                if (String(item?._id || item?.id) !== String(messageId)) {
                   return item;
                 }
-
                 const updatedMessage = response?.data || response?.message;
-
                 return {
                   ...item,
-                  ...(typeof updatedMessage === "object"
-                    ? updatedMessage
-                    : {}),
+                  ...(typeof updatedMessage === "object" ? updatedMessage : {}),
                   body: "This message was deleted",
                   message: "This message was deleted",
                   isDeletedForEveryone: true,
@@ -900,18 +910,15 @@ export default function UserMessagesPage() {
                 };
               });
 
-        const conversationId = getConversationId(selectedConversation);
-
-        if (conversationId) {
-          messagesCache.current[conversationId] = updated;
-        }
-
+        messagesCache.current[conversationId] = updated;
+        try {
+          localStorage.setItem(`cached_user_messages_${conversationId}`, JSON.stringify(updated));
+        } catch {}
         return updated;
       });
 
       setDeleteModalOpen(false);
       setMessageToDelete(null);
-
       await loadConversations(true);
     } catch (deleteError) {
       console.error("Delete message failed:", deleteError);
@@ -978,14 +985,8 @@ export default function UserMessagesPage() {
                     currentUser
                   );
                   const participantId = getUserId(participant);
-                  const name = getParticipantName(
-                    conversation,
-                    currentUser
-                  );
-                  const avatar = getParticipantAvatar(
-                    conversation,
-                    currentUser
-                  );
+                  const name = getParticipantName(conversation, currentUser);
+                  const avatar = getParticipantAvatar(conversation, currentUser);
                   const lastMessage =
                     conversation?.lastMessage ||
                     conversation?.lastMessageText ||
@@ -994,7 +995,6 @@ export default function UserMessagesPage() {
                   const unread = Number(
                     conversation?.unreadCount || conversation?.unread || 0
                   );
-
                   const active =
                     String(getConversationId(selectedConversation) || "") ===
                     String(id || "");
@@ -1158,10 +1158,7 @@ export default function UserMessagesPage() {
                       className="flex items-center gap-2 rounded-xl border border-violet-100 bg-violet-50/70 px-3 py-1.5 text-xs text-violet-800"
                     >
                       {file.type.startsWith("image/") ? (
-                        <ImageIcon
-                          size={14}
-                          className="text-violet-600"
-                        />
+                        <ImageIcon size={14} className="text-violet-600" />
                       ) : (
                         <File size={14} className="text-violet-600" />
                       )}
@@ -1350,11 +1347,9 @@ function MessageBubble({ message, currentUser, onDeletePrompt }) {
   );
 
   const isDeleted = Boolean(message?.isDeletedForEveryone);
-
   const body = isDeleted
     ? "This message was deleted"
     : message?.body || message?.message || "";
-
   const sender = message?.sender?.name || message?.senderName || "";
 
   useEffect(() => {
@@ -1379,40 +1374,50 @@ function MessageBubble({ message, currentUser, onDeletePrompt }) {
         isOutgoing ? "justify-end" : "justify-start"
       }`}
     >
-      {isOutgoing && !isDeleted && (
-        <div
-          className="relative opacity-0 transition-opacity group-hover:opacity-100"
-          ref={menuRef}
-        >
-          <button
-            type="button"
-            onClick={() => setMenuOpen((previous) => !previous)}
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-            aria-label="Message options"
-          >
-            <MoreVertical size={14} />
-          </button>
+      <div
+        className={`relative ${
+          isOutgoing ? "order-2" : "order-1"
+        } opacity-0 transition-opacity group-hover:opacity-100`}
+        ref={menuRef}
+      >
+        {!isDeleted && (
+          <>
+            <button
+              type="button"
+              onClick={() => setMenuOpen((previous) => !previous)}
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+              aria-label="Message options"
+            >
+              <MoreVertical size={14} />
+            </button>
 
-          {menuOpen && (
-            <div className="absolute bottom-full right-0 z-20 mb-1 w-40 overflow-hidden rounded-2xl border border-slate-100 bg-white py-1.5 shadow-xl">
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onDeletePrompt(message);
-                }}
-                className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-xs font-bold text-rose-600 transition hover:bg-rose-50"
+            {menuOpen && (
+              <div
+                className={`absolute bottom-full z-20 mb-1 w-40 overflow-hidden rounded-2xl border border-slate-100 bg-white py-1.5 shadow-xl ${
+                  isOutgoing ? "right-0" : "left-0"
+                }`}
               >
-                <Trash2 size={13} />
-                Delete Message
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onDeletePrompt(message);
+                  }}
+                  className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-xs font-bold text-rose-600 transition hover:bg-rose-50"
+                >
+                  <Trash2 size={13} />
+                  {isOutgoing ? "Delete Message" : "Delete for Me"}
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
       <div
-        className={`max-w-[82%] rounded-[20px] px-4 py-3 shadow-sm sm:max-w-[72%] ${
+        className={`order-1 max-w-[82%] rounded-[20px] px-4 py-3 shadow-sm sm:max-w-[72%] ${
+          isOutgoing ? "order-2" : "order-1"
+        } ${
           isDeleted
             ? "border border-slate-200/80 bg-slate-50 italic text-slate-400"
             : isOutgoing
@@ -1467,6 +1472,7 @@ function MessageBubble({ message, currentUser, onDeletePrompt }) {
                           attachment?.filename ||
                           "Attached Image"
                         }
+                        loading="lazy"
                         className="max-h-60 w-auto rounded-xl object-contain"
                       />
                     </a>
@@ -1510,38 +1516,6 @@ function MessageBubble({ message, currentUser, onDeletePrompt }) {
           {isOutgoing && !isDeleted && <CheckCheck size={12} />}
         </div>
       </div>
-
-      {!isOutgoing && !isDeleted && (
-        <div
-          className="relative opacity-0 transition-opacity group-hover:opacity-100"
-          ref={menuRef}
-        >
-          <button
-            type="button"
-            onClick={() => setMenuOpen((previous) => !previous)}
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-            aria-label="Message options"
-          >
-            <MoreVertical size={14} />
-          </button>
-
-          {menuOpen && (
-            <div className="absolute bottom-full left-0 z-20 mb-1 w-40 overflow-hidden rounded-2xl border border-slate-100 bg-white py-1.5 shadow-xl">
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onDeletePrompt(message);
-                }}
-                className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-xs font-bold text-rose-600 transition hover:bg-rose-50"
-              >
-                <Trash2 size={13} />
-                Delete for Me
-              </button>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }
