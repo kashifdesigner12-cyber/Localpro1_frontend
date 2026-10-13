@@ -526,7 +526,7 @@ export default function UserMessagesPage() {
           setMessages([]);
         }
       } catch {
-        setMessages();
+        setMessages([]);
       }
     }
 
@@ -561,6 +561,11 @@ export default function UserMessagesPage() {
       if (!conversationId) return;
       socket.emit("join_room", conversationId);
       socket.emit("join", conversationId);
+
+      const userId = getUserId(currentUserRef.current);
+      if (userId) {
+        socket.emit("user_join", userId);
+      }
     };
 
     const handleIncomingMessage = (incomingMessage) => {
