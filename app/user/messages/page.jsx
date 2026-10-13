@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -16,6 +17,7 @@ import {
   Trash2,
   Users,
   X,
+  Bell,
 } from "lucide-react";
 import { io } from "socket.io-client";
 import { authService } from "@/services/authService";
@@ -28,15 +30,44 @@ const BACKEND_BASE_URL = API_URL.endsWith("/api")
   ? API_URL.slice(0, -4)
   : API_URL;
 
-const getFileUrl = (url) => {
+const DEFAULT_CONVERSATION_ID = "admin-default-chat";
+const DEFAULT_CONVERSATION = {
+  id: DEFAULT_CONVERSATION_ID,
+  _id: DEFAULT_CONVERSATION_ID,
+  participants: [
+    {
+      name: "Admin / Support",
+      role: "admin",
+      email: "admin@localpro1.net",
+    },
+  ],
+  lastMessage: "Welcome to support chat",
+  updatedAt: new Date().toISOString(),
+};
+
+function getStoredToken() {
+  try {
+    return (
+      localStorage.getItem("token") ||
+      localStorage.getItem("authToken") ||
+      sessionStorage.getItem("token") ||
+      ""
+    );
+  } catch {
+    return "";
+  }
+}
+
+function getFileUrl(url) {
   if (!url) return "#";
   if (/^(https?:\/\/|blob:|data:)/i.test(url)) return url;
   return `${BACKEND_BASE_URL}${url.startsWith("/") ? "" : "/"}${url}`;
-};
+}
 
 function getUserId(user) {
   if (!user) return null;
   if (typeof user === "string" || typeof user === "number") return user;
+
   return (
     user?._id ||
     user?.id ||
@@ -48,23 +79,37 @@ function getUserId(user) {
 }
 
 function getConversationId(conversation) {
-  return (
+  const id =
     conversation?._id ||
     conversation?.id ||
     conversation?.conversationId ||
-    conversation?.conversation?._id ||
-    null
-  );
+    conversation?.conversation?._id;
+
+  return id ? String(id) : null;
 }
 
-function getAdminParticipant(conversation, currentUser) {
+function getMessageConversationId(message) {
+  const value =
+    message?.conversationId ??
+    message?.conversation ??
+    message?.conversation_id ??
+    message?.chatId;
+
+  if (value && typeof value === "object") {
+    return String(value._id || value.id || value.conversationId || "");
+  }
+
+  return value ? String(value) : null;
+}
+
+function getOtherParticipant(conversation, currentUser) {
   const participants = Array.isArray(conversation?.participants)
     ? conversation.participants
     : [];
 
   const currentUserId = getUserId(currentUser);
 
-  const otherParticipants = participants.filter((participant) => {
+  const others = participants.filter((participant) => {
     const participantId = getUserId(participant);
     return !(
       currentUserId &&
@@ -74,24 +119,21 @@ function getAdminParticipant(conversation, currentUser) {
   });
 
   return (
-    otherParticipants.find((participant) =>
+    others.find((participant) =>
       ["admin", "manager", "support"].includes(
-        String(participant?.role || "").trim().toLowerCase()
+        String(participant?.role || "").toLowerCase()
       )
     ) ||
-    otherParticipants[0] ||
+    others[0] ||
     conversation?.admin ||
     conversation?.support ||
     { name: "Admin / Support", role: "admin" }
   );
 }
 
-function getOtherParticipant(conversation, currentUser) {
-  return getAdminParticipant(conversation, currentUser);
-}
-
 function getParticipantName(conversation, currentUser) {
   const participant = getOtherParticipant(conversation, currentUser);
+
   return (
     participant?.name ||
     participant?.fullName ||
@@ -155,8 +197,66 @@ function normalizeMessages(response) {
   return [];
 }
 
+function getMessageId(message) {
+  const id = message?._id || message?.id || message?.messageId;
+  return id ? String(id) : "";
+}
+
+function getMessageText(message) {
+  return (
+    message?.body ||
+    message?.message ||
+    (message?.attachments?.length ? "Attachment" : "")
+  );
+}
+
+function mergeMessages(existing, incoming) {
+  const combined = [...(existing || [])];
+
+  for (const message of incoming || []) {
+    const incomingId = getMessageId(message);
+
+    const index = combined.findIndex((item) => {
+      const existingId = getMessageId(item);
+
+      if (incomingId && existingId === incomingId) return true;
+
+      // Replace a temporary optimistic message with the saved server message.
+      const temporary = existingId.startsWith("temp-");
+      const sameSender =
+        String(getUserId(item?.sender) || "") ===
+        String(getUserId(message?.sender) || "");
+
+      const sameText = getMessageText(item) === getMessageText(message);
+
+      const timeDifference = Math.abs(
+        new Date(item?.createdAt || Date.now()).getTime() -
+          new Date(message?.createdAt || Date.now()).getTime()
+      );
+
+      return temporary && sameSender && sameText && timeDifference < 15000;
+    });
+
+    if (index >= 0) {
+      combined[index] = {
+        ...combined[index],
+        ...message,
+      };
+    } else {
+      combined.push(message);
+    }
+  }
+
+  return combined.sort((a, b) => {
+    const first = new Date(a?.createdAt || a?.sentAt || 0).getTime();
+    const second = new Date(b?.createdAt || b?.sentAt || 0).getTime();
+    return first - second;
+  });
+}
+
 function getInitials(name) {
   if (!name) return "A";
+
   return (
     name
       .split(" ")
@@ -179,15 +279,19 @@ function extractUser(response) {
 
 function formatDateTime(date) {
   if (!date) return "";
+
   const parsed = new Date(date);
   if (Number.isNaN(parsed.getTime())) return "";
+
   const now = new Date();
+
   if (parsed.toDateString() === now.toDateString()) {
     return parsed.toLocaleTimeString("en-US", {
       hour: "numeric",
       minute: "2-digit",
     });
   }
+
   return parsed.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -196,8 +300,10 @@ function formatDateTime(date) {
 
 function formatTime(date) {
   if (!date) return "";
+
   const parsed = new Date(date);
   if (Number.isNaN(parsed.getTime())) return "";
+
   return parsed.toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
@@ -205,16 +311,7 @@ function formatTime(date) {
 }
 
 async function apiRequest(endpoint, options = {}) {
-  let token = "";
-  try {
-    if (typeof window !== "undefined") {
-      token =
-        localStorage.getItem("token") ||
-        localStorage.getItem("authToken") ||
-        sessionStorage.getItem("token") ||
-        "";
-    }
-  } catch {}
+  const token = getStoredToken();
 
   const isFormData =
     typeof FormData !== "undefined" && options.body instanceof FormData;
@@ -236,13 +333,14 @@ async function apiRequest(endpoint, options = {}) {
   });
 
   let data = null;
+
   try {
-    const responseText = await response.text();
-    if (responseText) {
+    const text = await response.text();
+    if (text) {
       try {
-        data = JSON.parse(responseText);
+        data = JSON.parse(text);
       } catch {
-        data = { message: responseText };
+        data = { message: text };
       }
     }
   } catch {}
@@ -270,9 +368,10 @@ async function safeApiRequest(endpoint) {
 }
 
 async function getConversationMessages(conversationId) {
-  if (!conversationId || conversationId === "admin-default-chat") {
+  if (!conversationId || conversationId === DEFAULT_CONVERSATION_ID) {
     return { messages: [] };
   }
+
   return apiRequest(
     `/conversations/${encodeURIComponent(conversationId)}/messages`,
     { method: "GET" }
@@ -280,11 +379,82 @@ async function getConversationMessages(conversationId) {
 }
 
 async function markConversationRead(conversationId) {
-  if (!conversationId || conversationId === "admin-default-chat") return;
+  if (!conversationId || conversationId === DEFAULT_CONVERSATION_ID) return;
+
   return apiRequest(
     `/conversations/${encodeURIComponent(conversationId)}/read`,
     { method: "PUT" }
   );
+}
+
+function playNotificationSound(audioContextRef) {
+  try {
+    if (typeof window === "undefined") return;
+
+    const AudioContextClass =
+      window.AudioContext || window.webkitAudioContext;
+
+    if (!AudioContextClass) return;
+
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContextClass();
+    }
+
+    const context = audioContextRef.current;
+
+    if (context.state === "suspended") {
+      context.resume().catch(() => {});
+    }
+
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(880, context.currentTime);
+
+    gain.gain.setValueAtTime(0.0001, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(
+      0.12,
+      context.currentTime + 0.02
+    );
+    gain.gain.exponentialRampToValueAtTime(
+      0.0001,
+      context.currentTime + 0.25
+    );
+
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.26);
+  } catch (error) {
+    console.warn("Notification sound unavailable:", error);
+  }
+}
+
+function showDesktopNotification(title, body) {
+  if (
+    typeof window === "undefined" ||
+    !("Notification" in window) ||
+    Notification.permission !== "granted"
+  ) {
+    return;
+  }
+
+  try {
+    const notification = new Notification(title || "New message", {
+      body: body || "You received a new message.",
+      icon: "/favicon.ico",
+      tag: "localpro-user-chat",
+    });
+
+    notification.onclick = () => {
+      window.focus();
+      notification.close();
+    };
+  } catch (error) {
+    console.warn("Desktop notification unavailable:", error);
+  }
 }
 
 export default function UserMessagesPage() {
@@ -293,35 +463,26 @@ export default function UserMessagesPage() {
       const cached = localStorage.getItem("cached_user_admin_chats");
       if (cached) return JSON.parse(cached);
     } catch {}
-    return [
-      {
-        id: "admin-default-chat",
-        _id: "admin-default-chat",
-        participants: [{ name: "Admin / Support", role: "admin", email: "admin@localpro1.net" }],
-        lastMessage: "Welcome to support chat",
-        updatedAt: new Date().toISOString(),
-      }
-    ];
+
+    return [DEFAULT_CONVERSATION];
   });
 
   const [selectedConversation, setSelectedConversation] = useState(() => {
     try {
       const cached = localStorage.getItem("cached_user_admin_chats");
       const parsed = cached ? JSON.parse(cached) : [];
-      return parsed[0] || {
-        id: "admin-default-chat",
-        _id: "admin-default-chat",
-        participants: [{ name: "Admin / Support", role: "admin", email: "admin@localpro1.net" }],
-      };
+      return parsed[0] || DEFAULT_CONVERSATION;
     } catch {
-      return null;
+      return DEFAULT_CONVERSATION;
     }
   });
 
   const [messages, setMessages] = useState(() => {
     try {
-      const cachedMsg = localStorage.getItem("cached_user_messages_admin-default-chat");
-      return cachedMsg ? JSON.parse(cachedMsg) : [];
+      const cached = localStorage.getItem(
+        `cached_user_messages_${DEFAULT_CONVERSATION_ID}`
+      );
+      return cached ? JSON.parse(cached) : [];
     } catch {
       return [];
     }
@@ -335,11 +496,16 @@ export default function UserMessagesPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [messagesError, setMessagesError] = useState("");
-  
+  const [notificationPermission, setNotificationPermission] = useState(
+    typeof window !== "undefined" && "Notification" in window
+      ? Notification.permission
+      : "unsupported"
+  );
+
   const [currentUser, setCurrentUser] = useState(() => {
     try {
-      const cachedUser = localStorage.getItem("user");
-      return cachedUser ? JSON.parse(cachedUser) : null;
+      const cached = localStorage.getItem("user");
+      return cached ? JSON.parse(cached) : null;
     } catch {
       return null;
     }
@@ -352,12 +518,17 @@ export default function UserMessagesPage() {
   const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
   const socketRef = useRef(null);
-  const selectedConversationIdRef = useRef(null);
+  const selectedConversationIdRef = useRef(DEFAULT_CONVERSATION_ID);
   const currentUserRef = useRef(null);
+  const conversationsRef = useRef([]);
   const messagesCache = useRef({});
   const loadMessagesRequestRef = useRef(0);
   const conversationsRequestRef = useRef(false);
-  const incomingMessageIdsRef = useRef(new Set());
+  const processedMessageIdsRef = useRef(new Set());
+  const notificationAudioRef = useRef(null);
+  const notificationPermissionRequestedRef = useRef(false);
+
+  const selectedConversationId = getConversationId(selectedConversation);
 
   const scrollToBottom = useCallback((instant = false) => {
     messagesEndRef.current?.scrollIntoView({
@@ -370,15 +541,60 @@ export default function UserMessagesPage() {
   }, [currentUser]);
 
   useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
+
+  useEffect(() => {
+    selectedConversationIdRef.current =
+      selectedConversationId || DEFAULT_CONVERSATION_ID;
+  }, [selectedConversationId]);
+
+  useEffect(() => {
     if (messages.length > 0) scrollToBottom(false);
   }, [messages, scrollToBottom]);
 
+  const requestNotificationPermission = useCallback(async () => {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      setNotificationPermission("unsupported");
+      return;
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+      setNotificationPermission(permission);
+    } catch {
+      setNotificationPermission(Notification.permission);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    if (
+      "Notification" in window &&
+      Notification.permission === "default" &&
+      !notificationPermissionRequestedRef.current
+    ) {
+      notificationPermissionRequestedRef.current = true;
+
+      // Permission prompts may be blocked by browsers unless initiated
+      // by a user gesture. The bell button below is the fallback.
+      Notification.requestPermission()
+        .then(setNotificationPermission)
+        .catch(() => {});
+    }
+  }, []);
+
   const loadConversations = useCallback(async (silent = false) => {
     if (conversationsRequestRef.current) return;
+
     conversationsRequestRef.current = true;
 
     try {
-      if (!silent && conversations.length === 0) setLoading(true);
+      if (!silent && conversationsRef.current.length === 0) {
+        setLoading(true);
+      }
+
       setError("");
 
       let user = currentUserRef.current;
@@ -396,6 +612,7 @@ export default function UserMessagesPage() {
         if (user) {
           currentUserRef.current = user;
           setCurrentUser(user);
+
           try {
             localStorage.setItem("user", JSON.stringify(user));
           } catch {}
@@ -409,45 +626,48 @@ export default function UserMessagesPage() {
       }
 
       const rawConversations = normalizeConversations(response);
+
       const adminConversations = rawConversations.filter((conversation) => {
-        return Boolean(
-          getConversationId(conversation) &&
-            getAdminParticipant(conversation, user || currentUser)
-        );
+        return Boolean(getConversationId(conversation));
       });
 
-      const finalConvs = adminConversations.length > 0 ? adminConversations : [
-        {
-          id: "admin-default-chat",
-          _id: "admin-default-chat",
-          participants: [{ name: "Admin / Support", role: "admin", email: "admin@localpro1.net" }],
-          lastMessage: "Welcome to support chat",
-          updatedAt: new Date().toISOString(),
-        }
-      ];
+      const finalConversations =
+        adminConversations.length > 0
+          ? adminConversations
+          : [DEFAULT_CONVERSATION];
 
-      setConversations(finalConvs);
+      conversationsRef.current = finalConversations;
+      setConversations(finalConversations);
+
       try {
-        localStorage.setItem("cached_user_admin_chats", JSON.stringify(finalConvs));
+        localStorage.setItem(
+          "cached_user_admin_chats",
+          JSON.stringify(finalConversations)
+        );
       } catch {}
 
       setSelectedConversation((previous) => {
         const previousId = getConversationId(previous);
+
         if (previousId) {
-          const stillExists = finalConvs.some(
-            (conversation) =>
-              String(getConversationId(conversation)) === String(previousId)
+          const matching = finalConversations.find(
+            (item) =>
+              String(getConversationId(item)) === String(previousId)
           );
-          if (stillExists) return previous;
+
+          if (matching) return matching;
         }
-        return finalConvs[0] || null;
+
+        return finalConversations[0] || null;
       });
     } catch (err) {
       console.error("User conversations error:", err);
+
       if (err?.status === 401) {
         window.location.href = "/login";
         return;
       }
+
       if (!silent) {
         setError(err?.message || "Unable to load conversations.");
       }
@@ -455,7 +675,7 @@ export default function UserMessagesPage() {
       conversationsRequestRef.current = false;
       setLoading(false);
     }
-  }, [conversations.length, currentUser]);
+  }, []);
 
   useEffect(() => {
     loadConversations(false);
@@ -476,20 +696,42 @@ export default function UserMessagesPage() {
       setMessagesError("");
 
       const response = await getConversationMessages(conversationId);
+
       if (requestId !== loadMessagesRequestRef.current) return;
 
       const fetchedMessages = normalizeMessages(response);
-      messagesCache.current[conversationId] = fetchedMessages;
-      setMessages(fetchedMessages);
+
+      // Merge rather than overwrite so a socket message arriving during
+      // a fetch is not lost when the fetch response returns.
+      const currentMessages =
+        messagesCache.current[conversationId] || [];
+
+      const merged = mergeMessages(currentMessages, fetchedMessages);
+
+      messagesCache.current[conversationId] = merged;
+
+      if (
+        String(selectedConversationIdRef.current) ===
+        String(conversationId)
+      ) {
+        setMessages(merged);
+      }
 
       try {
-        localStorage.setItem(`cached_user_messages_${conversationId}`, JSON.stringify(fetchedMessages));
+        localStorage.setItem(
+          `cached_user_messages_${conversationId}`,
+          JSON.stringify(merged)
+        );
       } catch {}
     } catch (err) {
       if (requestId !== loadMessagesRequestRef.current) return;
+
       console.error("Load conversation messages error:", err);
+
       if (!silent) {
-        setMessagesError(err?.message || "Unable to load conversation messages.");
+        setMessagesError(
+          err?.message || "Unable to load conversation messages."
+        );
       }
     } finally {
       if (requestId === loadMessagesRequestRef.current) {
@@ -498,8 +740,195 @@ export default function UserMessagesPage() {
     }
   }, []);
 
+  const saveConversationMessages = useCallback((conversationId, nextMessages) => {
+    if (!conversationId) return;
+
+    messagesCache.current[conversationId] = nextMessages;
+
+    try {
+      localStorage.setItem(
+        `cached_user_messages_${conversationId}`,
+        JSON.stringify(nextMessages)
+      );
+    } catch {}
+
+    if (
+      String(selectedConversationIdRef.current) ===
+      String(conversationId)
+    ) {
+      setMessages(nextMessages);
+    }
+  }, []);
+
+  const handleIncomingMessage = useCallback(
+    (incomingMessage) => {
+      if (!incomingMessage || typeof incomingMessage !== "object") return;
+
+      // Ignore socket events that are not actual message payloads.
+      const messageId = getMessageId(incomingMessage);
+      const conversationId = getMessageConversationId(incomingMessage);
+
+      if (!conversationId) {
+        console.warn(
+          "Socket message has no conversation ID:",
+          incomingMessage
+        );
+        return;
+      }
+
+      // Use IDs to deduplicate messages received through more than one
+      // event name. Keep the set bounded to avoid unlimited memory growth.
+      if (messageId) {
+        if (processedMessageIdsRef.current.has(messageId)) return;
+
+        processedMessageIdsRef.current.add(messageId);
+
+        if (processedMessageIdsRef.current.size > 1500) {
+          const oldest =
+            processedMessageIdsRef.current.values().next().value;
+          processedMessageIdsRef.current.delete(oldest);
+        }
+      }
+
+      const activeConversationId =
+        selectedConversationIdRef.current || "";
+
+      const isActiveConversation =
+        String(activeConversationId) === String(conversationId);
+
+      const sender = incomingMessage.sender || {};
+      const senderId = getUserId(sender);
+      const currentUserId = getUserId(currentUserRef.current);
+
+      const isOwnMessage = Boolean(
+        senderId &&
+          currentUserId &&
+          String(senderId) === String(currentUserId)
+      );
+
+      const senderRole = String(sender?.role || "").toLowerCase();
+      const isAdminSender = [
+        "admin",
+        "manager",
+        "support",
+      ].includes(senderRole);
+
+      const isIncomingFromOtherUser = !isOwnMessage;
+
+      const previousMessages =
+        messagesCache.current[conversationId] || [];
+
+      const mergedMessages = mergeMessages(previousMessages, [
+        incomingMessage,
+      ]);
+
+      saveConversationMessages(conversationId, mergedMessages);
+
+      const preview = getMessageText(incomingMessage);
+      const messageTime =
+        incomingMessage.createdAt || new Date().toISOString();
+
+      setConversations((previous) => {
+        const updated = previous.map((conversation) => {
+          if (
+            String(getConversationId(conversation)) !==
+            String(conversationId)
+          ) {
+            return conversation;
+          }
+
+          const previousUnread = Number(
+            conversation.unreadCount ||
+              conversation.unread ||
+              conversation.unreadMessages ||
+              0
+          );
+
+          const unread = isActiveConversation
+            ? 0
+            : isOwnMessage
+              ? previousUnread
+              : previousUnread + 1;
+
+          return {
+            ...conversation,
+            lastMessage: preview,
+            lastMessageText: preview,
+            lastMessageAt: messageTime,
+            updatedAt: messageTime,
+            unreadCount: unread,
+            unreadMessages: unread,
+            unreadMessageCount: unread,
+            unread,
+          };
+        });
+
+        conversationsRef.current = updated;
+
+        try {
+          localStorage.setItem(
+            "cached_user_admin_chats",
+            JSON.stringify(updated)
+          );
+        } catch {}
+
+        return updated;
+      });
+
+      const isPageVisible =
+        typeof document !== "undefined" &&
+        document.visibilityState === "visible";
+
+      // Notify for messages sent by the admin/support side, not for
+      // this user's own message echoed back by the server.
+      if (isIncomingFromOtherUser && (isAdminSender || !isOwnMessage)) {
+        const shouldNotify = !isActiveConversation || !isPageVisible;
+
+        if (shouldNotify) {
+          const title =
+            sender?.name ||
+            sender?.fullName ||
+            sender?.email ||
+            "Admin / Support";
+
+          playNotificationSound(notificationAudioRef);
+          showDesktopNotification(title, preview || "You received a message.");
+        }
+      }
+
+      if (isActiveConversation && isIncomingFromOtherUser) {
+        markConversationRead(conversationId).catch(() => {});
+
+        setConversations((previous) => {
+          const updated = previous.map((conversation) =>
+            String(getConversationId(conversation)) ===
+            String(conversationId)
+              ? {
+                  ...conversation,
+                  unreadCount: 0,
+                  unreadMessages: 0,
+                  unreadMessageCount: 0,
+                  unread: 0,
+                }
+              : conversation
+          );
+
+          conversationsRef.current = updated;
+          return updated;
+        });
+      }
+
+      // Refresh the conversation preview/unread data from the API.
+      // Message display itself is updated immediately by the socket.
+      loadConversations(true);
+    },
+    [loadConversations, saveConversationMessages]
+  );
+
   useEffect(() => {
-    const conversationId = getConversationId(selectedConversation);
+    const conversationId =
+      selectedConversationId || DEFAULT_CONVERSATION_ID;
+
     selectedConversationIdRef.current = conversationId;
 
     if (!conversationId) {
@@ -510,17 +939,21 @@ export default function UserMessagesPage() {
       return;
     }
 
-    const cachedMessages = messagesCache.current[conversationId];
-    if (cachedMessages) {
-      setMessages(cachedMessages);
+    const cached = messagesCache.current[conversationId];
+
+    if (cached) {
+      setMessages(cached);
       setMessagesLoading(false);
     } else {
       try {
-        const localCached = localStorage.getItem(`cached_user_messages_${conversationId}`);
-        if (localCached) {
-          const parsed = JSON.parse(localCached);
-          setMessages(parsed);
+        const local = localStorage.getItem(
+          `cached_user_messages_${conversationId}`
+        );
+
+        if (local) {
+          const parsed = JSON.parse(local);
           messagesCache.current[conversationId] = parsed;
+          setMessages(parsed);
           setMessagesLoading(false);
         } else {
           setMessages([]);
@@ -530,118 +963,84 @@ export default function UserMessagesPage() {
       }
     }
 
-    loadMessages(conversationId, Boolean(cachedMessages));
-
-    if (socketRef.current?.connected) {
-      socketRef.current.emit("join_room", conversationId);
-      socketRef.current.emit("join", conversationId);
-    }
-  }, [selectedConversation, loadMessages]);
+    loadMessages(conversationId, Boolean(cached));
+  }, [selectedConversationId, loadMessages]);
 
   useEffect(() => {
-    let token = "";
-    try {
-      token =
-        localStorage.getItem("token") ||
-        localStorage.getItem("authToken") ||
-        sessionStorage.getItem("token") ||
-        "";
-    } catch {}
-
     const socket = io(BACKEND_BASE_URL, {
-      auth: { token },
+      auth: { token: getStoredToken() },
       transports: ["websocket", "polling"],
       reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 500,
+      reconnectionDelayMax: 3000,
+      timeout: 20000,
     });
 
     socketRef.current = socket;
 
     const joinSelectedRoom = () => {
       const conversationId = selectedConversationIdRef.current;
-      if (!conversationId) return;
-      socket.emit("join_room", conversationId);
-      socket.emit("join", conversationId);
+
+      if (conversationId) {
+        socket.emit("join_room", conversationId);
+        // Compatibility with backends using the older event name.
+        socket.emit("join", conversationId);
+      }
 
       const userId = getUserId(currentUserRef.current);
+
       if (userId) {
         socket.emit("user_join", userId);
       }
     };
 
-    const handleIncomingMessage = (incomingMessage) => {
-      if (!incomingMessage) return;
-
-      const incomingId =
-        incomingMessage?._id ||
-        incomingMessage?.id ||
-        incomingMessage?.messageId;
-
-      if (incomingId) {
-        const id = String(incomingId);
-        if (incomingMessageIdsRef.current.has(id)) return;
-        incomingMessageIdsRef.current.add(id);
-      }
-
-      const incomingConversationId =
-        incomingMessage.conversationId?._id ||
-        incomingMessage.conversationId ||
-        incomingMessage.conversation?._id ||
-        incomingMessage.conversation ||
-        incomingMessage.conversation_id ||
-        "admin-default-chat";
-
-      const activeConversationId = selectedConversationIdRef.current;
-
-      if (
-        activeConversationId &&
-        String(incomingConversationId) === String(activeConversationId)
-      ) {
-        setMessages((previous) => {
-          const id = incomingMessage?._id || incomingMessage?.id;
-          const exists = previous.some(
-            (item) =>
-              (id && String(item?._id || item?.id) === String(id)) ||
-              (item?.body === incomingMessage?.body &&
-                String(getUserId(item?.sender)) ===
-                  String(getUserId(incomingMessage?.sender)) &&
-                Math.abs(
-                  new Date(item?.createdAt || Date.now()).getTime() -
-                    new Date(
-                      incomingMessage?.createdAt || Date.now()
-                    ).getTime()
-                ) < 5000)
-          );
-
-          if (exists) return previous;
-
-          const updated = [...previous, incomingMessage];
-          messagesCache.current[activeConversationId] = updated;
-          try {
-            localStorage.setItem(`cached_user_messages_${activeConversationId}`, JSON.stringify(updated));
-          } catch {}
-          return updated;
-        });
-
-        loadMessages(activeConversationId, true);
-      }
-
-      loadConversations(true);
+    const onConnectError = (socketError) => {
+      console.warn("Chat socket connection error:", socketError?.message);
     };
 
     socket.on("connect", joinSelectedRoom);
+    socket.on("connect_error", onConnectError);
+
+    // The backend may emit one of these names. The handler deduplicates
+    // saved messages by their ID.
     socket.on("receive_message", handleIncomingMessage);
-    socket.on("message", handleIncomingMessage);
     socket.on("new_message", handleIncomingMessage);
+    socket.on("message", handleIncomingMessage);
 
     return () => {
       socket.off("connect", joinSelectedRoom);
+      socket.off("connect_error", onConnectError);
       socket.off("receive_message", handleIncomingMessage);
-      socket.off("message", handleIncomingMessage);
       socket.off("new_message", handleIncomingMessage);
+      socket.off("message", handleIncomingMessage);
       socket.disconnect();
-      socketRef.current = null;
+
+      if (socketRef.current === socket) {
+        socketRef.current = null;
+      }
     };
-  }, [loadConversations, loadMessages]);
+  }, [handleIncomingMessage]);
+
+  useEffect(() => {
+    const socket = socketRef.current;
+    if (!socket || !selectedConversationId) return;
+
+    const joinSelectedRoom = () => {
+      socket.emit("join_room", selectedConversationId);
+      socket.emit("join", selectedConversationId);
+    };
+
+    if (socket.connected) {
+      joinSelectedRoom();
+    } else {
+      socket.once("connect", joinSelectedRoom);
+    }
+
+    return () => {
+      socket.off("connect", joinSelectedRoom);
+    };
+  }, [selectedConversationId]);
 
   const filteredConversations = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -667,8 +1066,12 @@ export default function UserMessagesPage() {
   function handleFileChange(event) {
     const files = Array.from(event.target.files || []);
     if (!files.length) return;
+
     setSelectedFiles((previous) => [...previous, ...files].slice(0, 5));
-    if (fileInputRef.current) fileInputRef.current.value = "";
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
   }
 
   function removeSelectedFile(index) {
@@ -679,22 +1082,29 @@ export default function UserMessagesPage() {
 
   async function handleSelectConversation(conversation) {
     if (!conversation) return;
-    const conversationId = getConversationId(conversation) || "admin-default-chat";
+
+    const conversationId =
+      getConversationId(conversation) || DEFAULT_CONVERSATION_ID;
 
     setSelectedFiles([]);
     setMessagesError("");
     setSelectedConversation(conversation);
+    selectedConversationIdRef.current = conversationId;
 
     const cached = messagesCache.current[conversationId];
+
     if (cached) {
       setMessages(cached);
     } else {
       try {
-        const local = localStorage.getItem(`cached_user_messages_${conversationId}`);
+        const local = localStorage.getItem(
+          `cached_user_messages_${conversationId}`
+        );
+
         if (local) {
           const parsed = JSON.parse(local);
-          setMessages(parsed);
           messagesCache.current[conversationId] = parsed;
+          setMessages(parsed);
         } else {
           setMessages([]);
         }
@@ -703,21 +1113,41 @@ export default function UserMessagesPage() {
       }
     }
 
+    if (socketRef.current?.connected) {
+      socketRef.current.emit("join_room", conversationId);
+      socketRef.current.emit("join", conversationId);
+    }
+
     const unreadCount = Number(
-      conversation?.unreadCount || conversation?.unread || 0
+      conversation?.unreadCount ||
+        conversation?.unreadMessages ||
+        conversation?.unread ||
+        0
     );
 
-    if (unreadCount > 0 && conversationId !== "admin-default-chat") {
+    if (unreadCount > 0 && conversationId !== DEFAULT_CONVERSATION_ID) {
       try {
         await markConversationRead(conversationId);
-        setConversations((previous) =>
-          previous.map((item) =>
+
+        setConversations((previous) => {
+          const updated = previous.map((item) =>
             String(getConversationId(item)) === String(conversationId)
-              ? { ...item, unreadCount: 0, unread: 0 }
+              ? {
+                  ...item,
+                  unreadCount: 0,
+                  unreadMessages: 0,
+                  unreadMessageCount: 0,
+                  unread: 0,
+                }
               : item
-          )
-        );
-      } catch {}
+          );
+
+          conversationsRef.current = updated;
+          return updated;
+        });
+      } catch (readError) {
+        console.warn("Could not mark conversation as read:", readError);
+      }
     }
   }
 
@@ -725,13 +1155,17 @@ export default function UserMessagesPage() {
     event?.preventDefault();
 
     const body = message.trim();
-    const conversationId = getConversationId(selectedConversation) || "admin-default-chat";
+    const conversationId =
+      getConversationId(selectedConversation) || DEFAULT_CONVERSATION_ID;
 
     if ((!body && selectedFiles.length === 0) || sending) return;
 
     const contact = getOtherParticipant(selectedConversation, currentUser);
     const recipientId = getUserId(contact);
-    const tempId = `temp-${Date.now()}`;
+    const tempId = `temp-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}`;
+
     const filesToSend = [...selectedFiles];
 
     const optimisticMessage = {
@@ -748,16 +1182,16 @@ export default function UserMessagesPage() {
         mimeType: file.type,
         url: URL.createObjectURL(file),
       })),
+      sending: true,
     };
 
-    setMessages((previous) => {
-      const updated = [...previous, optimisticMessage];
-      messagesCache.current[conversationId] = updated;
-      try {
-        localStorage.setItem(`cached_user_messages_${conversationId}`, JSON.stringify(updated));
-      } catch {}
-      return updated;
-    });
+    const currentMessages =
+      messagesCache.current[conversationId] || messages;
+
+    saveConversationMessages(
+      conversationId,
+      mergeMessages(currentMessages, [optimisticMessage])
+    );
 
     setMessage("");
     setSelectedFiles([]);
@@ -770,7 +1204,9 @@ export default function UserMessagesPage() {
 
       if (filesToSend.length > 0) {
         const formData = new FormData();
+
         formData.append("body", body);
+        formData.append("message", body);
         formData.append("recipientId", String(recipientId || ""));
         formData.append("conversationId", String(conversationId));
 
@@ -778,60 +1214,71 @@ export default function UserMessagesPage() {
           formData.append("files", file);
         });
 
-        let token = "";
-        try {
-          token =
-            localStorage.getItem("token") ||
-            localStorage.getItem("authToken") ||
-            "";
-        } catch {}
-
         const res = await fetch(`${API_URL}/messages`, {
           method: "POST",
           credentials: "include",
           headers: {
             Accept: "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            ...(getStoredToken()
+              ? { Authorization: `Bearer ${getStoredToken()}` }
+              : {}),
           },
           body: formData,
         });
 
         let responseData = null;
+
         try {
-          const responseText = await res.text();
-          if (responseText) responseData = JSON.parse(responseText);
+          const text = await res.text();
+          if (text) responseData = JSON.parse(text);
         } catch {}
 
         if (!res.ok) {
-          throw new Error(responseData?.message || "Failed to send attachment.");
+          throw new Error(
+            responseData?.message || "Failed to send attachment."
+          );
         }
+
         response = responseData;
       } else {
-        response = conversationId === "admin-default-chat" && recipientId
-          ? await apiRequest(`/messages`, {
-              method: "POST",
-              body: JSON.stringify({ recipientId, body, message: body }),
-            })
-          : await apiRequest(
-              `/conversations/${encodeURIComponent(conversationId)}/messages`,
-              {
+        response =
+          conversationId === DEFAULT_CONVERSATION_ID && recipientId
+            ? await apiRequest("/messages", {
                 method: "POST",
                 body: JSON.stringify({
+                  recipientId,
                   body,
                   message: body,
-                  messageType: "text",
-                  channel: "chat",
-                  direction: "internal",
                 }),
-              }
-            ).catch(() =>
-              recipientId
-                ? apiRequest(`/messages`, {
-                    method: "POST",
-                    body: JSON.stringify({ recipientId, body, message: body }),
-                  })
-                : null
-            );
+              })
+            : await apiRequest(
+                `/conversations/${encodeURIComponent(
+                  conversationId
+                )}/messages`,
+                {
+                  method: "POST",
+                  body: JSON.stringify({
+                    body,
+                    message: body,
+                    messageType: "text",
+                    channel: "chat",
+                    direction: "internal",
+                    recipientId,
+                  }),
+                }
+              ).catch(() => {
+                if (!recipientId) throw new Error("Recipient not found.");
+
+                return apiRequest("/messages", {
+                  method: "POST",
+                  body: JSON.stringify({
+                    recipientId,
+                    conversationId,
+                    body,
+                    message: body,
+                  }),
+                });
+              });
       }
 
       const sentMessage =
@@ -839,34 +1286,54 @@ export default function UserMessagesPage() {
         response?.data?.data ||
         response?.data ||
         response?.messageData ||
+        response?.message ||
         null;
 
-      if (sentMessage && typeof sentMessage === "object") {
-        setMessages((previous) => {
-          const updated = previous.map((item) =>
-            String(item?._id || item?.id) === String(tempId)
-              ? sentMessage
+      const normalizedSentMessage =
+        sentMessage && typeof sentMessage === "object"
+          ? {
+              ...sentMessage,
+              conversationId:
+                getMessageConversationId(sentMessage) || conversationId,
+            }
+          : null;
+
+      const latest =
+        messagesCache.current[conversationId] || [];
+
+      if (normalizedSentMessage) {
+        saveConversationMessages(
+          conversationId,
+          mergeMessages(
+            latest.filter(
+              (item) => getMessageId(item) !== String(tempId)
+            ),
+            [normalizedSentMessage]
+          )
+        );
+      } else {
+        saveConversationMessages(
+          conversationId,
+          latest.map((item) =>
+            getMessageId(item) === String(tempId)
+              ? { ...item, sending: false }
               : item
-          );
-          messagesCache.current[conversationId] = updated;
-          try {
-            localStorage.setItem(`cached_user_messages_${conversationId}`, JSON.stringify(updated));
-          } catch {}
-          return updated;
-        });
+          )
+        );
       }
 
       await loadConversations(true);
     } catch (err) {
       console.error("Send message error:", err);
       setMessagesError(err?.message || "Unable to send message.");
-      setMessages((previous) => {
-        const updated = previous.filter(
-          (item) => String(item?._id || item?.id) !== String(tempId)
-        );
-        messagesCache.current[conversationId] = updated;
-        return updated;
-      });
+
+      const latest = messagesCache.current[conversationId] || [];
+
+      saveConversationMessages(
+        conversationId,
+        latest.filter((item) => getMessageId(item) !== String(tempId))
+      );
+
       setMessage(body);
       setSelectedFiles(filesToSend);
     } finally {
@@ -881,49 +1348,51 @@ export default function UserMessagesPage() {
 
   async function executeDeleteMessage(type) {
     if (!messageToDelete) return;
-    const messageId = messageToDelete?._id || messageToDelete?.id;
-    if (!messageId || String(messageId).startsWith("temp-")) return;
+
+    const messageId = getMessageId(messageToDelete);
+
+    if (!messageId || messageId.startsWith("temp-")) return;
 
     try {
       setDeletingMessage(true);
+
       const endpoint =
         type === "everyone"
-          ? `/messages/${messageId}/delete-for-everyone`
-          : `/messages/${messageId}/delete-for-me`;
+          ? `/messages/${encodeURIComponent(
+              messageId
+            )}/delete-for-everyone`
+          : `/messages/${encodeURIComponent(messageId)}/delete-for-me`;
 
       const response = await apiRequest(endpoint, { method: "POST" });
-      const conversationId = getConversationId(selectedConversation) || "admin-default-chat";
+      const conversationId =
+        getConversationId(selectedConversation) || DEFAULT_CONVERSATION_ID;
 
-      setMessages((previous) => {
-        const updated =
-          type === "me"
-            ? previous.filter(
-                (item) => String(item?._id || item?.id) !== String(messageId)
-              )
-            : previous.map((item) => {
-                if (String(item?._id || item?.id) !== String(messageId)) {
-                  return item;
-                }
-                const updatedMessage = response?.data || response?.message;
-                return {
-                  ...item,
-                  ...(typeof updatedMessage === "object" ? updatedMessage : {}),
-                  body: "This message was deleted",
-                  message: "This message was deleted",
-                  isDeletedForEveryone: true,
-                  attachments: [],
-                };
-              });
+      const latest = messagesCache.current[conversationId] || messages;
+      const serverMessage = response?.data?.message || response?.data;
 
-        messagesCache.current[conversationId] = updated;
-        try {
-          localStorage.setItem(`cached_user_messages_${conversationId}`, JSON.stringify(updated));
-        } catch {}
-        return updated;
-      });
+      const updated =
+        type === "me"
+          ? latest.filter((item) => getMessageId(item) !== messageId)
+          : latest.map((item) => {
+              if (getMessageId(item) !== messageId) return item;
+
+              return {
+                ...item,
+                ...(serverMessage && typeof serverMessage === "object"
+                  ? serverMessage
+                  : {}),
+                body: "This message was deleted",
+                message: "This message was deleted",
+                isDeletedForEveryone: true,
+                attachments: [],
+              };
+            });
+
+      saveConversationMessages(conversationId, updated);
 
       setDeleteModalOpen(false);
       setMessageToDelete(null);
+
       await loadConversations(true);
     } catch (deleteError) {
       console.error("Delete message failed:", deleteError);
@@ -955,13 +1424,27 @@ export default function UserMessagesPage() {
         <section className="grid h-full min-h-0 min-w-0 w-full flex-1 grid-cols-1 grid-rows-[240px_minmax(0,1fr)] overflow-hidden rounded-[26px] border border-slate-200/80 bg-white shadow-[0_10px_35px_rgba(45,35,100,0.05)] lg:grid-cols-[360px_minmax(0,1fr)] lg:grid-rows-1">
           <aside className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-b border-slate-100 lg:border-b-0 lg:border-r">
             <div className="shrink-0 border-b border-slate-100 bg-slate-50/50 p-4 sm:p-5">
-              <div className="mb-3.5">
-                <h2 className="text-base font-extrabold text-slate-900">
-                  Chats & Teams
-                </h2>
-                <p className="mt-0.5 text-xs text-slate-400">
-                  Direct messages with Admin
-                </p>
+              <div className="mb-3.5 flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-extrabold text-slate-900">
+                    Chats & Teams
+                  </h2>
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    Direct messages with Admin
+                  </p>
+                </div>
+
+                {notificationPermission !== "granted" &&
+                  notificationPermission !== "unsupported" && (
+                    <button
+                      type="button"
+                      onClick={requestNotificationPermission}
+                      title="Enable desktop notifications"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-violet-100 bg-white text-violet-600 hover:bg-violet-50"
+                    >
+                      <Bell size={16} />
+                    </button>
+                  )}
               </div>
 
               <div className="relative">
@@ -991,18 +1474,23 @@ export default function UserMessagesPage() {
                   );
                   const participantId = getUserId(participant);
                   const name = getParticipantName(conversation, currentUser);
-                  const avatar = getParticipantAvatar(conversation, currentUser);
+                  const avatar = getParticipantAvatar(
+                    conversation,
+                    currentUser
+                  );
                   const lastMessage =
                     conversation?.lastMessage ||
                     conversation?.lastMessageText ||
                     conversation?.preview ||
                     "No messages yet";
                   const unread = Number(
-                    conversation?.unreadCount || conversation?.unread || 0
+                    conversation?.unreadCount ||
+                      conversation?.unreadMessages ||
+                      conversation?.unread ||
+                      0
                   );
                   const active =
-                    String(getConversationId(selectedConversation) || "") ===
-                    String(id || "");
+                    String(selectedConversationId || "") === String(id || "");
 
                   return (
                     <button
@@ -1134,8 +1622,7 @@ export default function UserMessagesPage() {
                   {messages.map((item, index) => (
                     <MessageBubble
                       key={
-                        item?._id ||
-                        item?.id ||
+                        getMessageId(item) ||
                         `${item?.createdAt || "message"}-${index}`
                       }
                       message={item}
@@ -1420,7 +1907,7 @@ function MessageBubble({ message, currentUser, onDeletePrompt }) {
       </div>
 
       <div
-        className={`order-1 max-w-[82%] rounded-[20px] px-4 py-3 shadow-sm sm:max-w-[72%] ${
+        className={`max-w-[82%] rounded-[20px] px-4 py-3 shadow-sm sm:max-w-[72%] ${
           isOutgoing ? "order-2" : "order-1"
         } ${
           isDeleted

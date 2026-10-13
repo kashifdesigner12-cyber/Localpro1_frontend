@@ -1,3 +1,4 @@
+
 "use client";
 
 import {
@@ -52,6 +53,7 @@ const getApiUrl = (path = "") => {
 
 const getFileUrl = (url) => {
   if (!url) return "#";
+
   const value = String(url);
 
   if (
@@ -69,7 +71,7 @@ const getFileUrl = (url) => {
 };
 
 /* ============================================================
-   TOKEN
+   TOKEN HELPERS
 ============================================================ */
 
 const normalizeTokenValue = (value) => {
@@ -80,19 +82,14 @@ const normalizeTokenValue = (value) => {
   if (!rawValue) return null;
 
   if (/^Bearer\s+/i.test(rawValue)) {
-    rawValue = rawValue
-      .replace(/^Bearer\s+/i, "")
-      .trim();
+    rawValue = rawValue.replace(/^Bearer\s+/i, "").trim();
   }
 
   try {
     const parsed = JSON.parse(rawValue);
 
     if (typeof parsed === "string") {
-      return (
-        parsed.replace(/^Bearer\s+/i, "").trim() ||
-        null
-      );
+      return parsed.replace(/^Bearer\s+/i, "").trim() || null;
     }
 
     if (parsed && typeof parsed === "object") {
@@ -223,9 +220,7 @@ const getInitials = (name) => {
     .split(" ")
     .filter(Boolean)
     .slice(0, 2)
-    .map((part) =>
-      part.charAt(0).toUpperCase()
-    )
+    .map((part) => part.charAt(0).toUpperCase())
     .join("");
 };
 
@@ -266,33 +261,17 @@ const formatConversationTime = (dateValue) => {
 
 const normalizeUsers = (data) => {
   if (Array.isArray(data)) return data;
-
-  if (Array.isArray(data?.users)) {
-    return data.users;
-  }
-
-  if (Array.isArray(data?.data)) {
-    return data.data;
-  }
-
-  if (Array.isArray(data?.users?.data)) {
-    return data.users.data;
-  }
+  if (Array.isArray(data?.users)) return data.users;
+  if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(data?.users?.data)) return data.users.data;
 
   return [];
 };
 
 const normalizeConversations = (data) => {
   if (Array.isArray(data)) return data;
-
-  if (Array.isArray(data?.conversations)) {
-    return data.conversations;
-  }
-
-  if (Array.isArray(data?.data)) {
-    return data.data;
-  }
-
+  if (Array.isArray(data?.conversations)) return data.conversations;
+  if (Array.isArray(data?.data)) return data.data;
   if (Array.isArray(data?.data?.conversations)) {
     return data.data.conversations;
   }
@@ -311,10 +290,7 @@ const getUnreadCount = (conversation) => {
   ];
 
   for (const value of possibleValues) {
-    if (
-      typeof value === "number" &&
-      value > 0
-    ) {
+    if (typeof value === "number" && value > 0) {
       return value;
     }
 
@@ -323,7 +299,6 @@ const getUnreadCount = (conversation) => {
       !Number.isNaN(Number(value))
     ) {
       const number = Number(value);
-
       if (number > 0) return number;
     }
   }
@@ -331,9 +306,7 @@ const getUnreadCount = (conversation) => {
   return 0;
 };
 
-const getConversationLastMessage = (
-  conversation
-) => {
+const getConversationLastMessage = (conversation) => {
   if (!conversation) return "";
 
   return (
@@ -345,9 +318,7 @@ const getConversationLastMessage = (
   );
 };
 
-const getConversationLastDate = (
-  conversation
-) => {
+const getConversationLastDate = (conversation) => {
   if (!conversation) return null;
 
   return (
@@ -358,6 +329,119 @@ const getConversationLastDate = (
     conversation?.createdAt ||
     null
   );
+};
+
+const extractMessages = (data) => {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.messages)) return data.messages;
+  if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(data?.data?.messages)) return data.data.messages;
+  if (Array.isArray(data?.conversation?.messages)) {
+    return data.conversation.messages;
+  }
+
+  return [];
+};
+
+const getConversationIdFromMessage = (incomingMsg) => {
+  const value =
+    incomingMsg?.conversationId ||
+    incomingMsg?.conversation?._id ||
+    incomingMsg?.conversation?.id ||
+    incomingMsg?.conversation;
+
+  if (value && typeof value === "object") {
+    return value._id || value.id || null;
+  }
+
+  return value || null;
+};
+
+/* ============================================================
+   NOTIFICATIONS
+============================================================ */
+
+const playMessageNotificationSound = () => {
+  try {
+    if (typeof window === "undefined") return;
+
+    const AudioContextClass =
+      window.AudioContext || window.webkitAudioContext;
+
+    if (!AudioContextClass) return;
+
+    const audioContext = new AudioContextClass();
+
+    const playTone = () => {
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(
+        880,
+        audioContext.currentTime
+      );
+
+      gain.gain.setValueAtTime(
+        0.0001,
+        audioContext.currentTime
+      );
+      gain.gain.exponentialRampToValueAtTime(
+        0.12,
+        audioContext.currentTime + 0.02
+      );
+      gain.gain.exponentialRampToValueAtTime(
+        0.0001,
+        audioContext.currentTime + 0.25
+      );
+
+      oscillator.connect(gain);
+      gain.connect(audioContext.destination);
+
+      oscillator.start();
+      oscillator.stop(audioContext.currentTime + 0.26);
+
+      oscillator.onended = () => {
+        audioContext.close().catch(() => {});
+      };
+    };
+
+    if (audioContext.state === "suspended") {
+      audioContext
+        .resume()
+        .then(playTone)
+        .catch(() => audioContext.close().catch(() => {}));
+    } else {
+      playTone();
+    }
+  } catch (error) {
+    console.warn("Notification sound unavailable:", error);
+  }
+};
+
+const showMessageDesktopNotification = (title, body) => {
+  if (
+    typeof window === "undefined" ||
+    !("Notification" in window) ||
+    Notification.permission !== "granted"
+  ) {
+    return;
+  }
+
+  try {
+    const notification = new Notification(title, {
+      body: body || "You received a new message.",
+      icon: "/favicon.ico",
+      tag: `localpro-chat-${Date.now()}`,
+    });
+
+    notification.onclick = () => {
+      window.focus();
+      notification.close();
+    };
+  } catch (error) {
+    console.warn("Desktop notification unavailable:", error);
+  }
 };
 
 /* ============================================================
@@ -372,41 +456,21 @@ export default function AdminConversationsPage() {
   const [conversations, setConversations] = useState([]);
   const [isClient, setIsClient] = useState(false);
 
-  const [selectedUser, setSelectedUser] =
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [selectedConversationId, setSelectedConversationId] =
     useState(null);
-
-  const [
-    selectedConversationId,
-    setSelectedConversationId,
-  ] = useState(null);
-
-  const [
-    selectedConversation,
-    setSelectedConversation,
-  ] = useState(null);
+  const [selectedConversation, setSelectedConversation] =
+    useState(null);
 
   const [messages, setMessages] = useState([]);
   const [message, setMessage] = useState("");
-  const [selectedFiles, setSelectedFiles] =
-    useState([]);
+  const [selectedFiles, setSelectedFiles] = useState([]);
 
-  const [loadingUsers, setLoadingUsers] =
-    useState(true);
-
-  const [
-    loadingMessages,
-    setLoadingMessages,
-  ] = useState(false);
-
-  const [
-    startingConversation,
-    setStartingConversation,
-  ] = useState(false);
-
-  const [
-    messagesError,
-    setMessagesError,
-  ] = useState("");
+  const [loadingUsers, setLoadingUsers] = useState(true);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [startingConversation, setStartingConversation] =
+    useState(false);
+  const [messagesError, setMessagesError] = useState("");
 
   const [onlineUsers, setOnlineUsers] = useState({});
 
@@ -419,21 +483,30 @@ export default function AdminConversationsPage() {
   const messagesEndRef = useRef(null);
   const socketRef = useRef(null);
 
-  const selectedConversationIdRef =
-    useRef(null);
-
+  const selectedConversationIdRef = useRef(null);
   const conversationsRef = useRef(conversations);
   const usersRef = useRef(users);
   const messagesRef = useRef(messages);
   const messagesCache = useRef({});
 
-  // Request Browser Notification Permission on mount
+  // Track socket message IDs to avoid processing duplicate events.
+  const processedSocketMessages = useRef(new Set());
+
+  /* ==========================================================
+     INITIAL LOAD AND BROWSER NOTIFICATION PERMISSION
+  ========================================================== */
+
   useEffect(() => {
     setIsClient(true);
-    if (typeof window !== "undefined" && "Notification" in window) {
-      if (Notification.permission === "default") {
-        Notification.requestPermission();
-      }
+
+    if (
+      typeof window !== "undefined" &&
+      "Notification" in window &&
+      Notification.permission === "default"
+    ) {
+      // Permission is requested only after the browser allows it.
+      // Some browsers require a direct user gesture.
+      Notification.requestPermission().catch(() => {});
     }
 
     try {
@@ -443,38 +516,63 @@ export default function AdminConversationsPage() {
 
       if (cachedUsers) {
         const parsedUsers = JSON.parse(cachedUsers);
-        setUsers(parsedUsers);
-        usersRef.current = parsedUsers;
+        if (Array.isArray(parsedUsers)) {
+          setUsers(parsedUsers);
+          usersRef.current = parsedUsers;
+        }
       }
+
       if (cachedConvs) {
         const parsedConvs = JSON.parse(cachedConvs);
-        setConversations(parsedConvs);
-        conversationsRef.current = parsedConvs;
-        setLoadingUsers(false);
+        if (Array.isArray(parsedConvs)) {
+          setConversations(parsedConvs);
+          conversationsRef.current = parsedConvs;
+          setLoadingUsers(false);
+        }
       }
+
       if (cachedMsgs) {
-        messagesCache.current = JSON.parse(cachedMsgs);
+        const parsedMsgs = JSON.parse(cachedMsgs);
+        if (parsedMsgs && typeof parsedMsgs === "object") {
+          messagesCache.current = parsedMsgs;
+        }
+      }
+    } catch (error) {
+      console.warn("Unable to restore chat cache:", error);
+    }
+  }, []);
+
+  const saveCache = useCallback((uList, cList, mCache) => {
+    try {
+      if (Array.isArray(uList)) {
+        localStorage.setItem(
+          "localpro_admin_users",
+          JSON.stringify(uList)
+        );
+      }
+
+      if (Array.isArray(cList)) {
+        localStorage.setItem(
+          "localpro_admin_convs",
+          JSON.stringify(cList)
+        );
+      }
+
+      if (mCache && typeof mCache === "object") {
+        localStorage.setItem(
+          "localpro_admin_msgs",
+          JSON.stringify(mCache)
+        );
       }
     } catch {}
   }, []);
-
-  const saveCache = (uList, cList, mCache) => {
-    try {
-      if (uList?.length > 0) localStorage.setItem("localpro_admin_users", JSON.stringify(uList));
-      if (cList?.length > 0) localStorage.setItem("localpro_admin_convs", JSON.stringify(cList));
-      if (Object.keys(mCache || {}).length > 0) {
-        localStorage.setItem("localpro_admin_msgs", JSON.stringify(mCache));
-      }
-    } catch {}
-  };
 
   useEffect(() => {
     usersRef.current = users;
   }, [users]);
 
   useEffect(() => {
-    conversationsRef.current =
-      conversations;
+    conversationsRef.current = conversations;
   }, [conversations]);
 
   useEffect(() => {
@@ -482,20 +580,16 @@ export default function AdminConversationsPage() {
   }, [messages]);
 
   useEffect(() => {
-    selectedConversationIdRef.current =
-      selectedConversationId;
+    selectedConversationIdRef.current = selectedConversationId;
   }, [selectedConversationId]);
 
-  const scrollToBottom = useCallback(
-    (instant = false) => {
-      if (!messagesEndRef.current) return;
+  const scrollToBottom = useCallback((instant = false) => {
+    if (!messagesEndRef.current) return;
 
-      messagesEndRef.current.scrollIntoView({
-        behavior: instant ? "auto" : "smooth",
-      });
-    },
-    []
-  );
+    messagesEndRef.current.scrollIntoView({
+      behavior: instant ? "auto" : "smooth",
+    });
+  }, []);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -504,294 +598,450 @@ export default function AdminConversationsPage() {
   }, [messages, scrollToBottom]);
 
   /* ==========================================================
-     SOCKET.IO REAL-TIME SETUP (WHATSAPP-STYLE DESKTOP NOTIFICATION)
+     SOCKET.IO REAL-TIME SETUP
   ========================================================== */
+
   useEffect(() => {
+    if (!isClient) return undefined;
+
     const token = getStoredToken();
+
     const socket = io(BACKEND_BASE_URL, {
       auth: { token },
       transports: ["websocket", "polling"],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 500,
+      reconnectionDelayMax: 3000,
+      timeout: 20000,
     });
 
     socketRef.current = socket;
 
-    socket.on("receive_message", (incomingMsg) => {
+    const handleIncomingMessage = (incomingMsg) => {
       if (!incomingMsg) return;
 
-      const incomingConvId =
-        incomingMsg.conversationId || incomingMsg.conversation;
+      const incomingConvId = getConversationIdFromMessage(incomingMsg);
 
-      const senderObj = incomingMsg.sender;
-      const senderRole = String(senderObj?.role || "").toLowerCase();
-      const isFromAdmin = senderRole === "admin" || senderObj?.name === "You";
+      if (!incomingConvId) {
+        console.warn(
+          "Socket message did not include a conversation ID:",
+          incomingMsg
+        );
+        return;
+      }
 
-      // Trigger Desktop Browser Notification if message is from someone else
-      if (!isFromAdmin && typeof window !== "undefined" && "Notification" in window && Notification.permission === "granted") {
-        const senderTitle = getUserName(senderObj) || "New Message";
-        const msgBodyText = incomingMsg.body || "You received a new file/attachment";
-        
-        try {
-          const notification = new Notification(senderTitle, {
-            body: msgBodyText,
-            icon: "/favicon.ico",
-          });
+      const conversationId = String(incomingConvId);
+      const incomingId = String(
+        incomingMsg._id || incomingMsg.id || ""
+      );
 
-          notification.onclick = () => {
-            window.focus();
-            notification.close();
-          };
-        } catch (err) {
-          console.error("Desktop notification error:", err);
+      // Ignore the same database message if delivered by both event names.
+      if (incomingId) {
+        if (processedSocketMessages.current.has(incomingId)) {
+          return;
+        }
+
+        processedSocketMessages.current.add(incomingId);
+
+        if (processedSocketMessages.current.size > 1000) {
+          const oldestId =
+            processedSocketMessages.current.values().next().value;
+
+          processedSocketMessages.current.delete(oldestId);
         }
       }
 
-      if (
-        selectedConversationIdRef.current &&
-        String(incomingConvId) ===
-          String(selectedConversationIdRef.current)
-      ) {
-        setMessages((prev) => {
-          const exists = prev.some(
-            (m) =>
-              String(m.id || m._id) ===
-                String(incomingMsg.id || incomingMsg._id) ||
-              (m.body === incomingMsg.body &&
-                String(m.sender?.id || m.sender?._id || m.sender) ===
-                  String(incomingMsg.sender?.id || incomingMsg.sender?._id || incomingMsg.sender) &&
-                Math.abs(new Date(m.createdAt) - new Date(incomingMsg.createdAt)) < 5000)
-          );
-          if (exists) {
-            return prev.map((m) =>
-              String(m.id || m._id).startsWith("temp-") &&
-              m.body === incomingMsg.body
-                ? incomingMsg
-                : m
+      const sender = incomingMsg.sender;
+      const senderRole = String(sender?.role || "").toLowerCase();
+      const isFromAdmin =
+        senderRole === "admin" ||
+        sender?.name === "You";
+
+      const activeConversationId = String(
+        selectedConversationIdRef.current || ""
+      );
+
+      const isActiveConversation =
+        activeConversationId === conversationId;
+
+      // Update the open chat immediately without a page refresh.
+      if (isActiveConversation) {
+        setMessages((previousMessages) => {
+          const alreadyExists = previousMessages.some((item) => {
+            const existingId = String(item?._id || item?.id || "");
+
+            if (incomingId && existingId === incomingId) {
+              return true;
+            }
+
+            return (
+              existingId.startsWith("temp-") &&
+              item?.body === (incomingMsg.body || incomingMsg.message) &&
+              String(
+                item?.sender?._id ||
+                item?.sender?.id ||
+                item?.sender ||
+                ""
+              ) ===
+                String(
+                  sender?._id ||
+                  sender?.id ||
+                  sender ||
+                  ""
+                )
             );
+          });
+
+          let updatedMessages;
+
+          if (alreadyExists) {
+            updatedMessages = previousMessages.map((item) => {
+              const existingId = String(item?._id || item?.id || "");
+
+              if (
+                existingId.startsWith("temp-") &&
+                item?.body === (incomingMsg.body || incomingMsg.message)
+              ) {
+                return incomingMsg;
+              }
+
+              return item;
+            });
+          } else {
+            updatedMessages = [...previousMessages, incomingMsg];
           }
-          const updated = [...prev, incomingMsg];
-          messagesCache.current[incomingConvId] = updated;
-          saveCache(usersRef.current, conversationsRef.current, messagesCache.current);
-          return updated;
+
+          messagesCache.current[conversationId] = updatedMessages;
+
+          saveCache(
+            usersRef.current,
+            conversationsRef.current,
+            messagesCache.current
+          );
+
+          return updatedMessages;
         });
+      } else {
+        // Update cached messages for a conversation that is not open.
+        const cached = messagesCache.current[conversationId];
+
+        if (Array.isArray(cached) && incomingId) {
+          const alreadyCached = cached.some(
+            (item) =>
+              String(item?._id || item?.id || "") === incomingId
+          );
+
+          if (!alreadyCached) {
+            messagesCache.current[conversationId] = [
+              ...cached,
+              incomingMsg,
+            ];
+          }
+        }
       }
 
-      fetchData(true);
-    });
+      // Update conversation preview and unread badges immediately.
+      setConversations((previousConversations) => {
+        const foundConversation = previousConversations.some(
+          (conversation) =>
+            String(conversation?._id || conversation?.id || "") ===
+            conversationId
+        );
 
-    socket.on("update_user_status", ({ userId, status }) => {
-      setOnlineUsers((prev) => ({
-        ...prev,
+        const updatedConversations = previousConversations.map(
+          (conversation) => {
+            const existingConversationId = String(
+              conversation?._id || conversation?.id || ""
+            );
+
+            if (existingConversationId !== conversationId) {
+              return conversation;
+            }
+
+            const previousUnread = getUnreadCount(conversation);
+
+            // Messages sent by the admin should not increase the admin's
+            // own unread badge.
+            const nextUnread = isActiveConversation
+              ? 0
+              : isFromAdmin
+              ? previousUnread
+              : previousUnread + 1;
+
+            return {
+              ...conversation,
+              lastMessage:
+                incomingMsg.body ||
+                incomingMsg.message ||
+                (incomingMsg.attachments?.length
+                  ? "Attachment"
+                  : conversation.lastMessage || ""),
+              lastMessageAt:
+                incomingMsg.createdAt || new Date().toISOString(),
+              updatedAt:
+                incomingMsg.createdAt || new Date().toISOString(),
+              unreadCount: nextUnread,
+              unreadMessages: nextUnread,
+              unread: nextUnread,
+              unreadMessageCount: nextUnread,
+            };
+          }
+        );
+
+        // If this conversation is not currently in the list, fetchData()
+        // below will refresh it from the server.
+        conversationsRef.current = updatedConversations;
+
+        if (foundConversation) {
+          saveCache(
+            usersRef.current,
+            updatedConversations,
+            messagesCache.current
+          );
+        }
+
+        return updatedConversations;
+      });
+
+      // Admin notifications are for messages sent by a non-admin.
+      if (!isFromAdmin) {
+        const shouldNotify =
+          !isActiveConversation ||
+          document.visibilityState !== "visible";
+
+        if (shouldNotify) {
+          const senderTitle = getUserName(sender) || "New Message";
+          const messageBody =
+            incomingMsg.body ||
+            incomingMsg.message ||
+            "You received a file or attachment.";
+
+          playMessageNotificationSound();
+          showMessageDesktopNotification(senderTitle, messageBody);
+        }
+      }
+
+      // Mark incoming messages as read when the relevant conversation is open.
+      if (isActiveConversation && !isFromAdmin) {
+        fetch(
+          getApiUrl(`/conversations/${conversationId}/read`),
+          {
+            method: "PUT",
+            credentials: "include",
+            headers: getAuthHeaders(),
+          }
+        ).catch(() => {});
+      }
+
+      // Refresh the authoritative conversation list without reloading the page.
+      // This also handles conversations that were not in the current list.
+      if (typeof window !== "undefined") {
+        window.setTimeout(() => {
+          if (socketRef.current === socket) {
+            // fetchData is attached to the socket below after it is declared.
+            socket.emit("request_conversation_refresh");
+          }
+        }, 0);
+      }
+    };
+
+    const handleUserStatus = ({ userId, status } = {}) => {
+      if (!userId || !status) return;
+
+      setOnlineUsers((previous) => ({
+        ...previous,
         [userId]: status,
       }));
-    });
+    };
+
+    const handleConnect = () => {
+      const activeId = selectedConversationIdRef.current;
+
+      if (activeId) {
+        socket.emit("join_room", activeId);
+      }
+    };
+
+    socket.on("connect", handleConnect);
+    socket.on("receive_message", handleIncomingMessage);
+    socket.on("new_message", handleIncomingMessage);
+    socket.on("update_user_status", handleUserStatus);
 
     return () => {
+      socket.off("connect", handleConnect);
+      socket.off("receive_message", handleIncomingMessage);
+      socket.off("new_message", handleIncomingMessage);
+      socket.off("update_user_status", handleUserStatus);
       socket.disconnect();
-    };
-  }, []);
 
-  useEffect(() => {
-    if (socketRef.current && selectedConversationId) {
-      socketRef.current.emit("join_room", selectedConversationId);
-    }
-  }, [selectedConversationId]);
+      if (socketRef.current === socket) {
+        socketRef.current = null;
+      }
+    };
+  }, [isClient, saveCache]);
 
   /* ==========================================================
-     FETCH USERS & CONVERSATIONS
+     FETCH USERS AND CONVERSATIONS
   ========================================================== */
 
   const fetchData = useCallback(
     async (force = false) => {
       try {
-        const response = await fetch(
-          getApiUrl("/users"),
-          {
-            method: "GET",
-            credentials: "include",
-            headers: getAuthHeaders(),
-            cache: force
-              ? "no-store"
-              : "default",
-          }
-        );
+        const response = await fetch(getApiUrl("/users"), {
+          method: "GET",
+          credentials: "include",
+          headers: getAuthHeaders(),
+          cache: force ? "no-store" : "default",
+        });
 
         if (response.status === 401) {
           router.replace("/login");
           return;
         }
 
-        const data =
-          await parseResponse(response);
+        const data = await parseResponse(response);
 
         if (response.ok) {
-          const userData =
-            normalizeUsers(data);
+          const userData = normalizeUsers(data);
 
-          const availableUsers =
-            userData.filter((user) => {
-              if (!user) return false;
+          const availableUsers = userData.filter((user) => {
+            if (!user) return false;
 
-              const role = String(
-                user?.role || ""
-              ).toLowerCase();
+            const role = String(user?.role || "").toLowerCase();
 
-              return (
-                role === "user" ||
-                role === "manager" ||
-                role === "admin"
-              );
-            });
+            return (
+              role === "user" ||
+              role === "manager" ||
+              role === "admin"
+            );
+          });
 
           setUsers(availableUsers);
           usersRef.current = availableUsers;
-          saveCache(availableUsers, conversationsRef.current, messagesCache.current);
+
+          saveCache(
+            availableUsers,
+            conversationsRef.current,
+            messagesCache.current
+          );
         }
-      } catch {}
+      } catch (error) {
+        console.warn("Unable to refresh users:", error);
+      }
 
       try {
-        const response = await fetch(
-          getApiUrl("/conversations"),
-          {
-            method: "GET",
-            credentials: "include",
-            headers: getAuthHeaders(),
-            cache: "no-store",
-          }
-        );
+        const response = await fetch(getApiUrl("/conversations"), {
+          method: "GET",
+          credentials: "include",
+          headers: getAuthHeaders(),
+          cache: "no-store",
+        });
 
         if (response.status === 401) {
           router.replace("/login");
           return;
         }
 
-        const data =
-          await parseResponse(response);
+        const data = await parseResponse(response);
 
         if (response.ok) {
-          const conversationData =
-            normalizeConversations(data);
+          const conversationData = normalizeConversations(data);
 
-          const updatedConversations =
-            conversationData.map(
-              (conversation) => {
-                const conversationId =
-                  conversation?.id ||
-                  conversation?._id;
+          const updatedConversations = conversationData.map(
+            (conversation) => {
+              const conversationId =
+                conversation?.id || conversation?._id;
 
-                if (
-                  selectedConversationIdRef.current &&
-                  String(conversationId) ===
-                    String(
-                      selectedConversationIdRef.current
-                    )
-                ) {
-                  return {
-                    ...conversation,
-                    unreadCount: 0,
-                    unreadMessages: 0,
-                    unread: 0,
-                    unreadMessageCount: 0,
-                  };
-                }
-
-                return conversation;
+              if (
+                selectedConversationIdRef.current &&
+                String(conversationId) ===
+                  String(selectedConversationIdRef.current)
+              ) {
+                return {
+                  ...conversation,
+                  unreadCount: 0,
+                  unreadMessages: 0,
+                  unread: 0,
+                  unreadMessageCount: 0,
+                };
               }
-            );
 
-          setConversations(
-            updatedConversations
+              return conversation;
+            }
           );
 
-          conversationsRef.current =
-            updatedConversations;
-          saveCache(usersRef.current, updatedConversations, messagesCache.current);
+          setConversations(updatedConversations);
+          conversationsRef.current = updatedConversations;
+
+          saveCache(
+            usersRef.current,
+            updatedConversations,
+            messagesCache.current
+          );
         }
-      } catch {}
-      setLoadingUsers(false);
+      } catch (error) {
+        console.warn("Unable to refresh conversations:", error);
+      } finally {
+        setLoadingUsers(false);
+      }
     },
-    [router]
+    [router, saveCache]
   );
 
+  // Keep the refresh function available to socket-driven updates.
+  const fetchDataRef = useRef(fetchData);
+
   useEffect(() => {
-    if (!isClient) return;
+    fetchDataRef.current = fetchData;
+  }, [fetchData]);
+
+  useEffect(() => {
+    if (!isClient) return undefined;
+
     fetchData(false);
 
+    // Socket.IO handles live messages; this is a fallback refresh only.
     const interval = setInterval(() => {
-      fetchData(true);
-    }, 10000);
+      fetchDataRef.current(true);
+    }, 15000);
 
     return () => clearInterval(interval);
   }, [fetchData, isClient]);
 
-  const findConversationForUser =
-    useCallback((userId, list) => {
-      if (!userId) return null;
+  /* ==========================================================
+     CONVERSATION HELPERS
+  ========================================================== */
 
-      const convList = Array.isArray(list)
-        ? list
-        : conversationsRef.current;
+  const findConversationForUser = useCallback((userId, list) => {
+    if (!userId) return null;
 
-      return (
-        convList.find((conversation) => {
-          if (conversation?.isGroup) return false;
-          const participants =
-            Array.isArray(
-              conversation?.participants
-            )
-              ? conversation.participants
-              : [];
+    const convList = Array.isArray(list)
+      ? list
+      : conversationsRef.current;
 
-          return participants.some(
-            (participant) => {
-              const participantId =
-                getId(participant);
+    return (
+      convList.find((conversation) => {
+        if (conversation?.isGroup) return false;
 
-              return (
-                participantId &&
-                String(participantId) ===
-                  String(userId)
-              );
-            }
+        const participants = Array.isArray(conversation?.participants)
+          ? conversation.participants
+          : [];
+
+        return participants.some((participant) => {
+          const participantId = getId(participant);
+
+          return (
+            participantId &&
+            String(participantId) === String(userId)
           );
-        }) || null
-      );
-    }, []);
-
-  const extractMessages = (data) => {
-    if (Array.isArray(data)) return data;
-
-    if (Array.isArray(data?.messages)) {
-      return data.messages;
-    }
-
-    if (Array.isArray(data?.data)) {
-      return data.data;
-    }
-
-    if (
-      Array.isArray(
-        data?.data?.messages
-      )
-    ) {
-      return data.data.messages;
-    }
-
-    if (
-      Array.isArray(
-        data?.conversation?.messages
-      )
-    ) {
-      return data.conversation.messages;
-    }
-
-    return [];
-  };
+        });
+      }) || null
+    );
+  }, []);
 
   const fetchMessages = useCallback(
-    async (
-      conversationId,
-      silent = false
-    ) => {
+    async (conversationId, silent = false) => {
       if (!conversationId) return [];
 
       try {
@@ -807,38 +1057,36 @@ export default function AdminConversationsPage() {
           }
         );
 
-        const data =
-          await parseResponse(response);
+        const data = await parseResponse(response);
 
         if (!response.ok) {
           throw new Error(
-            "Failed to load messages."
+            data?.message || "Failed to load messages."
           );
         }
 
-        const messageData =
-          extractMessages(data);
+        const messageData = extractMessages(data);
 
         if (
           String(conversationId) ===
-          String(
-            selectedConversationIdRef.current
-          )
+          String(selectedConversationIdRef.current)
         ) {
-          messagesCache.current[
-            conversationId
-          ] = messageData;
-          saveCache(usersRef.current, conversationsRef.current, messagesCache.current);
+          messagesCache.current[conversationId] = messageData;
+
+          saveCache(
+            usersRef.current,
+            conversationsRef.current,
+            messagesCache.current
+          );
 
           setMessages(messageData);
         }
 
         return messageData;
-      } catch (err) {
+      } catch (error) {
         if (!silent) {
           setMessagesError(
-            err?.message ||
-              "Unable to load messages."
+            error?.message || "Unable to load messages."
           );
         }
 
@@ -849,216 +1097,190 @@ export default function AdminConversationsPage() {
         }
       }
     },
-    []
+    [saveCache]
   );
 
-  const openConversation =
-    useCallback(
-      async (
-        conversation,
-        user = null
-      ) => {
-        const conversationId =
-          conversation?.id ||
-          conversation?._id;
+  const openConversation = useCallback(
+    async (conversation, user = null) => {
+      const conversationId =
+        conversation?.id || conversation?._id;
 
-        if (!conversationId) return;
+      if (!conversationId) return;
 
-        selectedConversationIdRef.current =
-          conversationId;
+      selectedConversationIdRef.current = conversationId;
 
-        setSelectedConversationId(
-          conversationId
-        );
+      setSelectedConversationId(conversationId);
+      setSelectedConversation(conversation);
 
-        setSelectedConversation(
-          conversation
-        );
-
-        if (user) {
-          setSelectedUser(user);
-        } else if (conversation?.isGroup) {
-          setSelectedUser({
-            name: conversation.groupName || "Team Group",
-            role: "Group Chat",
-            isGroup: true,
-          });
-        }
-
-        setConversations((prev) =>
-          prev.map((item) => {
-            const itemId =
-              item?.id ||
-              item?._id;
-
-            if (
-              String(itemId) ===
-              String(conversationId)
-            ) {
-              return {
-                ...item,
-                unreadCount: 0,
-                unreadMessages: 0,
-                unread: 0,
-                unreadMessageCount: 0,
-              };
-            }
-
-            return item;
-          })
-        );
-
-        setMessagesError("");
-        setSelectedFiles([]);
-
-        if (messagesCache.current[conversationId]) {
-          setMessages(messagesCache.current[conversationId]);
-          setLoadingMessages(false);
-        } else {
-          setMessages([]);
-          setLoadingMessages(true);
-        }
-
-        await fetchMessages(
-          conversationId,
-          true
-        );
-        setLoadingMessages(false);
-
-        try {
-          await fetch(
-            getApiUrl(
-              `/conversations/${conversationId}/read`
-            ),
-            {
-              method: "PUT",
-              credentials: "include",
-              headers: getAuthHeaders(),
-            }
-          );
-        } catch {}
-      },
-      [fetchMessages]
-    );
-
-  const handleSelectUser =
-    useCallback(
-      async (user) => {
-        const userId = getId(user);
-
-        if (!userId) return;
-
+      if (user) {
         setSelectedUser(user);
-        setMessagesError("");
+      } else if (conversation?.isGroup) {
+        setSelectedUser({
+          name: conversation.groupName || "Team Group",
+          role: "Group Chat",
+          isGroup: true,
+        });
+      }
 
-        const existingConversation =
-          findConversationForUser(
-            userId,
-            conversationsRef.current
-          );
+      setConversations((previous) => {
+        const updated = previous.map((item) => {
+          const itemId = item?.id || item?._id;
 
-        if (existingConversation) {
-          await openConversation(
-            existingConversation,
-            user
-          );
-
-          return;
-        }
-
-        setStartingConversation(true);
-
-        try {
-          const response = await fetch(
-            getApiUrl(
-              "/conversations"
-            ),
-            {
-              method: "POST",
-              credentials: "include",
-              headers: getAuthHeaders(),
-              body: JSON.stringify({
-                recipientId: userId,
-              }),
-            }
-          );
-
-          const data =
-            await parseResponse(
-              response
-            );
-
-          if (!response.ok) {
-            throw new Error(
-              "Failed to start conversation."
-            );
+          if (String(itemId) === String(conversationId)) {
+            return {
+              ...item,
+              unreadCount: 0,
+              unreadMessages: 0,
+              unread: 0,
+              unreadMessageCount: 0,
+            };
           }
 
-          const newConversation =
-            data?.conversation ||
-            data?.data?.conversation ||
-            data?.data ||
-            data;
+          return item;
+        });
 
-          const newConversationId =
-            newConversation?.id ||
-            newConversation?._id;
+        conversationsRef.current = updated;
 
-          if (newConversationId) {
-            setConversations(
-              (prev) => {
-                const exists =
-                  prev.some(
-                    (item) =>
-                      String(
-                        item?.id ||
-                          item?._id
-                      ) ===
-                      String(
-                        newConversationId
-                      )
-                  );
+        saveCache(
+          usersRef.current,
+          updated,
+          messagesCache.current
+        );
 
-                const updated = exists
-                  ? prev
-                  : [
-                      newConversation,
-                      ...prev,
-                    ];
-                conversationsRef.current = updated;
-                saveCache(usersRef.current, updated, messagesCache.current);
-                return updated;
-              }
-            );
+        return updated;
+      });
 
-            await openConversation(
-              newConversation,
-              user
-            );
+      setMessagesError("");
+      setSelectedFiles([]);
+
+      if (messagesCache.current[conversationId]) {
+        setMessages(messagesCache.current[conversationId]);
+        setLoadingMessages(false);
+      } else {
+        setMessages([]);
+        setLoadingMessages(true);
+      }
+
+      // Join the conversation room when it is selected.
+      if (socketRef.current?.connected) {
+        socketRef.current.emit("join_room", conversationId);
+      }
+
+      await fetchMessages(conversationId, true);
+      setLoadingMessages(false);
+
+      try {
+        await fetch(
+          getApiUrl(`/conversations/${conversationId}/read`),
+          {
+            method: "PUT",
+            credentials: "include",
+            headers: getAuthHeaders(),
           }
-        } catch (err) {
-          setMessagesError(
-            err?.message ||
-              "Failed to start conversation."
-          );
-        } finally {
-          setStartingConversation(
-            false
+        );
+      } catch {}
+    },
+    [fetchMessages, saveCache]
+  );
+
+  const handleSelectUser = useCallback(
+    async (user) => {
+      const userId = getId(user);
+
+      if (!userId) return;
+
+      setSelectedUser(user);
+      setMessagesError("");
+
+      const existingConversation = findConversationForUser(
+        userId,
+        conversationsRef.current
+      );
+
+      if (existingConversation) {
+        await openConversation(existingConversation, user);
+        return;
+      }
+
+      setStartingConversation(true);
+
+      try {
+        const response = await fetch(getApiUrl("/conversations"), {
+          method: "POST",
+          credentials: "include",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({
+            recipientId: userId,
+          }),
+        });
+
+        const data = await parseResponse(response);
+
+        if (!response.ok) {
+          throw new Error(
+            data?.message || "Failed to start conversation."
           );
         }
-      },
-      [
-        findConversationForUser,
-        openConversation,
-      ]
-    );
 
-  const handleCreateGroup = async (e) => {
-    e.preventDefault();
-    if (!groupName.trim() || selectedGroupMembers.length === 0) return;
+        const newConversation =
+          data?.conversation ||
+          data?.data?.conversation ||
+          data?.data ||
+          data;
+
+        const newConversationId =
+          newConversation?.id || newConversation?._id;
+
+        if (newConversationId) {
+          setConversations((previous) => {
+            const exists = previous.some(
+              (item) =>
+                String(item?.id || item?._id) ===
+                String(newConversationId)
+            );
+
+            const updated = exists
+              ? previous
+              : [newConversation, ...previous];
+
+            conversationsRef.current = updated;
+
+            saveCache(
+              usersRef.current,
+              updated,
+              messagesCache.current
+            );
+
+            return updated;
+          });
+
+          await openConversation(newConversation, user);
+        }
+      } catch (error) {
+        setMessagesError(
+          error?.message || "Failed to start conversation."
+        );
+      } finally {
+        setStartingConversation(false);
+      }
+    },
+    [findConversationForUser, openConversation, saveCache]
+  );
+
+  /* ==========================================================
+     CREATE GROUP
+  ========================================================== */
+
+  const handleCreateGroup = async (event) => {
+    event.preventDefault();
+
+    if (!groupName.trim() || selectedGroupMembers.length === 0) {
+      return;
+    }
 
     try {
       setCreatingGroup(true);
+
       const response = await fetch(getApiUrl("/conversations"), {
         method: "POST",
         credentials: "include",
@@ -1071,68 +1293,90 @@ export default function AdminConversationsPage() {
       });
 
       const data = await parseResponse(response);
+
       if (!response.ok) {
-        throw new Error(data?.message || "Failed to create group.");
+        throw new Error(
+          data?.message || "Failed to create group."
+        );
       }
 
-      const newGroupConv = data?.conversation || data?.data?.conversation || data?.data;
+      const newGroupConv =
+        data?.conversation ||
+        data?.data?.conversation ||
+        data?.data;
+
       if (newGroupConv) {
-        setConversations((prev) => {
-          const updated = [newGroupConv, ...prev];
+        setConversations((previous) => {
+          const updated = [newGroupConv, ...previous];
+
           conversationsRef.current = updated;
-          saveCache(usersRef.current, updated, messagesCache.current);
+
+          saveCache(
+            usersRef.current,
+            updated,
+            messagesCache.current
+          );
+
           return updated;
         });
+
         setShowGroupModal(false);
         setGroupName("");
         setSelectedGroupMembers([]);
+
         await openConversation(newGroupConv);
       }
-    } catch (err) {
-      alert(err.message || "Error creating group");
+    } catch (error) {
+      window.alert(error?.message || "Error creating group.");
     } finally {
       setCreatingGroup(false);
     }
   };
 
+  /* ==========================================================
+     SEARCH
+  ========================================================== */
+
   const filteredUsers = useMemo(() => {
-    const query =
-      search.trim().toLowerCase();
+    const query = search.trim().toLowerCase();
 
     if (!query) return users;
 
     return users.filter((user) => {
-      const full =
-        `${user?.name || ""} ${
-          user?.email || ""
-        }`.toLowerCase();
+      const full = `${user?.name || ""} ${
+        user?.email || ""
+      }`.toLowerCase();
 
       return full.includes(query);
     });
   }, [users, search]);
 
-  const handleSendMessage = async (e) => {
-    e?.preventDefault();
+  /* ==========================================================
+     SEND MESSAGE
+  ========================================================== */
+
+  const handleSendMessage = async (event) => {
+    event?.preventDefault();
 
     const cleanBody = message.trim();
 
     if (
-      (!cleanBody &&
-        selectedFiles.length === 0) ||
+      (!cleanBody && selectedFiles.length === 0) ||
       !selectedConversationId ||
       !selectedUser
     ) {
       return;
     }
 
+    const conversationId = selectedConversationId;
     const recipientId = getId(selectedUser);
     const tempId = `temp-${Date.now()}`;
     const filesToSend = [...selectedFiles];
 
-    // INSTANT OPTIMISTIC UI MESSAGE (Shows instantly without any loading wait)
     const optimisticMessage = {
       _id: tempId,
       id: tempId,
+      conversationId,
       body: cleanBody,
       sender: {
         role: "admin",
@@ -1145,12 +1389,21 @@ export default function AdminConversationsPage() {
         mimeType: file.type,
         url: URL.createObjectURL(file),
       })),
+      status: "sending",
     };
 
-    setMessages((prev) => {
-      const updated = [...prev, optimisticMessage];
-      messagesCache.current[selectedConversationId] = updated;
-      saveCache(usersRef.current, conversationsRef.current, messagesCache.current);
+    // Optimistic UI: show the message immediately.
+    setMessages((previous) => {
+      const updated = [...previous, optimisticMessage];
+
+      messagesCache.current[conversationId] = updated;
+
+      saveCache(
+        usersRef.current,
+        conversationsRef.current,
+        messagesCache.current
+      );
+
       return updated;
     });
 
@@ -1163,13 +1416,14 @@ export default function AdminConversationsPage() {
 
       if (filesToSend.length > 0) {
         const formData = new FormData();
+
         formData.append("body", cleanBody);
 
         if (recipientId) {
           formData.append("recipientId", recipientId);
         }
 
-        formData.append("conversationId", selectedConversationId);
+        formData.append("conversationId", conversationId);
 
         filesToSend.forEach((file) => {
           formData.append("files", file);
@@ -1177,6 +1431,7 @@ export default function AdminConversationsPage() {
 
         const token = getStoredToken();
         const headers = { Accept: "application/json" };
+
         if (token) {
           headers.Authorization = `Bearer ${token}`;
         }
@@ -1189,9 +1444,7 @@ export default function AdminConversationsPage() {
         });
       } else {
         response = await fetch(
-          getApiUrl(
-            `/conversations/${selectedConversationId}/messages`
-          ),
+          getApiUrl(`/conversations/${conversationId}/messages`),
           {
             method: "POST",
             credentials: "include",
@@ -1207,7 +1460,9 @@ export default function AdminConversationsPage() {
       const data = await parseResponse(response);
 
       if (!response.ok) {
-        throw new Error("Failed to send message.");
+        throw new Error(
+          data?.message || "Failed to send message."
+        );
       }
 
       const confirmedMessage =
@@ -1216,120 +1471,154 @@ export default function AdminConversationsPage() {
         data?.data ||
         data?.messageData;
 
-      if (confirmedMessage && typeof confirmedMessage === "object") {
-        setMessages((prev) => {
-          const updated = prev.map((item) =>
-            String(item?.id || item?._id) === String(tempId)
-              ? confirmedMessage
-              : item
+      if (
+        confirmedMessage &&
+        typeof confirmedMessage === "object"
+      ) {
+        const normalizedConfirmedMessage = {
+          ...confirmedMessage,
+          conversationId:
+            getConversationIdFromMessage(confirmedMessage) ||
+            conversationId,
+          status: confirmedMessage.status || "sent",
+        };
+
+        setMessages((previous) => {
+          const confirmedId = String(
+            normalizedConfirmedMessage._id ||
+            normalizedConfirmedMessage.id ||
+            ""
           );
-          messagesCache.current[selectedConversationId] = updated;
-          saveCache(usersRef.current, conversationsRef.current, messagesCache.current);
+
+          const updated = previous.map((item) => {
+            const itemId = String(item?._id || item?.id || "");
+
+            if (itemId === tempId) {
+              return normalizedConfirmedMessage;
+            }
+
+            if (confirmedId && itemId === confirmedId) {
+              return normalizedConfirmedMessage;
+            }
+
+            return item;
+          });
+
+          messagesCache.current[conversationId] = updated;
+
+          saveCache(
+            usersRef.current,
+            conversationsRef.current,
+            messagesCache.current
+          );
+
           return updated;
         });
       } else {
-        await fetchMessages(selectedConversationId, true);
+        await fetchMessages(conversationId, true);
       }
 
-      fetchData(true);
-    } catch (err) {
+      // Refresh previews/unread counts after the server confirms the send.
+      await fetchDataRef.current(true);
+    } catch (error) {
       setMessagesError(
-        "Message failed to sync: " + (err?.message || "Error")
+        `Message failed to sync: ${error?.message || "Error"}`
       );
 
-      setMessages((prev) =>
-        prev.filter(
-          (item) => String(item?.id || item?._id) !== String(tempId)
+      setMessages((previous) =>
+        previous.filter(
+          (item) => String(item?.id || item?._id) !== tempId
         )
       );
     }
   };
 
-  const handleDeleteConversation =
-    async () => {
-      if (!selectedConversationId)
-        return;
+  /* ==========================================================
+     DELETE CONVERSATION
+  ========================================================== */
 
-      if (
-        !window.confirm(
-          "Are you sure you want to delete this conversation?"
-        )
-      ) {
-        return;
-      }
+  const handleDeleteConversation = async () => {
+    if (!selectedConversationId) return;
 
-      try {
-        const response =
-          await fetch(
-            getApiUrl(
-              `/conversations/${selectedConversationId}`
-            ),
-            {
-              method: "DELETE",
-              credentials:
-                "include",
-              headers:
-                getAuthHeaders(),
-            }
-          );
+    if (
+      !window.confirm(
+        "Are you sure you want to delete this conversation?"
+      )
+    ) {
+      return;
+    }
 
-        if (!response.ok) {
-          throw new Error(
-            "Failed to delete conversation."
-          );
+    try {
+      const response = await fetch(
+        getApiUrl(`/conversations/${selectedConversationId}`),
+        {
+          method: "DELETE",
+          credentials: "include",
+          headers: getAuthHeaders(),
         }
+      );
 
-        const deletedId =
-          selectedConversationId;
+      const data = await parseResponse(response);
 
-        setConversations((prev) => {
-          const updated = prev.filter(
-            (c) =>
-              String(
-                c?.id ||
-                  c?._id
-              ) !==
-              String(deletedId)
-          );
-          conversationsRef.current = updated;
-          saveCache(usersRef.current, updated, messagesCache.current);
-          return updated;
-        });
-
-        delete messagesCache
-          .current[deletedId];
-        saveCache(usersRef.current, conversationsRef.current, messagesCache.current);
-
-        selectedConversationIdRef.current =
-          null;
-
-        setSelectedConversationId(
-          null
-        );
-
-        setSelectedConversation(
-          null
-        );
-
-        setSelectedUser(null);
-        setMessages([]);
-      } catch (err) {
-        setMessagesError(
-          err?.message ||
-            "Could not delete conversation."
+      if (!response.ok) {
+        throw new Error(
+          data?.message || "Failed to delete conversation."
         );
       }
-    };
+
+      const deletedId = selectedConversationId;
+
+      setConversations((previous) => {
+        const updated = previous.filter(
+          (conversation) =>
+            String(conversation?.id || conversation?._id) !==
+            String(deletedId)
+        );
+
+        conversationsRef.current = updated;
+
+        saveCache(
+          usersRef.current,
+          updated,
+          messagesCache.current
+        );
+
+        return updated;
+      });
+
+      delete messagesCache.current[deletedId];
+
+      saveCache(
+        usersRef.current,
+        conversationsRef.current,
+        messagesCache.current
+      );
+
+      selectedConversationIdRef.current = null;
+
+      setSelectedConversationId(null);
+      setSelectedConversation(null);
+      setSelectedUser(null);
+      setMessages([]);
+      setMessagesError("");
+    } catch (error) {
+      setMessagesError(
+        error?.message || "Could not delete conversation."
+      );
+    }
+  };
+
+  /* ==========================================================
+     RENDER
+  ========================================================== */
 
   return (
     <div className="flex h-[calc(100vh-4rem)] min-h-0 w-full flex-1 flex-col overflow-hidden bg-[#f7f8fc] text-slate-950">
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        
-        {/* TEAMS STYLE CONVERSATION WORKSPACE */}
         <section className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-white lg:flex-row">
-          
-          {/* CONTACTS / TEAMS CHAT LIST */}
-          <div className="flex h-full min-h-0 w-full shrink-0 flex-col overflow-hidden border-b border-slate-100 lg:h-full lg:w-[360px] lg:border-b-0 lg:border-r">
+
+          {/* CONTACTS / GROUPS SIDEBAR */}
+          <div className="flex h-full min-h-0 w-full shrink-0 flex-col overflow-hidden border-b border-slate-100 lg:w-[360px] lg:border-b-0 lg:border-r">
             <div className="shrink-0 border-b border-slate-100 bg-slate-50/50 p-4 sm:p-5">
               <div className="mb-3.5 flex items-center justify-between">
                 <div>
@@ -1351,30 +1640,53 @@ export default function AdminConversationsPage() {
                 </button>
               </div>
 
-              {conversations.some(c => c.isGroup) && (
+              {conversations.some((item) => item.isGroup) && (
                 <div className="mb-3 space-y-1">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Groups</p>
-                  {conversations.filter(c => c.isGroup).map(group => {
-                    const isSelected = String(selectedConversationId) === String(group._id || group.id);
-                    return (
-                      <button
-                        key={group._id || group.id}
-                        type="button"
-                        onClick={() => openConversation(group)}
-                        className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${
-                          isSelected ? "bg-blue-50 text-blue-700" : "hover:bg-slate-100 text-slate-700"
-                        }`}
-                      >
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white text-xs font-bold">
-                          <Users size={16} />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-xs font-bold">{group.groupName || "Team Group"}</p>
-                          <p className="truncate text-[11px] text-slate-400">{group.lastMessage || "Group chat"}</p>
-                        </div>
-                      </button>
-                    );
-                  })}
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Groups
+                  </p>
+
+                  {conversations
+                    .filter((item) => item.isGroup)
+                    .map((group) => {
+                      const groupId = group._id || group.id;
+                      const isSelected =
+                        String(selectedConversationId) ===
+                        String(groupId);
+                      const unread = getUnreadCount(group);
+
+                      return (
+                        <button
+                          key={groupId}
+                          type="button"
+                          onClick={() => openConversation(group)}
+                          className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${
+                            isSelected
+                              ? "bg-blue-50 text-blue-700"
+                              : "text-slate-700 hover:bg-slate-100"
+                          }`}
+                        >
+                          <div className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-xs font-bold text-white">
+                            <Users size={16} />
+                            {unread > 0 && !isSelected && (
+                              <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-600 px-1 text-[9px] text-white">
+                                {unread > 99 ? "99+" : unread}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-xs font-bold">
+                              {group.groupName || "Team Group"}
+                            </p>
+                            <p className="truncate text-[11px] text-slate-400">
+                              {getConversationLastMessage(group) ||
+                                "Group chat"}
+                            </p>
+                          </div>
+                        </button>
+                      );
+                    })}
                 </div>
               )}
 
@@ -1386,9 +1698,7 @@ export default function AdminConversationsPage() {
                 <input
                   type="text"
                   value={search}
-                  onChange={(e) =>
-                    setSearch(e.target.value)
-                  }
+                  onChange={(event) => setSearch(event.target.value)}
                   placeholder="Search contacts..."
                   className="h-10 w-full rounded-2xl border border-slate-200/90 bg-white pl-9 pr-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-4 focus:ring-blue-500/10"
                 />
@@ -1396,8 +1706,7 @@ export default function AdminConversationsPage() {
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-              {loadingUsers &&
-              users.length === 0 ? (
+              {loadingUsers && users.length === 0 ? (
                 <div className="flex min-h-[260px] flex-col items-center justify-center p-6 text-center">
                   <Loader2
                     size={26}
@@ -1407,35 +1716,27 @@ export default function AdminConversationsPage() {
                     Loading contacts...
                   </p>
                 </div>
-              ) : filteredUsers.length >
-                0 ? (
+              ) : filteredUsers.length > 0 ? (
                 filteredUsers.map((user) => {
                   const userId = getId(user);
                   const isSelected =
-                    String(
-                      getId(selectedUser)
-                    ) === String(userId);
+                    String(getId(selectedUser)) === String(userId);
 
-                  const existingConv =
-                    findConversationForUser(
-                      userId,
-                      conversations
-                    );
+                  const existingConv = findConversationForUser(
+                    userId,
+                    conversations
+                  );
 
-                  const unread =
-                    getUnreadCount(
-                      existingConv
-                    );
-
-                  const isOnline = onlineUsers[userId] === "online" || user.status === "active";
+                  const unread = getUnreadCount(existingConv);
+                  const isOnline =
+                    onlineUsers[userId] === "online" ||
+                    user.status === "active";
 
                   return (
                     <button
                       key={userId}
                       type="button"
-                      onClick={() =>
-                        handleSelectUser(user)
-                      }
+                      onClick={() => handleSelectUser(user)}
                       className={`flex w-full items-start gap-3 border-b border-slate-100/80 px-4 py-3.5 text-left transition duration-150 ${
                         isSelected
                           ? "border-blue-200/60 bg-blue-50/70"
@@ -1444,23 +1745,20 @@ export default function AdminConversationsPage() {
                     >
                       <div className="relative flex h-10 w-10 shrink-0 items-center justify-center overflow-visible rounded-2xl bg-[#2563EB] text-xs font-bold text-white shadow-sm">
                         <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-2xl">
-                          {getInitials(
-                            getUserName(user)
-                          )}
+                          {getInitials(getUserName(user))}
                         </div>
 
-                        <span className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white ${
-                          isOnline ? "bg-emerald-500" : "bg-slate-300"
-                        }`} />
+                        <span
+                          className={`absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white ${
+                            isOnline ? "bg-emerald-500" : "bg-slate-300"
+                          }`}
+                        />
 
-                        {unread > 0 &&
-                          !isSelected && (
-                            <span className="absolute -right-1.5 -top-1.5 z-10 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#2563EB] px-1.5 text-[10px] font-extrabold leading-none text-white shadow-md ring-2 ring-white">
-                              {unread > 99
-                                ? "99+"
-                                : unread}
-                            </span>
-                          )}
+                        {unread > 0 && !isSelected && (
+                          <span className="absolute -right-1.5 -top-1.5 z-10 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#2563EB] px-1.5 text-[10px] font-extrabold leading-none text-white shadow-md ring-2 ring-white">
+                            {unread > 99 ? "99+" : unread}
+                          </span>
+                        )}
                       </div>
 
                       <div className="min-w-0 flex-1">
@@ -1472,18 +1770,14 @@ export default function AdminConversationsPage() {
                           {existingConv && (
                             <span className="shrink-0 text-[10px] text-slate-400">
                               {formatConversationTime(
-                                getConversationLastDate(
-                                  existingConv
-                                )
+                                getConversationLastDate(existingConv)
                               )}
                             </span>
                           )}
                         </div>
 
                         <p className="mt-1 truncate text-xs text-slate-500">
-                          {getConversationLastMessage(
-                            existingConv
-                          ) ||
+                          {getConversationLastMessage(existingConv) ||
                             user?.email ||
                             "Click to message"}
                         </p>
@@ -1499,17 +1793,14 @@ export default function AdminConversationsPage() {
             </div>
           </div>
 
-          {/* CHAT MAIN PANEL */}
+          {/* CHAT PANEL */}
           <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-50/20">
-            
-            {/* Chat Header */}
+            {/* CHAT HEADER */}
             <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-slate-50/50 px-5 py-3.5 sm:px-6">
               <div className="flex min-w-0 items-center gap-3">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[#2563EB] text-xs font-bold text-white shadow-md">
                   {selectedUser ? (
-                    getInitials(
-                      getUserName(selectedUser)
-                    )
+                    getInitials(getUserName(selectedUser))
                   ) : (
                     <MessageSquare size={18} />
                   )}
@@ -1524,8 +1815,7 @@ export default function AdminConversationsPage() {
 
                   <p className="truncate text-xs font-semibold text-[#2563EB]">
                     {selectedUser
-                      ? getRole(selectedUser) ||
-                        "Active Member"
+                      ? getRole(selectedUser) || "Active Member"
                       : "Choose from list"}
                   </p>
                 </div>
@@ -1533,6 +1823,7 @@ export default function AdminConversationsPage() {
 
               {selectedConversationId && (
                 <button
+                  type="button"
                   onClick={handleDeleteConversation}
                   className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-rose-100 bg-rose-50 text-rose-600 transition hover:bg-rose-100"
                   title="Delete Conversation"
@@ -1542,8 +1833,21 @@ export default function AdminConversationsPage() {
               )}
             </div>
 
-            {/* Scrollable Messages Area */}
+            {/* MESSAGES */}
             <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-5 py-6 sm:px-6">
+              {messagesError && (
+                <div className="mb-4 flex items-start justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                  <p>{messagesError}</p>
+                  <button
+                    type="button"
+                    onClick={() => setMessagesError("")}
+                    aria-label="Dismiss error"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
+
               {startingConversation ? (
                 <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
                   <Loader2
@@ -1563,7 +1867,18 @@ export default function AdminConversationsPage() {
                     No contact selected
                   </h3>
                   <p className="mt-1 text-xs text-slate-400">
-                    Pick a team member from the left list to review chat histories.
+                    Pick a team member from the left list to review chat
+                    histories.
+                  </p>
+                </div>
+              ) : loadingMessages && messages.length === 0 ? (
+                <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
+                  <Loader2
+                    size={24}
+                    className="animate-spin text-[#2563EB]"
+                  />
+                  <p className="mt-2 text-xs text-slate-400">
+                    Loading messages...
                   </p>
                 </div>
               ) : messages.length === 0 ? (
@@ -1586,14 +1901,12 @@ export default function AdminConversationsPage() {
 
                     const body = isDeleted
                       ? "This message was deleted"
-                      : item?.body ||
-                        item?.message ||
-                        "";
+                      : item?.body || item?.message || "";
 
                     const isAdmin =
-                      String(
-                        sender?.role || ""
-                      ).toLowerCase() === "admin";
+                      String(sender?.role || "").toLowerCase() ===
+                        "admin" ||
+                      sender?.name === "You";
 
                     const attachments = Array.isArray(item?.attachments)
                       ? item.attachments
@@ -1601,15 +1914,9 @@ export default function AdminConversationsPage() {
 
                     return (
                       <div
-                        key={
-                          item?.id ||
-                          item?._id ||
-                          index
-                        }
+                        key={item?.id || item?._id || index}
                         className={`group relative flex w-full items-center gap-2.5 ${
-                          isAdmin
-                            ? "justify-end"
-                            : "justify-start"
+                          isAdmin ? "justify-end" : "justify-start"
                         }`}
                       >
                         <div
@@ -1621,34 +1928,35 @@ export default function AdminConversationsPage() {
                               : "rounded-tl-xs border border-slate-100 bg-white text-slate-800 shadow-[0_4px_20px_rgba(45,35,100,0.03)]"
                           }`}
                         >
-                          {!isAdmin &&
-                            senderName &&
-                            !isDeleted && (
-                              <p className="mb-1 text-[10px] font-bold text-[#2563EB]">
-                                {senderName}
-                              </p>
-                            )}
+                          {!isAdmin && !isDeleted && (
+                            <p className="mb-1 text-[10px] font-bold text-[#2563EB]">
+                              {senderName}
+                            </p>
+                          )}
 
                           {attachments.length > 0 && (
                             <div className="mb-2 flex flex-col gap-2">
-                              {attachments.map((att, attIdx) => {
+                              {attachments.map((attachment, attachmentIndex) => {
                                 const rawUrl =
-                                  att.url ||
-                                  att.path ||
-                                  att.filePath ||
-                                  att.fileUrl ||
-                                  att.filename;
+                                  attachment.url ||
+                                  attachment.path ||
+                                  attachment.filePath ||
+                                  attachment.fileUrl ||
+                                  attachment.filename;
 
                                 const fileUrl = getFileUrl(rawUrl);
+
                                 const isImage =
-                                  att.mimeType?.startsWith("image/") ||
-                                  /\.(png|jpg|jpeg|webp|gif)$/i.test(fileUrl) ||
-                                  att.type?.startsWith("image/");
+                                  attachment.mimeType?.startsWith("image/") ||
+                                  /\.(png|jpg|jpeg|webp|gif)$/i.test(
+                                    fileUrl
+                                  ) ||
+                                  attachment.type?.startsWith("image/");
 
                                 if (isImage) {
                                   return (
                                     <a
-                                      key={attIdx}
+                                      key={attachmentIndex}
                                       href={fileUrl}
                                       target="_blank"
                                       rel="noopener noreferrer"
@@ -1656,7 +1964,11 @@ export default function AdminConversationsPage() {
                                     >
                                       <img
                                         src={fileUrl}
-                                        alt={att.originalName || att.filename || "Attachment"}
+                                        alt={
+                                          attachment.originalName ||
+                                          attachment.filename ||
+                                          "Attachment"
+                                        }
                                         className="max-h-60 w-full object-cover transition hover:opacity-95"
                                       />
                                     </a>
@@ -1665,7 +1977,7 @@ export default function AdminConversationsPage() {
 
                                 return (
                                   <a
-                                    key={attIdx}
+                                    key={attachmentIndex}
                                     href={fileUrl}
                                     target="_blank"
                                     rel="noopener noreferrer"
@@ -1677,7 +1989,9 @@ export default function AdminConversationsPage() {
                                   >
                                     <FileText size={16} />
                                     <span className="truncate">
-                                      {att.originalName || att.filename || "Download File"}
+                                      {attachment.originalName ||
+                                        attachment.filename ||
+                                        "Download File"}
                                     </span>
                                   </a>
                                 );
@@ -1693,31 +2007,31 @@ export default function AdminConversationsPage() {
 
                           <span
                             className={`mt-1.5 block text-right text-[10px] ${
-                              isAdmin
-                                ? "text-blue-200"
-                                : "text-slate-400"
+                              isAdmin ? "text-blue-200" : "text-slate-400"
                             }`}
                           >
-                            {formatMessageTime(
-                              item?.createdAt
-                            )}
+                            {formatMessageTime(item?.createdAt)}
+                            {isAdmin && item?.status === "sending"
+                              ? " · Sending"
+                              : ""}
                           </span>
                         </div>
                       </div>
                     );
                   })}
+
                   <div ref={messagesEndRef} />
                 </div>
               )}
             </div>
 
-            {/* Fixed Message Composer Footer */}
+            {/* MESSAGE COMPOSER */}
             <div className="shrink-0 border-t border-slate-100 bg-white p-4 sm:p-5">
               {selectedFiles.length > 0 && (
                 <div className="mb-3 flex flex-wrap gap-2">
-                  {selectedFiles.map((file, idx) => (
+                  {selectedFiles.map((file, index) => (
                     <div
-                      key={idx}
+                      key={`${file.name}-${index}`}
                       className="flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50/70 px-3 py-1.5 text-xs text-blue-800"
                     >
                       <span className="max-w-[150px] truncate font-semibold">
@@ -1726,13 +2040,12 @@ export default function AdminConversationsPage() {
                       <button
                         type="button"
                         onClick={() =>
-                          setSelectedFiles((prev) =>
-                            prev.filter(
-                              (_, i) => i !== idx
-                            )
+                          setSelectedFiles((previous) =>
+                            previous.filter((_, i) => i !== index)
                           )
                         }
                         className="text-blue-400 hover:text-rose-600"
+                        aria-label={`Remove ${file.name}`}
                       >
                         <X size={13} />
                       </button>
@@ -1749,27 +2062,27 @@ export default function AdminConversationsPage() {
                   type="file"
                   multiple
                   ref={fileInputRef}
-                  onChange={(e) => {
-                    const newFiles =
-                      Array.from(
-                        e.target.files || []
-                      );
-                    setSelectedFiles((prev) => [
-                      ...prev,
+                  onChange={(event) => {
+                    const newFiles = Array.from(
+                      event.target.files || []
+                    );
+
+                    setSelectedFiles((previous) => [
+                      ...previous,
                       ...newFiles,
                     ]);
-                    e.target.value = "";
+
+                    event.target.value = "";
                   }}
                   className="hidden"
                 />
 
                 <button
                   type="button"
-                  onClick={() =>
-                    fileInputRef.current?.click()
-                  }
+                  onClick={() => fileInputRef.current?.click()}
                   disabled={!selectedUser}
                   className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200/90 bg-slate-50/50 text-slate-500 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-[#2563EB] disabled:opacity-40"
+                  aria-label="Attach files"
                 >
                   <Paperclip size={18} />
                 </button>
@@ -1777,28 +2090,25 @@ export default function AdminConversationsPage() {
                 <div className="min-w-0 flex-1">
                   <textarea
                     value={message}
-                    onChange={(e) =>
-                      setMessage(e.target.value)
-                    }
+                    onChange={(event) => setMessage(event.target.value)}
                     placeholder={
                       selectedUser
                         ? "Write a message..."
                         : "Select user first..."
                     }
                     rows={1}
-                    disabled={
-                      !selectedUser
-                    }
-                    onKeyDown={(e) => {
+                    disabled={!selectedUser}
+                    onKeyDown={(event) => {
                       if (
-                        e.key === "Enter" &&
-                        !e.shiftKey
+                        event.key === "Enter" &&
+                        !event.shiftKey &&
+                        !event.nativeEvent.isComposing
                       ) {
-                        e.preventDefault();
-                        handleSendMessage(e);
+                        event.preventDefault();
+                        handleSendMessage(event);
                       }
                     }}
-                    className="min-h-11 max-h-32 w-full resize-none rounded-2xl border border-slate-200/90 bg-slate-50/50 px-4 py-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-[#2563EB] focus:bg-white focus:ring-4 focus:ring-blue-500/10 disabled:opacity-60"
+                    className="min-h-11 max-h-32 w-full resize-y rounded-2xl border border-slate-200/90 bg-slate-50/50 px-4 py-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-[#2563EB] focus:bg-white focus:ring-4 focus:ring-blue-500/10 disabled:opacity-60"
                   />
                 </div>
 
@@ -1806,10 +2116,10 @@ export default function AdminConversationsPage() {
                   type="submit"
                   disabled={
                     !selectedUser ||
-                    (!message.trim() &&
-                      selectedFiles.length === 0)
+                    (!message.trim() && selectedFiles.length === 0)
                   }
                   className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#2563EB] text-white shadow-md shadow-blue-600/25 transition hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400"
+                  aria-label="Send message"
                 >
                   <Send size={17} />
                 </button>
@@ -1824,23 +2134,31 @@ export default function AdminConversationsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
             <div className="flex items-center justify-between border-b pb-4">
-              <h3 className="text-base font-bold text-slate-900">Create Team Group</h3>
+              <h3 className="text-base font-bold text-slate-900">
+                Create Team Group
+              </h3>
               <button
                 type="button"
                 onClick={() => setShowGroupModal(false)}
                 className="text-slate-400 hover:text-slate-600"
+                aria-label="Close group modal"
               >
                 <X size={20} />
               </button>
             </div>
 
-            <form onSubmit={handleCreateGroup} className="mt-4 space-y-4">
+            <form
+              onSubmit={handleCreateGroup}
+              className="mt-4 space-y-4"
+            >
               <div>
-                <label className="block text-xs font-bold text-slate-700">Group Name</label>
+                <label className="block text-xs font-bold text-slate-700">
+                  Group Name
+                </label>
                 <input
                   type="text"
                   value={groupName}
-                  onChange={(e) => setGroupName(e.target.value)}
+                  onChange={(event) => setGroupName(event.target.value)}
                   placeholder="e.g. Weekend Escape, Dev Team"
                   required
                   className="mt-1 h-10 w-full rounded-xl border px-3 text-xs outline-none focus:border-[#2563EB]"
@@ -1848,29 +2166,46 @@ export default function AdminConversationsPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Select Members</label>
-                <div className="max-h-48 overflow-y-auto space-y-1 rounded-xl border p-2">
-                  {users.map((u) => {
-                    const uId = getId(u);
-                    const isChecked = selectedGroupMembers.includes(uId);
+                <label className="mb-1 block text-xs font-bold text-slate-700">
+                  Select Members
+                </label>
+
+                <div className="max-h-48 space-y-1 overflow-y-auto rounded-xl border p-2">
+                  {users.map((user) => {
+                    const userId = getId(user);
+                    if (!userId) return null;
+
+                    const isChecked =
+                      selectedGroupMembers.includes(userId);
+
                     return (
                       <label
-                        key={uId}
-                        className="flex items-center gap-2 rounded-lg p-2 text-xs hover:bg-slate-50 cursor-pointer"
+                        key={userId}
+                        className="flex cursor-pointer items-center gap-2 rounded-lg p-2 text-xs hover:bg-slate-50"
                       >
                         <input
                           type="checkbox"
                           checked={isChecked}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedGroupMembers((prev) => [...prev, uId]);
+                          onChange={(event) => {
+                            if (event.target.checked) {
+                              setSelectedGroupMembers((previous) =>
+                                previous.includes(userId)
+                                  ? previous
+                                  : [...previous, userId]
+                              );
                             } else {
-                              setSelectedGroupMembers((prev) => prev.filter((id) => id !== uId));
+                              setSelectedGroupMembers((previous) =>
+                                previous.filter((id) => id !== userId)
+                              );
                             }
                           }}
                         />
-                        <span className="font-semibold text-slate-800">{getUserName(u)}</span>
-                        <span className="text-[10px] text-slate-400">({u.role})</span>
+                        <span className="font-semibold text-slate-800">
+                          {getUserName(user)}
+                        </span>
+                        <span className="text-[10px] text-slate-400">
+                          ({user.role})
+                        </span>
                       </label>
                     );
                   })}
@@ -1885,9 +2220,14 @@ export default function AdminConversationsPage() {
                 >
                   Cancel
                 </button>
+
                 <button
                   type="submit"
-                  disabled={creatingGroup || !groupName.trim() || selectedGroupMembers.length === 0}
+                  disabled={
+                    creatingGroup ||
+                    !groupName.trim() ||
+                    selectedGroupMembers.length === 0
+                  }
                   className="rounded-xl bg-[#2563EB] px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
                 >
                   {creatingGroup ? "Creating..." : "Create Group"}
