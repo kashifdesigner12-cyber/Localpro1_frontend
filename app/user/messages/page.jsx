@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   AlertTriangle,
   Bell,
@@ -17,12 +23,15 @@ import {
   Trash2,
   Users,
   X,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import { io } from "socket.io-client";
 import { authService } from "@/services/authService";
 
 const API_URL = (
-  process.env.NEXT_PUBLIC_API_URL || "https://api.localpro1.net/api"
+  process.env.NEXT_PUBLIC_API_URL ||
+  "https://api.localpro1.net/api"
 )
   .trim()
   .replace(/\/+$/, "");
@@ -46,6 +55,8 @@ const DEFAULT_CONVERSATION = {
   lastMessage: "Welcome to support chat",
   updatedAt: new Date().toISOString(),
 };
+
+/* -------------------- Helpers -------------------- */
 
 function getStoredToken() {
   try {
@@ -114,11 +125,7 @@ function getMessageConversationId(message) {
 }
 
 function getMessageId(message) {
-  const id =
-    message?._id ||
-    message?.id ||
-    message?.messageId;
-
+  const id = message?._id || message?.id || message?.messageId;
   return id ? String(id) : "";
 }
 
@@ -137,14 +144,15 @@ function getOtherParticipant(conversation, currentUser) {
 
   const currentId = getUserId(currentUser);
 
-  const others = participants.filter(
-    (participant) =>
-      !(
-        currentId &&
-        getUserId(participant) &&
-        String(currentId) === String(getUserId(participant))
-      )
-  );
+  const others = participants.filter((participant) => {
+    const participantId = getUserId(participant);
+
+    return !(
+      currentId &&
+      participantId &&
+      String(currentId) === String(participantId)
+    );
+  });
 
   return (
     others.find((participant) =>
@@ -155,10 +163,7 @@ function getOtherParticipant(conversation, currentUser) {
     others[0] ||
     conversation?.admin ||
     conversation?.support ||
-    {
-      name: "Admin / Support",
-      role: "admin",
-    }
+    { name: "Admin / Support", role: "admin" }
   );
 }
 
@@ -216,13 +221,9 @@ function normalizeConversations(response) {
     response?.results ??
     response?.data;
 
-  if (Array.isArray(value)) {
-    return value.filter(Boolean);
-  }
+  if (Array.isArray(value)) return value.filter(Boolean);
 
-  return value && typeof value === "object"
-    ? [value]
-    : [];
+  return value && typeof value === "object" ? [value] : [];
 }
 
 function normalizeMessages(response) {
@@ -232,13 +233,9 @@ function normalizeMessages(response) {
     response?.results ??
     response?.data;
 
-  if (Array.isArray(value)) {
-    return value.filter(Boolean);
-  }
+  if (Array.isArray(value)) return value.filter(Boolean);
 
-  return value && typeof value === "object"
-    ? [value]
-    : [];
+  return value && typeof value === "object" ? [value] : [];
 }
 
 function mergeMessages(existing = [], incoming = []) {
@@ -248,12 +245,10 @@ function mergeMessages(existing = [], incoming = []) {
     const id = getMessageId(message);
 
     let index = id
-      ? output.findIndex(
-          (item) => getMessageId(item) === id
-        )
+      ? output.findIndex((item) => getMessageId(item) === id)
       : -1;
 
-    // Match an optimistic message with its saved server version.
+    // Match optimistic messages with the saved backend message.
     if (index < 0) {
       index = output.findIndex((item) => {
         if (!getMessageId(item).startsWith("temp-")) {
@@ -320,9 +315,7 @@ function formatDateTime(date) {
 
   const parsedDate = new Date(date);
 
-  if (Number.isNaN(parsedDate.getTime())) {
-    return "";
-  }
+  if (Number.isNaN(parsedDate.getTime())) return "";
 
   return parsedDate.toDateString() === new Date().toDateString()
     ? parsedDate.toLocaleTimeString("en-US", {
@@ -357,9 +350,7 @@ async function apiRequest(endpoint, options = {}) {
 
   const headers = {
     Accept: "application/json",
-    ...(token
-      ? { Authorization: `Bearer ${token}` }
-      : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(isForm || !options.body
       ? {}
       : { "Content-Type": "application/json" }),
@@ -407,10 +398,7 @@ async function safeApiRequest(endpoint) {
   try {
     return await apiRequest(endpoint);
   } catch (error) {
-    if (error?.status === 401) {
-      throw error;
-    }
-
+    if (error?.status === 401) throw error;
     return null;
   }
 }
@@ -426,15 +414,15 @@ async function getConversationMessages(id) {
 }
 
 async function markConversationRead(id) {
-  if (!id || id === DEFAULT_CONVERSATION_ID) {
-    return;
-  }
+  if (!id || id === DEFAULT_CONVERSATION_ID) return;
 
   return apiRequest(
     `/conversations/${encodeURIComponent(id)}/read`,
     { method: "PUT" }
   );
 }
+
+/* -------------------- Notifications -------------------- */
 
 function playNotificationSound(audioRef) {
   try {
@@ -465,16 +453,11 @@ function playNotificationSound(audioRef) {
       context.currentTime
     );
 
-    gain.gain.setValueAtTime(
-      0.0001,
-      context.currentTime
-    );
-
+    gain.gain.setValueAtTime(0.0001, context.currentTime);
     gain.gain.exponentialRampToValueAtTime(
-      0.10,
+      0.1,
       context.currentTime + 0.02
     );
-
     gain.gain.exponentialRampToValueAtTime(
       0.0001,
       context.currentTime + 0.22
@@ -486,7 +469,7 @@ function playNotificationSound(audioRef) {
     oscillator.start();
     oscillator.stop(context.currentTime + 0.23);
   } catch {
-    // Audio can be blocked by browser autoplay restrictions.
+    // Browser autoplay restrictions may block sound.
   }
 }
 
@@ -500,23 +483,22 @@ function showDesktopNotification(title, body) {
   }
 
   try {
-    const notification = new Notification(
-      title || "New message",
-      {
-        body: body || "You received a message.",
-        icon: "/favicon.ico",
-        tag: `localpro-chat-${Date.now()}`,
-      }
-    );
+    const notification = new Notification(title || "New message", {
+      body: body || "You received a message.",
+      icon: "/favicon.ico",
+      tag: `localpro-chat-${Date.now()}`,
+    });
 
     notification.onclick = () => {
       window.focus();
       notification.close();
     };
   } catch {
-    // Desktop notifications may be blocked by the browser.
+    // Browser may block desktop notifications.
   }
 }
+
+/* -------------------- Main Component -------------------- */
 
 export default function UserMessagesPage() {
   const [conversations, setConversations] = useState(() => {
@@ -525,9 +507,7 @@ export default function UserMessagesPage() {
         "cached_user_admin_chats"
       );
 
-      return value
-        ? JSON.parse(value)
-        : [DEFAULT_CONVERSATION];
+      return value ? JSON.parse(value) : [DEFAULT_CONVERSATION];
     } catch {
       return [DEFAULT_CONVERSATION];
     }
@@ -569,14 +549,16 @@ export default function UserMessagesPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [messagesError, setMessagesError] = useState("");
+  const [socketConnected, setSocketConnected] = useState(false);
 
   const [notificationPermission, setNotificationPermission] =
-    useState(() =>
-      typeof window !== "undefined" &&
-      "Notification" in window
+    useState(() => {
+      if (typeof window === "undefined") return "default";
+
+      return "Notification" in window
         ? Notification.permission
-        : "unsupported"
-    );
+        : "unsupported";
+    });
 
   const [currentUser, setCurrentUser] = useState(() => {
     try {
@@ -587,23 +569,16 @@ export default function UserMessagesPage() {
     }
   });
 
-  const [deleteModalOpen, setDeleteModalOpen] =
-    useState(false);
-
-  const [messageToDelete, setMessageToDelete] =
-    useState(null);
-
-  const [deletingMessage, setDeletingMessage] =
-    useState(false);
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [messageToDelete, setMessageToDelete] = useState(null);
+  const [deletingMessage, setDeletingMessage] = useState(false);
 
   const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
   const socketRef = useRef(null);
-
   const selectedConversationIdRef = useRef(
     DEFAULT_CONVERSATION_ID
   );
-
   const currentUserRef = useRef(null);
   const conversationsRef = useRef([]);
   const messagesCache = useRef({});
@@ -611,6 +586,7 @@ export default function UserMessagesPage() {
   const conversationsRequestRef = useRef(false);
   const processedMessageIdsRef = useRef(new Set());
   const notificationAudioRef = useRef(null);
+  const pollingBusyRef = useRef(false);
 
   const selectedConversationId =
     getConversationId(selectedConversation) ||
@@ -625,8 +601,7 @@ export default function UserMessagesPage() {
   }, [conversations]);
 
   useEffect(() => {
-    selectedConversationIdRef.current =
-      selectedConversationId;
+    selectedConversationIdRef.current = selectedConversationId;
   }, [selectedConversationId]);
 
   useEffect(() => {
@@ -643,27 +618,29 @@ export default function UserMessagesPage() {
     });
   }, []);
 
-  const requestNotificationPermission =
-    useCallback(async () => {
-      if (
-        typeof window === "undefined" ||
-        !("Notification" in window)
-      ) {
-        setNotificationPermission("unsupported");
-        return;
-      }
+  const requestNotificationPermission = useCallback(async () => {
+    if (
+      typeof window === "undefined" ||
+      !("Notification" in window)
+    ) {
+      setNotificationPermission("unsupported");
+      return;
+    }
 
-      try {
-        const permission =
-          await Notification.requestPermission();
+    try {
+      const permission = await Notification.requestPermission();
+      setNotificationPermission(permission);
 
-        setNotificationPermission(permission);
-      } catch {
-        setNotificationPermission(
-          Notification.permission
-        );
+      if (permission === "granted") {
+        new Notification("LocalPro Chat notifications enabled", {
+          body: "You will receive browser notifications for new messages.",
+          icon: "/favicon.ico",
+        });
       }
-    }, []);
+    } catch {
+      setNotificationPermission(Notification.permission);
+    }
+  }, []);
 
   const loadConversations = useCallback(
     async (silent = false) => {
@@ -672,10 +649,7 @@ export default function UserMessagesPage() {
       conversationsRequestRef.current = true;
 
       try {
-        if (
-          !silent &&
-          conversationsRef.current.length === 0
-        ) {
+        if (!silent && !conversationsRef.current.length) {
           setLoading(true);
         }
 
@@ -698,10 +672,7 @@ export default function UserMessagesPage() {
             setCurrentUser(user);
 
             try {
-              localStorage.setItem(
-                "user",
-                JSON.stringify(user)
-              );
+              localStorage.setItem("user", JSON.stringify(user));
             } catch {
               // Ignore storage errors.
             }
@@ -716,10 +687,8 @@ export default function UserMessagesPage() {
           );
         }
 
-        const list = normalizeConversations(
-          response
-        ).filter((conversation) =>
-          Boolean(getConversationId(conversation))
+        const list = normalizeConversations(response).filter(
+          (conversation) => Boolean(getConversationId(conversation))
         );
 
         const finalList = list.length
@@ -739,26 +708,21 @@ export default function UserMessagesPage() {
         }
 
         setSelectedConversation((previous) => {
-          const previousId =
-            getConversationId(previous);
+          const previousId = getConversationId(previous);
 
           return (
             (previousId &&
               finalList.find(
                 (conversation) =>
-                  String(
-                    getConversationId(conversation)
-                  ) === String(previousId)
+                  String(getConversationId(conversation)) ===
+                  String(previousId)
               )) ||
             finalList[0] ||
             null
           );
         });
       } catch (err) {
-        console.error(
-          "User conversations error:",
-          err
-        );
+        console.error("User conversations error:", err);
 
         if (err?.status === 401) {
           window.location.href = "/login";
@@ -766,10 +730,7 @@ export default function UserMessagesPage() {
         }
 
         if (!silent) {
-          setError(
-            err?.message ||
-              "Unable to load conversations."
-          );
+          setError(err?.message || "Unable to load conversations.");
         }
       } finally {
         conversationsRequestRef.current = false;
@@ -783,156 +744,120 @@ export default function UserMessagesPage() {
     loadConversations(false);
   }, [loadConversations]);
 
-  const loadMessages = useCallback(
-    async (id, silent = false) => {
-      if (!id) {
-        setMessages([]);
-        setMessagesError("");
-        setMessagesLoading(false);
-        return;
+  const loadMessages = useCallback(async (id, silent = false) => {
+    if (!id) {
+      setMessages([]);
+      setMessagesError("");
+      setMessagesLoading(false);
+      return;
+    }
+
+    const requestId = ++loadMessagesRequestRef.current;
+
+    try {
+      if (!silent) setMessagesLoading(true);
+      setMessagesError("");
+
+      const response = await getConversationMessages(id);
+
+      if (requestId !== loadMessagesRequestRef.current) return;
+
+      const fetched = normalizeMessages(response);
+
+      const merged = mergeMessages(
+        messagesCache.current[id] || [],
+        fetched
+      );
+
+      messagesCache.current[id] = merged;
+
+      if (
+        String(selectedConversationIdRef.current) === String(id)
+      ) {
+        setMessages(merged);
       }
-
-      const requestId =
-        ++loadMessagesRequestRef.current;
-
-      try {
-        if (!silent) {
-          setMessagesLoading(true);
-        }
-
-        setMessagesError("");
-
-        const response =
-          await getConversationMessages(id);
-
-        if (
-          requestId !== loadMessagesRequestRef.current
-        ) {
-          return;
-        }
-
-        const fetched = normalizeMessages(response);
-
-        const merged = mergeMessages(
-          messagesCache.current[id] || [],
-          fetched
-        );
-
-        messagesCache.current[id] = merged;
-
-        if (
-          String(selectedConversationIdRef.current) ===
-          String(id)
-        ) {
-          setMessages(merged);
-        }
-
-        try {
-          localStorage.setItem(
-            `cached_user_messages_${id}`,
-            JSON.stringify(merged)
-          );
-        } catch {
-          // Ignore storage errors.
-        }
-      } catch (err) {
-        if (
-          requestId !== loadMessagesRequestRef.current
-        ) {
-          return;
-        }
-
-        console.error("Load messages error:", err);
-
-        if (!silent) {
-          setMessagesError(
-            err?.message ||
-              "Unable to load conversation messages."
-          );
-        }
-      } finally {
-        if (
-          requestId === loadMessagesRequestRef.current
-        ) {
-          setMessagesLoading(false);
-        }
-      }
-    },
-    []
-  );
-
-  const saveConversationMessages = useCallback(
-    (id, nextMessages) => {
-      if (!id) return;
-
-      messagesCache.current[id] = nextMessages;
 
       try {
         localStorage.setItem(
           `cached_user_messages_${id}`,
-          JSON.stringify(nextMessages)
+          JSON.stringify(merged)
         );
       } catch {
         // Ignore storage errors.
       }
+    } catch (err) {
+      if (requestId !== loadMessagesRequestRef.current) return;
 
-      if (
-        String(selectedConversationIdRef.current) ===
-        String(id)
-      ) {
-        setMessages(nextMessages);
+      console.error("Load messages error:", err);
+
+      if (!silent) {
+        setMessagesError(
+          err?.message || "Unable to load conversation messages."
+        );
       }
-    },
-    []
-  );
+    } finally {
+      if (requestId === loadMessagesRequestRef.current) {
+        setMessagesLoading(false);
+      }
+    }
+  }, []);
+
+  const saveConversationMessages = useCallback((id, nextMessages) => {
+    if (!id) return;
+
+    messagesCache.current[id] = nextMessages;
+
+    try {
+      localStorage.setItem(
+        `cached_user_messages_${id}`,
+        JSON.stringify(nextMessages)
+      );
+    } catch {
+      // Ignore storage errors.
+    }
+
+    if (
+      String(selectedConversationIdRef.current) === String(id)
+    ) {
+      setMessages(nextMessages);
+    }
+  }, []);
 
   const handleIncomingMessage = useCallback(
     (payload) => {
-      // Support common Socket.IO message payload formats.
+      // Support common Socket.IO event payload formats.
       const incoming =
-        payload?.message &&
-        typeof payload.message === "object"
+        payload?.message && typeof payload.message === "object"
           ? payload.message
           : payload?.data?.message &&
               typeof payload.data.message === "object"
             ? payload.data.message
-            : payload;
+            : payload?.data &&
+                typeof payload.data === "object" &&
+                (payload.data._id || payload.data.id)
+              ? payload.data
+              : payload;
 
-      if (!incoming || typeof incoming !== "object") {
-        return;
-      }
+      if (!incoming || typeof incoming !== "object") return;
 
       const id = getMessageId(incoming);
-      const conversationId =
-        getMessageConversationId(incoming);
+      const conversationId = getMessageConversationId(incoming);
 
       if (!conversationId) {
-        console.warn(
-          "Ignoring socket payload without conversation ID:",
-          payload
-        );
+        // Metadata-only events are handled by polling.
         return;
       }
 
       if (id) {
-        if (
-          processedMessageIdsRef.current.has(id)
-        ) {
-          return;
-        }
+        if (processedMessageIdsRef.current.has(id)) return;
 
         processedMessageIdsRef.current.add(id);
 
-        if (
-          processedMessageIdsRef.current.size > 1500
-        ) {
+        if (processedMessageIdsRef.current.size > 1500) {
           const oldestId =
-            processedMessageIdsRef.current.values().next()
-              .value;
+            processedMessageIdsRef.current.values().next().value;
 
-          processedMessageIdsRef.current.delete(
-            oldestId
-          );
+          processedMessageIdsRef.current.delete(oldestId);
         }
       }
 
@@ -954,15 +879,10 @@ export default function UserMessagesPage() {
         [incoming]
       );
 
-      saveConversationMessages(
-        conversationId,
-        nextMessages
-      );
+      saveConversationMessages(conversationId, nextMessages);
 
       const preview = getMessageText(incoming);
-
-      const time =
-        incoming.createdAt || new Date().toISOString();
+      const time = incoming.createdAt || new Date().toISOString();
 
       setConversations((previous) => {
         let found = false;
@@ -1000,7 +920,6 @@ export default function UserMessagesPage() {
           };
         });
 
-        // Do not create a fake conversation without participants.
         if (found) {
           conversationsRef.current = updated;
 
@@ -1017,11 +936,9 @@ export default function UserMessagesPage() {
         return updated;
       });
 
-      const pageVisible =
-        typeof document !== "undefined" &&
-        document.visibilityState === "visible";
-
-      if (!isOwn && (!active || !pageVisible)) {
+      // Notify for every incoming message, even when the chat is open.
+      // Never notify for messages sent by the current user.
+      if (!isOwn) {
         const sender = incoming.sender || {};
 
         playNotificationSound(notificationAudioRef);
@@ -1030,15 +947,13 @@ export default function UserMessagesPage() {
           sender.name ||
             sender.fullName ||
             sender.email ||
-            "Admin / Support",
+            "New message",
           preview || "You received a message."
         );
       }
 
       if (active && !isOwn) {
-        markConversationRead(conversationId).catch(
-          () => {}
-        );
+        markConversationRead(conversationId).catch(() => {});
 
         setConversations((previous) => {
           const updated = previous.map((conversation) =>
@@ -1058,17 +973,12 @@ export default function UserMessagesPage() {
           return updated;
         });
       }
-
-      // Refresh conversation previews after a new message.
-      loadConversations(true);
     },
-    [loadConversations, saveConversationMessages]
+    [saveConversationMessages]
   );
 
   useEffect(() => {
-    const id =
-      selectedConversationId ||
-      DEFAULT_CONVERSATION_ID;
+    const id = selectedConversationId || DEFAULT_CONVERSATION_ID;
 
     selectedConversationIdRef.current = id;
 
@@ -1095,7 +1005,8 @@ export default function UserMessagesPage() {
     loadMessages(id, Boolean(cached));
   }, [selectedConversationId, loadMessages]);
 
-  // Socket.IO connection and incoming message listeners.
+  /* -------------------- Socket.IO -------------------- */
+
   useEffect(() => {
     const socket = io(BACKEND_BASE_URL, {
       auth: {
@@ -1112,8 +1023,9 @@ export default function UserMessagesPage() {
     socketRef.current = socket;
 
     const joinRooms = () => {
-      const conversationId =
-        selectedConversationIdRef.current;
+      setSocketConnected(true);
+
+      const conversationId = selectedConversationIdRef.current;
 
       if (
         conversationId &&
@@ -1122,62 +1034,52 @@ export default function UserMessagesPage() {
         socket.emit("join_room", conversationId);
       }
 
-      const userId = getUserId(
-        currentUserRef.current
-      );
+      const userId = getUserId(currentUserRef.current);
 
       if (userId) {
         socket.emit("user_join", userId);
       }
+
+      // Re-sync after connection/reconnection to recover missed events.
+      loadConversations(true);
+      loadMessages(
+        selectedConversationIdRef.current,
+        true
+      );
     };
 
+    const onDisconnect = () => setSocketConnected(false);
+
     const onConnectError = (err) => {
-      console.warn(
-        "Chat socket connection error:",
-        err?.message
-      );
+      setSocketConnected(false);
+      console.warn("Chat socket connection error:", err?.message);
     };
 
     socket.on("connect", joinRooms);
+    socket.on("disconnect", onDisconnect);
     socket.on("connect_error", onConnectError);
 
-    socket.on(
+    // Register common event names used by chat backends.
+    const messageEvents = [
       "receive_message",
-      handleIncomingMessage
-    );
-
-    socket.on(
       "new_message",
-      handleIncomingMessage
-    );
-
-    socket.on("message", handleIncomingMessage);
-
-    socket.on(
+      "message",
       "message_notification",
-      handleIncomingMessage
-    );
+      "notification",
+    ];
+
+    messageEvents.forEach((eventName) => {
+      socket.on(eventName, handleIncomingMessage);
+    });
 
     return () => {
       socket.off("connect", joinRooms);
+      socket.off("disconnect", onDisconnect);
       socket.off("connect_error", onConnectError);
 
-      socket.off(
-        "receive_message",
-        handleIncomingMessage
-      );
-
-      socket.off(
-        "new_message",
-        handleIncomingMessage
-      );
-
-      socket.off("message", handleIncomingMessage);
-
-      socket.off(
-        "message_notification",
-        handleIncomingMessage
-      );
+      messageEvents.forEach((eventName) => {
+        socket.off(eventName, handleIncomingMessage);
+      });
 
       socket.disconnect();
 
@@ -1185,24 +1087,18 @@ export default function UserMessagesPage() {
         socketRef.current = null;
       }
     };
-  }, [handleIncomingMessage]);
+  }, [handleIncomingMessage, loadConversations, loadMessages]);
 
-  // Join the selected conversation room.
+  // Join selected room whenever conversation changes.
   useEffect(() => {
     const socket = socketRef.current;
     const id = selectedConversationId;
 
-    if (
-      !socket ||
-      !id ||
-      id === DEFAULT_CONVERSATION_ID
-    ) {
+    if (!socket || !id || id === DEFAULT_CONVERSATION_ID) {
       return;
     }
 
-    const join = () => {
-      socket.emit("join_room", id);
-    };
+    const join = () => socket.emit("join_room", id);
 
     if (socket.connected) {
       join();
@@ -1215,7 +1111,7 @@ export default function UserMessagesPage() {
     };
   }, [selectedConversationId]);
 
-  // Rejoin the user's private room if the user loads after socket connection.
+  // Join private user room if user information loads later.
   useEffect(() => {
     const socket = socketRef.current;
     const userId = getUserId(currentUser);
@@ -1225,22 +1121,83 @@ export default function UserMessagesPage() {
     }
   }, [currentUser]);
 
+  /*
+   * One-second fallback:
+   * Socket.IO is the primary realtime channel.
+   * Polling recovers messages if the server misses/emits no socket event.
+   * This increases API requests, so the backend should support these endpoints.
+   */
+  useEffect(() => {
+    let cancelled = false;
+
+    const sync = async () => {
+      if (
+        cancelled ||
+        pollingBusyRef.current ||
+        document.visibilityState === "hidden"
+      ) {
+        return;
+      }
+
+      pollingBusyRef.current = true;
+
+      try {
+        await loadMessages(
+          selectedConversationIdRef.current,
+          true
+        );
+      } finally {
+        pollingBusyRef.current = false;
+      }
+    };
+
+    const interval = setInterval(sync, 1000);
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        sync();
+      }
+    };
+
+    document.addEventListener(
+      "visibilitychange",
+      onVisibilityChange
+    );
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+
+      document.removeEventListener(
+        "visibilitychange",
+        onVisibilityChange
+      );
+    };
+  }, [loadMessages]);
+
+  // Refresh conversation list less frequently than messages.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        loadConversations(true);
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [loadConversations]);
+
+  /* -------------------- Conversation List -------------------- */
+
   const filteredConversations = useMemo(() => {
     const query = search.trim().toLowerCase();
 
     if (!query) return conversations;
 
     return conversations.filter((conversation) =>
-      `${getParticipantName(
+      `${getParticipantName(conversation, currentUser)} ${getParticipantEmail(
         conversation,
         currentUser
-      )} ${getParticipantEmail(
-        conversation,
-        currentUser
-      )} ${getParticipantRole(
-        conversation,
-        currentUser
-      )} ${
+      )} ${getParticipantRole(conversation, currentUser)} ${
         conversation?.lastMessage ||
         conversation?.lastMessageText ||
         conversation?.preview ||
@@ -1252,9 +1209,7 @@ export default function UserMessagesPage() {
   }, [conversations, search, currentUser]);
 
   function handleFileChange(event) {
-    const files = Array.from(
-      event.target.files || []
-    );
+    const files = Array.from(event.target.files || []);
 
     if (files.length) {
       setSelectedFiles((previous) =>
@@ -1319,17 +1274,13 @@ export default function UserMessagesPage() {
         0
     );
 
-    if (
-      unread > 0 &&
-      id !== DEFAULT_CONVERSATION_ID
-    ) {
+    if (unread > 0 && id !== DEFAULT_CONVERSATION_ID) {
       try {
         await markConversationRead(id);
 
         setConversations((previous) => {
           const updated = previous.map((item) =>
-            String(getConversationId(item)) ===
-            String(id)
+            String(getConversationId(item)) === String(id)
               ? {
                   ...item,
                   unreadCount: 0,
@@ -1344,13 +1295,14 @@ export default function UserMessagesPage() {
           return updated;
         });
       } catch (err) {
-        console.warn(
-          "Could not mark conversation read:",
-          err
-        );
+        console.warn("Could not mark conversation read:", err);
       }
     }
+
+    loadMessages(id, true);
   }
+
+  /* -------------------- Send Message -------------------- */
 
   async function handleSendMessage(event) {
     event?.preventDefault();
@@ -1363,16 +1315,14 @@ export default function UserMessagesPage() {
 
     if (
       (!body && selectedFiles.length === 0) ||
-      sending
+      sending ||
+      !selectedConversation
     ) {
       return;
     }
 
     const recipientId = getUserId(
-      getOtherParticipant(
-        selectedConversation,
-        currentUser
-      )
+      getOtherParticipant(selectedConversation, currentUser)
     );
 
     const tempId = `temp-${Date.now()}-${Math.random()
@@ -1401,6 +1351,7 @@ export default function UserMessagesPage() {
       sending: true,
     };
 
+    // Immediately show the message without waiting for the backend.
     saveConversationMessages(
       conversationId,
       mergeMessages(
@@ -1413,7 +1364,6 @@ export default function UserMessagesPage() {
     setSelectedFiles([]);
     setSending(true);
     setMessagesError("");
-
     scrollToBottom(true);
 
     try {
@@ -1424,18 +1374,10 @@ export default function UserMessagesPage() {
 
         form.append("body", body);
         form.append("message", body);
-        form.append(
-          "recipientId",
-          String(recipientId || "")
-        );
-        form.append(
-          "conversationId",
-          String(conversationId)
-        );
+        form.append("recipientId", String(recipientId || ""));
+        form.append("conversationId", String(conversationId));
 
-        files.forEach((file) => {
-          form.append("files", file);
-        });
+        files.forEach((file) => form.append("files", file));
 
         response = await apiRequest("/messages", {
           method: "POST",
@@ -1472,9 +1414,7 @@ export default function UserMessagesPage() {
             }
           );
         } catch (firstError) {
-          if (!recipientId) {
-            throw firstError;
-          }
+          if (!recipientId) throw firstError;
 
           response = await apiRequest("/messages", {
             method: "POST",
@@ -1503,14 +1443,12 @@ export default function UserMessagesPage() {
           ? {
               ...sent,
               conversationId:
-                getMessageConversationId(sent) ||
-                conversationId,
+                getMessageConversationId(sent) || conversationId,
               sending: false,
             }
           : null;
 
-      const latest =
-        messagesCache.current[conversationId] || [];
+      const latest = messagesCache.current[conversationId] || [];
 
       if (normalized) {
         saveConversationMessages(
@@ -1539,6 +1477,7 @@ export default function UserMessagesPage() {
         );
       }
 
+      // Refresh list after successful persistence.
       loadConversations(true);
     } catch (err) {
       console.error("Send message error:", err);
@@ -1547,8 +1486,7 @@ export default function UserMessagesPage() {
         err?.message || "Unable to send message."
       );
 
-      const latest =
-        messagesCache.current[conversationId] || [];
+      const latest = messagesCache.current[conversationId] || [];
 
       saveConversationMessages(
         conversationId,
@@ -1564,6 +1502,8 @@ export default function UserMessagesPage() {
     }
   }
 
+  /* -------------------- Delete Message -------------------- */
+
   function promptDeleteMessage(item) {
     setMessageToDelete(item);
     setDeleteModalOpen(true);
@@ -1574,21 +1514,15 @@ export default function UserMessagesPage() {
 
     const id = getMessageId(messageToDelete);
 
-    if (!id || id.startsWith("temp-")) {
-      return;
-    }
+    if (!id || id.startsWith("temp-")) return;
 
     try {
       setDeletingMessage(true);
 
       const endpoint =
         type === "everyone"
-          ? `/messages/${encodeURIComponent(
-              id
-            )}/delete-for-everyone`
-          : `/messages/${encodeURIComponent(
-              id
-            )}/delete-for-me`;
+          ? `/messages/${encodeURIComponent(id)}/delete-for-everyone`
+          : `/messages/${encodeURIComponent(id)}/delete-for-me`;
 
       const response = await apiRequest(endpoint, {
         method: "POST",
@@ -1598,18 +1532,14 @@ export default function UserMessagesPage() {
         getConversationId(selectedConversation) ||
         DEFAULT_CONVERSATION_ID;
 
-      const latest =
-        messagesCache.current[conversationId] ||
-        messages;
+      const latest = messagesCache.current[conversationId] || messages;
 
       const serverMessage =
         response?.data?.message || response?.data;
 
       const updated =
         type === "me"
-          ? latest.filter(
-              (item) => getMessageId(item) !== id
-            )
+          ? latest.filter((item) => getMessageId(item) !== id)
           : latest.map((item) =>
               getMessageId(item) !== id
                 ? item
@@ -1626,35 +1556,25 @@ export default function UserMessagesPage() {
                   }
             );
 
-      saveConversationMessages(
-        conversationId,
-        updated
-      );
+      saveConversationMessages(conversationId, updated);
 
       setDeleteModalOpen(false);
       setMessageToDelete(null);
 
       loadConversations(true);
     } catch (err) {
-      console.error(
-        "Delete message failed:",
-        err
-      );
-
-      alert(
-        err?.message || "Failed to delete message."
-      );
+      console.error("Delete message failed:", err);
+      alert(err?.message || "Failed to delete message.");
     } finally {
       setDeletingMessage(false);
     }
   }
 
   const selectedName = selectedConversation
-    ? getParticipantName(
-        selectedConversation,
-        currentUser
-      )
+    ? getParticipantName(selectedConversation, currentUser)
     : "";
+
+  /* -------------------- UI -------------------- */
 
   return (
     <div className="relative flex h-[calc(100vh-4rem)] min-h-0 w-full animate-fadeIn overflow-hidden bg-[#f7f8fc] p-4 text-slate-950 sm:p-6 lg:p-8">
@@ -1683,20 +1603,44 @@ export default function UserMessagesPage() {
                   <p className="mt-0.5 text-xs text-slate-400">
                     Direct messages with Admin
                   </p>
+
+                  <div className="mt-2 flex items-center gap-1.5 text-[10px] font-semibold">
+                    {socketConnected ? (
+                      <>
+                        <Wifi size={12} className="text-emerald-600" />
+                        <span className="text-emerald-600">
+                          Realtime connected
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <WifiOff size={12} className="text-amber-600" />
+                        <span className="text-amber-600">
+                          Reconnecting…
+                        </span>
+                      </>
+                    )}
+                  </div>
                 </div>
 
-                {notificationPermission !== "granted" &&
-                  notificationPermission !==
-                    "unsupported" && (
-                    <button
-                      type="button"
-                      onClick={requestNotificationPermission}
-                      title="Enable desktop notifications"
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-violet-100 bg-white text-violet-600 hover:bg-violet-50"
-                    >
-                      <Bell size={16} />
-                    </button>
-                  )}
+                {notificationPermission !== "unsupported" && (
+                  <button
+                    type="button"
+                    onClick={requestNotificationPermission}
+                    title={
+                      notificationPermission === "granted"
+                        ? "Notifications enabled"
+                        : "Enable desktop notifications"
+                    }
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${
+                      notificationPermission === "granted"
+                        ? "border-emerald-100 bg-emerald-50 text-emerald-600"
+                        : "border-violet-100 bg-white text-violet-600 hover:bg-violet-50"
+                    }`}
+                  >
+                    <Bell size={16} />
+                  </button>
+                )}
               </div>
 
               <div className="relative">
@@ -1707,9 +1651,7 @@ export default function UserMessagesPage() {
 
                 <input
                   value={search}
-                  onChange={(event) =>
-                    setSearch(event.target.value)
-                  }
+                  onChange={(event) => setSearch(event.target.value)}
                   placeholder="Search admin chats..."
                   className="h-10 w-full rounded-2xl border border-slate-200/90 bg-white pl-9 pr-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10"
                 />
@@ -1720,111 +1662,104 @@ export default function UserMessagesPage() {
               {loading && !conversations.length ? (
                 <ConversationLoading />
               ) : filteredConversations.length ? (
-                filteredConversations.map(
-                  (conversation, index) => {
-                    const id =
-                      getConversationId(conversation);
+                filteredConversations.map((conversation, index) => {
+                  const id = getConversationId(conversation);
 
-                    const participant = getOtherParticipant(
-                      conversation,
-                      currentUser
-                    );
+                  const participant = getOtherParticipant(
+                    conversation,
+                    currentUser
+                  );
 
-                    const name = getParticipantName(
-                      conversation,
-                      currentUser
-                    );
+                  const name = getParticipantName(
+                    conversation,
+                    currentUser
+                  );
 
-                    const avatar = getParticipantAvatar(
-                      conversation,
-                      currentUser
-                    );
+                  const avatar = getParticipantAvatar(
+                    conversation,
+                    currentUser
+                  );
 
-                    const last =
-                      conversation?.lastMessage ||
-                      conversation?.lastMessageText ||
-                      conversation?.preview ||
-                      "No messages yet";
+                  const last =
+                    conversation?.lastMessage ||
+                    conversation?.lastMessageText ||
+                    conversation?.preview ||
+                    "No messages yet";
 
-                    const unread = Number(
-                      conversation?.unreadCount ||
-                        conversation?.unreadMessages ||
-                        conversation?.unread ||
-                        0
-                    );
+                  const unread = Number(
+                    conversation?.unreadCount ||
+                      conversation?.unreadMessages ||
+                      conversation?.unread ||
+                      0
+                  );
 
-                    const active =
-                      String(selectedConversationId || "") ===
-                      String(id || "");
+                  const active =
+                    String(selectedConversationId || "") ===
+                    String(id || "");
 
-                    return (
-                      <button
-                        key={
-                          id ||
-                          getUserId(participant) ||
-                          `contact-${index}`
-                        }
-                        onClick={() =>
-                          handleSelectConversation(
-                            conversation
-                          )
-                        }
-                        type="button"
-                        className={`flex w-full items-start gap-3 border-b border-slate-100/80 px-4 py-3.5 text-left transition ${
-                          active
-                            ? "border-violet-200/60 bg-violet-50/70"
-                            : "hover:bg-slate-50/80"
-                        }`}
-                      >
-                        <div className="relative shrink-0">
-                          <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-sm">
-                            {avatar ? (
-                              <img
-                                src={getFileUrl(avatar)}
-                                alt={name}
-                                className="h-full w-full object-cover"
-                              />
-                            ) : (
-                              getInitials(name)
-                            )}
-                          </div>
-
-                          {unread > 0 && (
-                            <span className="absolute -right-2 -top-2 z-10 flex h-5 min-w-5 items-center justify-center rounded-full bg-violet-600 px-1 text-[10px] font-extrabold text-white shadow-md ring-2 ring-white">
-                              {unread > 99 ? "99+" : unread}
-                            </span>
+                  return (
+                    <button
+                      key={
+                        id ||
+                        getUserId(participant) ||
+                        `contact-${index}`
+                      }
+                      onClick={() =>
+                        handleSelectConversation(conversation)
+                      }
+                      type="button"
+                      className={`flex w-full items-start gap-3 border-b border-slate-100/80 px-4 py-3.5 text-left transition ${
+                        active
+                          ? "border-violet-200/60 bg-violet-50/70"
+                          : "hover:bg-slate-50/80"
+                      }`}
+                    >
+                      <div className="relative shrink-0">
+                        <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-sm">
+                          {avatar ? (
+                            <img
+                              src={getFileUrl(avatar)}
+                              alt={name}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            getInitials(name)
                           )}
                         </div>
 
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center justify-between gap-2">
-                            <p
-                              className={`truncate text-xs font-bold ${
-                                unread
-                                  ? "text-slate-900"
-                                  : "text-slate-800"
-                              }`}
-                            >
-                              {name}
-                            </p>
+                        {unread > 0 && (
+                          <span className="absolute -right-2 -top-2 z-10 flex h-5 min-w-5 items-center justify-center rounded-full bg-violet-600 px-1 text-[10px] font-extrabold text-white shadow-md ring-2 ring-white">
+                            {unread > 99 ? "99+" : unread}
+                          </span>
+                        )}
+                      </div>
 
-                            <span className="shrink-0 text-[10px] text-slate-400">
-                              {formatDateTime(
-                                conversation?.lastMessageAt ||
-                                  conversation?.updatedAt ||
-                                  conversation?.createdAt
-                              )}
-                            </span>
-                          </div>
-
-                          <p className="mt-1 truncate text-xs text-slate-500">
-                            {last}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <p
+                            className={`truncate text-xs font-bold ${
+                              unread ? "text-slate-900" : "text-slate-800"
+                            }`}
+                          >
+                            {name}
                           </p>
+
+                          <span className="shrink-0 text-[10px] text-slate-400">
+                            {formatDateTime(
+                              conversation?.lastMessageAt ||
+                                conversation?.updatedAt ||
+                                conversation?.createdAt
+                            )}
+                          </span>
                         </div>
-                      </button>
-                    );
-                  }
-                )
+
+                        <p className="mt-1 truncate text-xs text-slate-500">
+                          {last}
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })
               ) : (
                 <EmptyConversationList
                   search={search}
@@ -1873,7 +1808,6 @@ export default function UserMessagesPage() {
                   <h2 className="text-xs font-bold text-slate-900">
                     Select admin chat
                   </h2>
-
                   <p className="text-[11px] text-slate-400">
                     Choose from list
                   </p>
@@ -1935,9 +1869,7 @@ export default function UserMessagesPage() {
 
                       <button
                         type="button"
-                        onClick={() =>
-                          removeSelectedFile(index)
-                        }
+                        onClick={() => removeSelectedFile(index)}
                         aria-label={`Remove ${file.name}`}
                         className="ml-1 rounded-md text-violet-400 hover:text-rose-600"
                       >
@@ -1962,9 +1894,7 @@ export default function UserMessagesPage() {
 
                 <button
                   type="button"
-                  onClick={() =>
-                    fileInputRef.current?.click()
-                  }
+                  onClick={() => fileInputRef.current?.click()}
                   disabled={!selectedConversation || sending}
                   aria-label="Attach file"
                   className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-500 hover:bg-violet-50 disabled:opacity-50"
@@ -1975,9 +1905,7 @@ export default function UserMessagesPage() {
                 <div className="min-w-0 flex-1">
                   <textarea
                     value={message}
-                    onChange={(event) =>
-                      setMessage(event.target.value)
-                    }
+                    onChange={(event) => setMessage(event.target.value)}
                     onKeyDown={(event) => {
                       if (
                         event.key === "Enter" &&
@@ -1987,8 +1915,7 @@ export default function UserMessagesPage() {
                         event.preventDefault();
 
                         if (
-                          (message.trim() ||
-                            selectedFiles.length) &&
+                          (message.trim() || selectedFiles.length) &&
                           selectedConversation &&
                           !sending
                         ) {
@@ -2010,8 +1937,7 @@ export default function UserMessagesPage() {
                 <button
                   type="submit"
                   disabled={
-                    (!message.trim() &&
-                      !selectedFiles.length) ||
+                    (!message.trim() && !selectedFiles.length) ||
                     !selectedConversation ||
                     sending
                   }
@@ -2019,10 +1945,7 @@ export default function UserMessagesPage() {
                   className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-violet-600 text-white shadow-md hover:bg-violet-700 disabled:bg-slate-200 disabled:text-slate-400"
                 >
                   {sending ? (
-                    <Loader2
-                      size={17}
-                      className="animate-spin"
-                    />
+                    <Loader2 size={17} className="animate-spin" />
                   ) : (
                     <Send size={17} />
                   )}
@@ -2045,7 +1968,6 @@ export default function UserMessagesPage() {
                 <h3 className="text-base font-bold text-slate-900">
                   Delete Message?
                 </h3>
-
                 <p className="text-xs text-slate-400">
                   Choose how you want to delete this message.
                 </p>
@@ -2063,23 +1985,17 @@ export default function UserMessagesPage() {
             </div>
 
             <div className="mt-6 flex flex-col gap-2.5">
-              {String(
-                getUserId(messageToDelete?.sender)
-              ) === String(getUserId(currentUser)) &&
+              {String(getUserId(messageToDelete?.sender)) ===
+                String(getUserId(currentUser)) &&
                 !messageToDelete?.isDeletedForEveryone && (
                   <button
                     type="button"
                     disabled={deletingMessage}
-                    onClick={() =>
-                      executeDeleteMessage("everyone")
-                    }
+                    onClick={() => executeDeleteMessage("everyone")}
                     className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-rose-600 px-4 text-xs font-bold text-white disabled:opacity-50"
                   >
                     {deletingMessage ? (
-                      <Loader2
-                        size={15}
-                        className="animate-spin"
-                      />
+                      <Loader2 size={15} className="animate-spin" />
                     ) : (
                       <Users size={15} />
                     )}
@@ -2094,10 +2010,7 @@ export default function UserMessagesPage() {
                 className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 px-4 text-xs font-bold text-slate-700 disabled:opacity-50"
               >
                 {deletingMessage ? (
-                  <Loader2
-                    size={15}
-                    className="animate-spin"
-                  />
+                  <Loader2 size={15} className="animate-spin" />
                 ) : (
                   <Trash2 size={15} />
                 )}
@@ -2123,6 +2036,8 @@ export default function UserMessagesPage() {
   );
 }
 
+/* -------------------- Message Bubble -------------------- */
+
 function MessageBubble({
   message,
   currentUser,
@@ -2140,9 +2055,7 @@ function MessageBubble({
       String(senderId) === String(myId)
   );
 
-  const deleted = Boolean(
-    message?.isDeletedForEveryone
-  );
+  const deleted = Boolean(message?.isDeletedForEveryone);
 
   const body = deleted
     ? "This message was deleted"
@@ -2164,17 +2077,11 @@ function MessageBubble({
     };
 
     if (menuOpen) {
-      document.addEventListener(
-        "mousedown",
-        closeMenu
-      );
+      document.addEventListener("mousedown", closeMenu);
     }
 
     return () => {
-      document.removeEventListener(
-        "mousedown",
-        closeMenu
-      );
+      document.removeEventListener("mousedown", closeMenu);
     };
   }, [menuOpen]);
 
@@ -2194,9 +2101,7 @@ function MessageBubble({
           <>
             <button
               type="button"
-              onClick={() =>
-                setMenuOpen((previous) => !previous)
-              }
+              onClick={() => setMenuOpen((previous) => !previous)}
               aria-label="Message options"
               className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100"
             >
@@ -2218,9 +2123,7 @@ function MessageBubble({
                   className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-xs font-bold text-rose-600 hover:bg-rose-50"
                 >
                   <Trash2 size={13} />
-                  {outgoing
-                    ? "Delete Message"
-                    : "Delete for Me"}
+                  {outgoing ? "Delete Message" : "Delete for Me"}
                 </button>
               </div>
             )}
@@ -2262,65 +2165,58 @@ function MessageBubble({
           Array.isArray(message?.attachments) &&
           message.attachments.length > 0 && (
             <div className="mt-2 space-y-2">
-              {message.attachments.map(
-                (attachment, index) => {
-                  const mime = String(
-                    attachment?.mimeType ||
-                      attachment?.fileType ||
-                      ""
-                  ).toLowerCase();
+              {message.attachments.map((attachment, index) => {
+                const mime = String(
+                  attachment?.mimeType ||
+                    attachment?.fileType ||
+                    ""
+                ).toLowerCase();
 
-                  const isImage =
-                    mime.startsWith("image/");
+                const isImage = mime.startsWith("image/");
+                const url = getFileUrl(attachment?.url);
 
-                  const url = getFileUrl(
-                    attachment?.url
-                  );
+                const name =
+                  attachment?.originalName ||
+                  attachment?.filename ||
+                  "Attachment";
 
-                  const name =
-                    attachment?.originalName ||
-                    attachment?.filename ||
-                    "Attachment";
-
-                  return isImage && url !== "#" ? (
-                    <a
-                      key={attachment?.url || index}
-                      href={url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="block overflow-hidden rounded-2xl border bg-white p-1"
-                    >
-                      <img
-                        src={url}
-                        alt={name}
-                        loading="lazy"
-                        className="max-h-60 w-auto rounded-xl object-contain"
-                      />
-                    </a>
-                  ) : (
-                    <a
-                      key={attachment?.url || index}
-                      href={url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className={`flex items-center gap-2 rounded-2xl border px-3.5 py-2 text-xs font-bold ${
-                        outgoing
-                          ? "border-violet-200 bg-violet-50 text-violet-700"
-                          : "border-slate-200 bg-white text-slate-700"
-                      }`}
-                    >
-                      <FileText
-                        size={15}
-                        className="shrink-0 text-violet-600"
-                      />
-
-                      <span className="max-w-[200px] truncate">
-                        {name}
-                      </span>
-                    </a>
-                  );
-                }
-              )}
+                return isImage && url !== "#" ? (
+                  <a
+                    key={attachment?.url || index}
+                    href={url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block overflow-hidden rounded-2xl border bg-white p-1"
+                  >
+                    <img
+                      src={url}
+                      alt={name}
+                      loading="lazy"
+                      className="max-h-60 w-auto rounded-xl object-contain"
+                    />
+                  </a>
+                ) : (
+                  <a
+                    key={attachment?.url || index}
+                    href={url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={`flex items-center gap-2 rounded-2xl border px-3.5 py-2 text-xs font-bold ${
+                      outgoing
+                        ? "border-violet-200 bg-violet-50 text-violet-700"
+                        : "border-slate-200 bg-white text-slate-700"
+                    }`}
+                  >
+                    <FileText
+                      size={15}
+                      className="shrink-0 text-violet-600"
+                    />
+                    <span className="max-w-[200px] truncate">
+                      {name}
+                    </span>
+                  </a>
+                );
+              })}
             </div>
           )}
 
@@ -2334,14 +2230,10 @@ function MessageBubble({
           }`}
         >
           <span>
-            {formatTime(
-              message?.createdAt || message?.sentAt
-            )}
+            {formatTime(message?.createdAt || message?.sentAt)}
           </span>
 
-          {outgoing && !deleted && (
-            <CheckCheck size={12} />
-          )}
+          {outgoing && !deleted && <CheckCheck size={12} />}
 
           {message?.sending && <span>Sending…</span>}
         </div>
@@ -2350,15 +2242,14 @@ function MessageBubble({
   );
 }
 
+/* -------------------- Empty States -------------------- */
+
 function EmptyConversationList({ search, loading }) {
   return (
     <div className="flex min-h-[300px] flex-col items-center justify-center px-6 py-10 text-center">
       <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
         {loading ? (
-          <Loader2
-            size={22}
-            className="animate-spin"
-          />
+          <Loader2 size={22} className="animate-spin" />
         ) : (
           <MessageSquare size={22} />
         )}
@@ -2386,10 +2277,7 @@ function EmptyConversationList({ search, loading }) {
 function NoConversationSelected() {
   return (
     <div className="flex h-full min-h-[380px] flex-col items-center justify-center text-center">
-      <MessageSquare
-        size={26}
-        className="text-violet-600"
-      />
+      <MessageSquare size={26} className="text-violet-600" />
 
       <h3 className="mt-4 text-sm font-bold text-slate-900">
         Select admin chat
@@ -2405,10 +2293,7 @@ function NoConversationSelected() {
 function NoMessages() {
   return (
     <div className="flex h-full min-h-[380px] flex-col items-center justify-center text-center">
-      <MessageSquare
-        size={26}
-        className="text-violet-600"
-      />
+      <MessageSquare size={26} className="text-violet-600" />
 
       <h3 className="mt-4 text-sm font-bold text-slate-900">
         No messages yet
@@ -2424,10 +2309,7 @@ function NoMessages() {
 function ConversationLoading() {
   return (
     <div className="flex min-h-[280px] flex-col items-center justify-center p-6 text-center">
-      <Loader2
-        size={26}
-        className="animate-spin text-violet-600"
-      />
+      <Loader2 size={26} className="animate-spin text-violet-600" />
 
       <p className="mt-3 text-xs font-semibold text-slate-500">
         Loading chats...
@@ -2439,10 +2321,7 @@ function ConversationLoading() {
 function MessagesLoading() {
   return (
     <div className="flex h-full min-h-[380px] flex-col items-center justify-center text-center">
-      <Loader2
-        size={32}
-        className="animate-spin text-violet-600"
-      />
+      <Loader2 size={32} className="animate-spin text-violet-600" />
 
       <p className="mt-3 text-xs font-semibold text-slate-500">
         Loading messages...

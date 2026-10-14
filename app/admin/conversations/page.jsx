@@ -20,6 +20,8 @@ import {
   Users,
   Wifi,
   WifiOff,
+  Bell,
+  BellOff,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { io } from "socket.io-client";
@@ -55,15 +57,11 @@ const getFileUrl = (url) => {
 
   const value = String(url);
 
-  if (
-    /^(https?:\/\/|blob:|data:)/i.test(value)
-  ) {
+  if (/^(https?:\/\/|blob:|data:)/i.test(value)) {
     return value;
   }
 
-  return `${BACKEND_BASE_URL}${
-    value.startsWith("/") ? "" : "/"
-  }${value}`;
+  return `${BACKEND_BASE_URL}${value.startsWith("/") ? "" : "/"}${value}`;
 };
 
 /* ============================================================
@@ -93,9 +91,7 @@ const normalizeTokenValue = (value) => {
         parsed.jwt;
 
       if (token) {
-        return String(token)
-          .replace(/^Bearer\s+/i, "")
-          .trim();
+        return String(token).replace(/^Bearer\s+/i, "").trim();
       }
     }
   } catch {}
@@ -117,16 +113,12 @@ const getStoredToken = () => {
 
   for (const key of keys) {
     try {
-      const token = normalizeTokenValue(
-        localStorage.getItem(key)
-      );
+      const token = normalizeTokenValue(localStorage.getItem(key));
       if (token) return token;
     } catch {}
 
     try {
-      const token = normalizeTokenValue(
-        sessionStorage.getItem(key)
-      );
+      const token = normalizeTokenValue(sessionStorage.getItem(key));
       if (token) return token;
     } catch {}
   }
@@ -156,7 +148,6 @@ const getAuthHeaders = (includeContentType = true) => {
 const parseResponse = async (response) => {
   try {
     const text = await response.text();
-
     if (!text) return null;
 
     try {
@@ -265,9 +256,7 @@ const extractMessages = (data) => {
   if (Array.isArray(data)) return data;
   if (Array.isArray(data?.messages)) return data.messages;
   if (Array.isArray(data?.data)) return data.data;
-  if (Array.isArray(data?.data?.messages)) {
-    return data.data.messages;
-  }
+  if (Array.isArray(data?.data?.messages)) return data.data.messages;
   if (Array.isArray(data?.conversation?.messages)) {
     return data.conversation.messages;
   }
@@ -305,9 +294,7 @@ const getUnreadCount = (conversation) => {
 
   for (const value of values) {
     const number = Number(value);
-    if (Number.isFinite(number) && number > 0) {
-      return number;
-    }
+    if (Number.isFinite(number) && number > 0) return number;
   }
 
   return 0;
@@ -337,15 +324,10 @@ const getConversationLastDate = (conversation) =>
   null;
 
 const getSenderId = (message) =>
-  getId(message?.sender) ||
-  getId(message?.senderId) ||
-  null;
+  getId(message?.sender) || getId(message?.senderId) || null;
 
 const getMessageBody = (message) =>
-  message?.body ||
-  message?.message ||
-  message?.content ||
-  "";
+  message?.body || message?.message || message?.content || "";
 
 /* ============================================================
    NOTIFICATION HELPERS
@@ -361,15 +343,13 @@ const playMessageNotificationSound = () => {
     if (!AudioContextClass) return;
 
     const context = new AudioContextClass();
+
     const play = () => {
       const oscillator = context.createOscillator();
       const gain = context.createGain();
 
       oscillator.type = "sine";
-      oscillator.frequency.setValueAtTime(
-        880,
-        context.currentTime
-      );
+      oscillator.frequency.setValueAtTime(880, context.currentTime);
 
       gain.gain.setValueAtTime(0.0001, context.currentTime);
       gain.gain.exponentialRampToValueAtTime(
@@ -383,6 +363,7 @@ const playMessageNotificationSound = () => {
 
       oscillator.connect(gain);
       gain.connect(context.destination);
+
       oscillator.start();
       oscillator.stop(context.currentTime + 0.26);
 
@@ -435,7 +416,6 @@ const showMessageDesktopNotification = (title, body) => {
 const unwrapSocketMessage = (payload) => {
   if (!payload) return null;
 
-  // Controller/event payloads can use different wrapper shapes.
   const candidates = [
     payload.messageData,
     payload.data?.messageData,
@@ -514,12 +494,12 @@ export default function AdminConversationsPage() {
   const [socketConnected, setSocketConnected] = useState(false);
 
   const [onlineUsers, setOnlineUsers] = useState({});
+  const [notificationPermission, setNotificationPermission] =
+    useState("default");
 
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [groupName, setGroupName] = useState("");
-  const [selectedGroupMembers, setSelectedGroupMembers] = useState(
-    []
-  );
+  const [selectedGroupMembers, setSelectedGroupMembers] = useState([]);
   const [creatingGroup, setCreatingGroup] = useState(false);
 
   const fileInputRef = useRef(null);
@@ -535,6 +515,45 @@ export default function AdminConversationsPage() {
   const processedSocketMessages = useRef(new Set());
   const refreshTimerRef = useRef(null);
   const mountedRef = useRef(false);
+
+  /* ==========================================================
+     NOTIFICATIONS
+  ========================================================== */
+
+  useEffect(() => {
+    if (
+      typeof window !== "undefined" &&
+      "Notification" in window
+    ) {
+      setNotificationPermission(Notification.permission);
+    } else {
+      setNotificationPermission("unsupported");
+    }
+  }, []);
+
+  const enableMessageNotifications = useCallback(async () => {
+    if (
+      typeof window === "undefined" ||
+      !("Notification" in window)
+    ) {
+      setNotificationPermission("unsupported");
+      return;
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+      setNotificationPermission(permission);
+
+      if (permission === "granted") {
+        showMessageDesktopNotification(
+          "Notifications enabled",
+          "You will be notified when a new message arrives."
+        );
+      }
+    } catch (error) {
+      console.warn("Unable to enable notifications:", error);
+    }
+  }, []);
 
   /* ==========================================================
      CACHE
@@ -559,7 +578,6 @@ export default function AdminConversationsPage() {
       }
 
       if (mCache && typeof mCache === "object") {
-        // Do not persist temporary blob URLs. They are invalid after reload.
         const safeCache = {};
 
         Object.entries(mCache).forEach(([conversationId, list]) => {
@@ -586,15 +604,11 @@ export default function AdminConversationsPage() {
     mountedRef.current = true;
 
     try {
-      const cachedUsers = localStorage.getItem(
-        "localpro_admin_users"
-      );
+      const cachedUsers = localStorage.getItem("localpro_admin_users");
       const cachedConversations = localStorage.getItem(
         "localpro_admin_convs"
       );
-      const cachedMessages = localStorage.getItem(
-        "localpro_admin_msgs"
-      );
+      const cachedMessages = localStorage.getItem("localpro_admin_msgs");
 
       if (cachedUsers) {
         const parsed = JSON.parse(cachedUsers);
@@ -641,8 +655,7 @@ export default function AdminConversationsPage() {
   }, [messages]);
 
   useEffect(() => {
-    selectedConversationIdRef.current =
-      selectedConversationId;
+    selectedConversationIdRef.current = selectedConversationId;
   }, [selectedConversationId]);
 
   const scrollToBottom = useCallback((instant = false) => {
@@ -661,13 +674,11 @@ export default function AdminConversationsPage() {
 
   const fetchData = useCallback(
     async (force = false) => {
-      const headers = getAuthHeaders();
-
       try {
         const response = await fetch(getApiUrl("/users"), {
           method: "GET",
           credentials: "include",
-          headers,
+          headers: getAuthHeaders(),
           cache: force ? "no-store" : "default",
         });
 
@@ -679,19 +690,15 @@ export default function AdminConversationsPage() {
         const data = await parseResponse(response);
 
         if (response.ok) {
-          const availableUsers = normalizeUsers(data).filter(
-            (user) => {
-              const role = String(
-                user?.role || ""
-              ).toLowerCase();
+          const availableUsers = normalizeUsers(data).filter((user) => {
+            const role = String(user?.role || "").toLowerCase();
 
-              return (
-                role === "user" ||
-                role === "manager" ||
-                role === "admin"
-              );
-            }
-          );
+            return (
+              role === "user" ||
+              role === "manager" ||
+              role === "admin"
+            );
+          });
 
           if (mountedRef.current) {
             setUsers(availableUsers);
@@ -709,15 +716,12 @@ export default function AdminConversationsPage() {
       }
 
       try {
-        const response = await fetch(
-          getApiUrl("/conversations"),
-          {
-            method: "GET",
-            credentials: "include",
-            headers: getAuthHeaders(),
-            cache: "no-store",
-          }
-        );
+        const response = await fetch(getApiUrl("/conversations"), {
+          method: "GET",
+          credentials: "include",
+          headers: getAuthHeaders(),
+          cache: "no-store",
+        });
 
         if (response.status === 401) {
           router.replace("/login");
@@ -731,8 +735,8 @@ export default function AdminConversationsPage() {
             selectedConversationIdRef.current || ""
           );
 
-          const updatedConversations =
-            normalizeConversations(data).map((conversation) => {
+          const updatedConversations = normalizeConversations(data).map(
+            (conversation) => {
               const id = String(
                 getConversationId(conversation) || ""
               );
@@ -748,7 +752,8 @@ export default function AdminConversationsPage() {
               }
 
               return conversation;
-            });
+            }
+          );
 
           if (mountedRef.current) {
             setConversations(updatedConversations);
@@ -783,7 +788,7 @@ export default function AdminConversationsPage() {
 
     refreshTimerRef.current = setTimeout(() => {
       fetchDataRef.current(true);
-    }, 250);
+    }, 350);
   }, []);
 
   useEffect(() => {
@@ -791,7 +796,6 @@ export default function AdminConversationsPage() {
 
     fetchDataRef.current(false);
 
-    // Fallback in case a socket event is missed.
     const interval = setInterval(() => {
       fetchDataRef.current(true);
     }, 15000);
@@ -817,18 +821,14 @@ export default function AdminConversationsPage() {
         list.find((conversation) => {
           if (conversation?.isGroup) return false;
 
-          const participants = Array.isArray(
-            conversation?.participants
-          )
+          const participants = Array.isArray(conversation?.participants)
             ? conversation.participants
             : [];
 
-          return participants.some((participant) => {
-            return (
-              String(getId(participant) || "") ===
-              String(userId)
-            );
-          });
+          return participants.some(
+            (participant) =>
+              String(getId(participant) || "") === String(userId)
+          );
         }) || null
       );
     },
@@ -864,12 +864,10 @@ export default function AdminConversationsPage() {
           );
         }
 
-        const fetchedMessages = extractMessages(data).map(
-          (item) => normalizeMessage(item, conversationId)
+        const fetchedMessages = extractMessages(data).map((item) =>
+          normalizeMessage(item, conversationId)
         );
 
-        // Do not replace the chat if the user has switched conversations
-        // while this request was still in progress.
         if (
           String(selectedConversationIdRef.current || "") !==
           String(conversationId)
@@ -877,7 +875,6 @@ export default function AdminConversationsPage() {
           return fetchedMessages;
         }
 
-        // Preserve optimistic messages while merging server messages.
         setMessages((previous) => {
           const temporaryMessages = previous.filter((item) =>
             String(getMessageId(item) || "").startsWith("temp-")
@@ -887,11 +884,12 @@ export default function AdminConversationsPage() {
 
           temporaryMessages.forEach((temp) => {
             const body = getMessageBody(temp);
+            const senderId = String(getSenderId(temp) || "");
+
             const alreadyPresent = merged.some(
               (serverMessage) =>
                 getMessageBody(serverMessage) === body &&
-                String(getSenderId(serverMessage) || "") ===
-                  String(getSenderId(temp) || "")
+                String(getSenderId(serverMessage) || "") === senderId
             );
 
             if (!alreadyPresent) merged.push(temp);
@@ -939,14 +937,11 @@ export default function AdminConversationsPage() {
       if (!conversationId) return;
 
       try {
-        await fetch(
-          getApiUrl(`/conversations/${conversationId}/read`),
-          {
-            method: "PUT",
-            credentials: "include",
-            headers: getAuthHeaders(),
-          }
-        );
+        await fetch(getApiUrl(`/conversations/${conversationId}/read`), {
+          method: "PUT",
+          credentials: "include",
+          headers: getAuthHeaders(),
+        });
       } catch (error) {
         console.warn("Unable to mark conversation as read:", error);
       }
@@ -1102,15 +1097,12 @@ export default function AdminConversationsPage() {
       setStartingConversation(true);
 
       try {
-        const response = await fetch(
-          getApiUrl("/conversations"),
-          {
-            method: "POST",
-            credentials: "include",
-            headers: getAuthHeaders(),
-            body: JSON.stringify({ recipientId: userId }),
-          }
-        );
+        const response = await fetch(getApiUrl("/conversations"), {
+          method: "POST",
+          credentials: "include",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ recipientId: userId }),
+        });
 
         const data = await parseResponse(response);
 
@@ -1193,7 +1185,6 @@ export default function AdminConversationsPage() {
 
       const activeId = selectedConversationIdRef.current;
 
-      // Rejoin the active room after reconnecting.
       if (activeId) {
         socket.emit("join_room", activeId);
       }
@@ -1211,11 +1202,7 @@ export default function AdminConversationsPage() {
     };
 
     const handleUserStatus = (payload = {}) => {
-      const userId =
-        payload.userId ||
-        payload._id ||
-        payload.id;
-
+      const userId = payload.userId || payload._id || payload.id;
       const status = payload.status;
 
       if (!userId || !status) return;
@@ -1230,14 +1217,12 @@ export default function AdminConversationsPage() {
       const rawMessage = unwrapSocketMessage(payload);
 
       if (!rawMessage) {
-        // Notification events sometimes contain only metadata.
         scheduleRefresh();
         return;
       }
 
-      const conversationId = getConversationIdFromMessage(
-        rawMessage
-      );
+      const conversationId =
+        getConversationIdFromMessage(rawMessage);
 
       if (!conversationId) {
         console.warn(
@@ -1249,14 +1234,11 @@ export default function AdminConversationsPage() {
       }
 
       const conversationKey = String(conversationId);
-      const incoming = normalizeMessage(
-        rawMessage,
-        conversationId
-      );
-
+      const incoming = normalizeMessage(rawMessage, conversationId);
       const incomingId = String(getMessageId(incoming) || "");
 
-      // Same DB message can arrive through receive_message and new_message.
+      // Avoid duplicate processing if the same message arrives through
+      // both receive_message and new_message.
       if (incomingId) {
         if (processedSocketMessages.current.has(incomingId)) {
           return;
@@ -1273,9 +1255,7 @@ export default function AdminConversationsPage() {
       }
 
       const sender = incoming.sender;
-      const senderRole = String(
-        sender?.role || ""
-      ).toLowerCase();
+      const senderRole = String(sender?.role || "").toLowerCase();
 
       const isAdminMessage =
         senderRole === "admin" ||
@@ -1295,20 +1275,17 @@ export default function AdminConversationsPage() {
           );
 
           const existingIndex = previous.findIndex((item) => {
-            const existingId = String(
-              getMessageId(item) || ""
-            );
+            const existingId = String(getMessageId(item) || "");
 
             if (incomingId && existingId === incomingId) {
               return true;
             }
 
-            // Reconcile an optimistic message with the saved socket copy.
+            // Match the saved message against its optimistic version.
             return (
               existingId.startsWith("temp-") &&
               getMessageBody(item) === incomingBody &&
-              String(getSenderId(item) || "") ===
-                incomingSenderId &&
+              String(getSenderId(item) || "") === incomingSenderId &&
               Boolean(incomingId)
             );
           });
@@ -1361,6 +1338,8 @@ export default function AdminConversationsPage() {
         }
       }
 
+      let conversationFound = false;
+
       setConversations((previous) => {
         const index = previous.findIndex(
           (conversation) =>
@@ -1368,10 +1347,9 @@ export default function AdminConversationsPage() {
             conversationKey
         );
 
-        if (index < 0) {
-          scheduleRefresh();
-          return previous;
-        }
+        if (index < 0) return previous;
+
+        conversationFound = true;
 
         const updated = [...previous];
         const oldConversation = updated[index];
@@ -1400,7 +1378,6 @@ export default function AdminConversationsPage() {
           unreadMessageCount: nextUnread,
         };
 
-        // Move the updated conversation to the top of the list.
         const [latestConversation] = updated.splice(index, 1);
         updated.unshift(latestConversation);
 
@@ -1414,6 +1391,11 @@ export default function AdminConversationsPage() {
 
         return updated;
       });
+
+      // Refresh only if the conversation is unknown locally.
+      if (!conversationFound) {
+        scheduleRefresh();
+      }
 
       if (!isAdminMessage) {
         const shouldNotify =
@@ -1435,8 +1417,8 @@ export default function AdminConversationsPage() {
         markConversationRead(conversationId);
       }
 
-      // Don't rely on a custom server event being implemented.
-      scheduleRefresh();
+      // No unconditional API refresh here. The socket event already
+      // updates the active message and conversation preview.
     };
 
     const handleNotification = (payload) => {
@@ -1490,10 +1472,7 @@ export default function AdminConversationsPage() {
   const handleCreateGroup = async (event) => {
     event.preventDefault();
 
-    if (
-      !groupName.trim() ||
-      selectedGroupMembers.length === 0
-    ) {
+    if (!groupName.trim() || selectedGroupMembers.length === 0) {
       return;
     }
 
@@ -1501,26 +1480,21 @@ export default function AdminConversationsPage() {
       setCreatingGroup(true);
       setMessagesError("");
 
-      const response = await fetch(
-        getApiUrl("/conversations"),
-        {
-          method: "POST",
-          credentials: "include",
-          headers: getAuthHeaders(),
-          body: JSON.stringify({
-            isGroup: true,
-            groupName: groupName.trim(),
-            participants: selectedGroupMembers,
-          }),
-        }
-      );
+      const response = await fetch(getApiUrl("/conversations"), {
+        method: "POST",
+        credentials: "include",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          isGroup: true,
+          groupName: groupName.trim(),
+          participants: selectedGroupMembers,
+        }),
+      });
 
       const data = await parseResponse(response);
 
       if (!response.ok) {
-        throw new Error(
-          data?.message || "Failed to create group."
-        );
+        throw new Error(data?.message || "Failed to create group.");
       }
 
       const group =
@@ -1656,8 +1630,6 @@ export default function AdminConversationsPage() {
     try {
       let response;
 
-      // The message controller supports conversationId, recipientId,
-      // body/message/content and attachments. Keep file requests multipart.
       if (filesToSend.length > 0) {
         const formData = new FormData();
 
@@ -1700,7 +1672,6 @@ export default function AdminConversationsPage() {
         );
       }
 
-      // messageController can return { data, messageData }.
       const confirmedRaw =
         data?.messageData ||
         data?.data?.messageData ||
@@ -1730,6 +1701,7 @@ export default function AdminConversationsPage() {
 
         setMessages((previous) => {
           const updated = [...previous];
+
           const tempIndex = updated.findIndex(
             (item) =>
               String(getMessageId(item) || "") === tempId
@@ -1772,11 +1744,10 @@ export default function AdminConversationsPage() {
           return sorted;
         });
       } else {
-        // No message object in response: reload the authoritative history.
         await fetchMessages(conversationId, true);
       }
 
-      // Update the conversation preview and server-side unread state.
+      // Update conversation preview after successful send.
       scheduleRefresh();
     } catch (error) {
       setMessagesError(
@@ -1793,7 +1764,6 @@ export default function AdminConversationsPage() {
         return updated;
       });
 
-      // Restore the typed content and files if the send failed.
       setMessage(cleanBody);
       setSelectedFiles(filesToSend);
     } finally {
@@ -1843,8 +1813,7 @@ export default function AdminConversationsPage() {
       setConversations((previous) => {
         const updated = previous.filter(
           (item) =>
-            String(getConversationId(item)) !==
-            String(deletedId)
+            String(getConversationId(item)) !== String(deletedId)
         );
 
         conversationsRef.current = updated;
@@ -1923,6 +1892,36 @@ export default function AdminConversationsPage() {
 
                   <button
                     type="button"
+                    onClick={enableMessageNotifications}
+                    disabled={
+                      notificationPermission === "granted" ||
+                      notificationPermission === "unsupported"
+                    }
+                    title={
+                      notificationPermission === "granted"
+                        ? "Desktop notifications enabled"
+                        : notificationPermission === "denied"
+                        ? "Notifications blocked by browser. Allow them in site settings."
+                        : "Enable desktop message notifications"
+                    }
+                    className={`flex h-8 w-8 items-center justify-center rounded-xl transition ${
+                      notificationPermission === "granted"
+                        ? "bg-emerald-50 text-emerald-600"
+                        : notificationPermission === "denied"
+                        ? "bg-rose-50 text-rose-500"
+                        : "bg-slate-100 text-slate-500 hover:bg-blue-50 hover:text-blue-600"
+                    } disabled:cursor-not-allowed`}
+                    aria-label="Enable desktop notifications"
+                  >
+                    {notificationPermission === "granted" ? (
+                      <Bell size={15} />
+                    ) : (
+                      <BellOff size={15} />
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => setShowGroupModal(true)}
                     className="flex items-center gap-1.5 rounded-xl bg-[#2563EB] px-3 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-blue-700"
                   >
@@ -1931,6 +1930,13 @@ export default function AdminConversationsPage() {
                   </button>
                 </div>
               </div>
+
+              {notificationPermission === "denied" && (
+                <p className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-[11px] text-rose-600">
+                  Browser notifications are blocked. Enable them from
+                  your browser's site settings.
+                </p>
+              )}
 
               {conversations.some((item) => item.isGroup) && (
                 <div className="mb-3 space-y-1">
@@ -2022,14 +2028,9 @@ export default function AdminConversationsPage() {
                     String(userId || "");
 
                   const existingConversation =
-                    findConversationForUser(
-                      userId,
-                      conversations
-                    );
+                    findConversationForUser(userId, conversations);
 
-                  const unread = getUnreadCount(
-                    existingConversation
-                  );
+                  const unread = getUnreadCount(existingConversation);
 
                   const isOnline =
                     onlineUsers[String(userId)] === "online" ||
@@ -2217,9 +2218,7 @@ export default function AdminConversationsPage() {
                       senderRole === "admin" ||
                       sender?.name === "You";
 
-                    const attachments = Array.isArray(
-                      item?.attachments
-                    )
+                    const attachments = Array.isArray(item?.attachments)
                       ? item.attachments
                       : [];
 
@@ -2227,9 +2226,7 @@ export default function AdminConversationsPage() {
                       <div
                         key={getMessageId(item) || index}
                         className={`group relative flex w-full items-center gap-2.5 ${
-                          isAdmin
-                            ? "justify-end"
-                            : "justify-start"
+                          isAdmin ? "justify-end" : "justify-start"
                         }`}
                       >
                         <div
@@ -2405,6 +2402,7 @@ export default function AdminConversationsPage() {
                         ].join(":");
 
                         if (seen.has(key)) return false;
+
                         seen.add(key);
                         return true;
                       });
@@ -2428,9 +2426,7 @@ export default function AdminConversationsPage() {
                 <div className="min-w-0 flex-1">
                   <textarea
                     value={message}
-                    onChange={(event) =>
-                      setMessage(event.target.value)
-                    }
+                    onChange={(event) => setMessage(event.target.value)}
                     placeholder={
                       selectedUser
                         ? "Write a message..."
@@ -2508,9 +2504,7 @@ export default function AdminConversationsPage() {
                 <input
                   type="text"
                   value={groupName}
-                  onChange={(event) =>
-                    setGroupName(event.target.value)
-                  }
+                  onChange={(event) => setGroupName(event.target.value)}
                   placeholder="e.g. Weekend Escape, Dev Team"
                   required
                   className="mt-1 h-10 w-full rounded-xl border px-3 text-xs outline-none focus:border-[#2563EB]"
@@ -2528,10 +2522,9 @@ export default function AdminConversationsPage() {
                     if (!userId) return null;
 
                     const id = String(userId);
-                    const checked =
-                      selectedGroupMembers.some(
-                        (memberId) => String(memberId) === id
-                      );
+                    const checked = selectedGroupMembers.some(
+                      (memberId) => String(memberId) === id
+                    );
 
                     return (
                       <label
