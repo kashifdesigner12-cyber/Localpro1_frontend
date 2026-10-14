@@ -10,6 +10,7 @@ import {
 import {
   AlertTriangle,
   Bell,
+  Check,
   CheckCheck,
   File,
   FileText,
@@ -22,9 +23,9 @@ import {
   Send,
   Trash2,
   Users,
-  X,
   Wifi,
   WifiOff,
+  X,
 } from "lucide-react";
 import { io } from "socket.io-client";
 import { authService } from "@/services/authService";
@@ -59,6 +60,8 @@ const DEFAULT_CONVERSATION = {
 /* -------------------- Helpers -------------------- */
 
 function getStoredToken() {
+  if (typeof window === "undefined") return "";
+
   try {
     return (
       localStorage.getItem("token") ||
@@ -84,8 +87,11 @@ function getFileUrl(url) {
 function getUserId(user) {
   if (!user) return null;
 
-  if (typeof user === "string" || typeof user === "number") {
-    return user;
+  if (
+    typeof user === "string" ||
+    typeof user === "number"
+  ) {
+    return String(user);
   }
 
   return (
@@ -116,16 +122,23 @@ function getMessageConversationId(message) {
     message?.chatId;
 
   if (value && typeof value === "object") {
-    return String(
-      value._id || value.id || value.conversationId || ""
-    );
+    const id =
+      value._id ||
+      value.id ||
+      value.conversationId;
+
+    return id ? String(id) : null;
   }
 
   return value ? String(value) : null;
 }
 
 function getMessageId(message) {
-  const id = message?._id || message?.id || message?.messageId;
+  const id =
+    message?._id ||
+    message?.id ||
+    message?.messageId;
+
   return id ? String(id) : "";
 }
 
@@ -221,9 +234,13 @@ function normalizeConversations(response) {
     response?.results ??
     response?.data;
 
-  if (Array.isArray(value)) return value.filter(Boolean);
+  if (Array.isArray(value)) {
+    return value.filter(Boolean);
+  }
 
-  return value && typeof value === "object" ? [value] : [];
+  return value && typeof value === "object"
+    ? [value]
+    : [];
 }
 
 function normalizeMessages(response) {
@@ -233,9 +250,13 @@ function normalizeMessages(response) {
     response?.results ??
     response?.data;
 
-  if (Array.isArray(value)) return value.filter(Boolean);
+  if (Array.isArray(value)) {
+    return value.filter(Boolean);
+  }
 
-  return value && typeof value === "object" ? [value] : [];
+  return value && typeof value === "object"
+    ? [value]
+    : [];
 }
 
 function mergeMessages(existing = [], incoming = []) {
@@ -245,11 +266,13 @@ function mergeMessages(existing = [], incoming = []) {
     const id = getMessageId(message);
 
     let index = id
-      ? output.findIndex((item) => getMessageId(item) === id)
+      ? output.findIndex(
+          (item) => getMessageId(item) === id
+        )
       : -1;
 
-    // Match optimistic messages with the saved backend message.
-    if (index < 0) {
+    // Reconcile the optimistic message with its saved version.
+    if (index < 0 && id && !id.startsWith("temp-")) {
       index = output.findIndex((item) => {
         if (!getMessageId(item).startsWith("temp-")) {
           return false;
@@ -263,8 +286,8 @@ function mergeMessages(existing = [], incoming = []) {
           getMessageText(item) === getMessageText(message);
 
         const delta = Math.abs(
-          new Date(item?.createdAt || Date.now()).getTime() -
-            new Date(message?.createdAt || Date.now()).getTime()
+          new Date(item?.createdAt || 0).getTime() -
+            new Date(message?.createdAt || 0).getTime()
         );
 
         return sameSender && sameText && delta < 15000;
@@ -350,7 +373,9 @@ async function apiRequest(endpoint, options = {}) {
 
   const headers = {
     Accept: "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(token
+      ? { Authorization: `Bearer ${token}` }
+      : {}),
     ...(isForm || !options.body
       ? {}
       : { "Content-Type": "application/json" }),
@@ -377,14 +402,14 @@ async function apiRequest(endpoint, options = {}) {
       }
     }
   } catch {
-    // Response body could not be read.
+    // Ignore response parsing errors.
   }
 
   if (!response.ok) {
     const error = new Error(
       data?.message ||
         data?.error ||
-        `Request failed with status ${response.status}`
+        `Request failed (${response.status})`
     );
 
     error.status = response.status;
@@ -403,19 +428,21 @@ async function safeApiRequest(endpoint) {
   }
 }
 
+// Matches the GET /:conversationId route in messageRoutes.js.
 async function getConversationMessages(id) {
   if (!id || id === DEFAULT_CONVERSATION_ID) {
     return { messages: [] };
   }
 
   return apiRequest(
-    `/conversations/${encodeURIComponent(id)}/messages`
+    `/messages/${encodeURIComponent(id)}`
   );
 }
 
 async function markConversationRead(id) {
   if (!id || id === DEFAULT_CONVERSATION_ID) return;
 
+  // Keep the endpoint already used by the existing application.
   return apiRequest(
     `/conversations/${encodeURIComponent(id)}/read`,
     { method: "PUT" }
@@ -429,7 +456,8 @@ function playNotificationSound(audioRef) {
     if (typeof window === "undefined") return;
 
     const AudioContextClass =
-      window.AudioContext || window.webkitAudioContext;
+      window.AudioContext ||
+      window.webkitAudioContext;
 
     if (!AudioContextClass) return;
 
@@ -447,7 +475,6 @@ function playNotificationSound(audioRef) {
     const gain = context.createGain();
 
     oscillator.type = "sine";
-
     oscillator.frequency.setValueAtTime(
       880,
       context.currentTime
@@ -455,21 +482,21 @@ function playNotificationSound(audioRef) {
 
     gain.gain.setValueAtTime(0.0001, context.currentTime);
     gain.gain.exponentialRampToValueAtTime(
-      0.1,
+      0.08,
       context.currentTime + 0.02
     );
     gain.gain.exponentialRampToValueAtTime(
       0.0001,
-      context.currentTime + 0.22
+      context.currentTime + 0.2
     );
 
     oscillator.connect(gain);
     gain.connect(context.destination);
 
     oscillator.start();
-    oscillator.stop(context.currentTime + 0.23);
+    oscillator.stop(context.currentTime + 0.21);
   } catch {
-    // Browser autoplay restrictions may block sound.
+    // Browser may block notification sound.
   }
 }
 
@@ -483,11 +510,14 @@ function showDesktopNotification(title, body) {
   }
 
   try {
-    const notification = new Notification(title || "New message", {
-      body: body || "You received a message.",
-      icon: "/favicon.ico",
-      tag: `localpro-chat-${Date.now()}`,
-    });
+    const notification = new Notification(
+      title || "New message",
+      {
+        body: body || "You received a message.",
+        icon: "/favicon.ico",
+        tag: `localpro-chat-${Date.now()}`,
+      }
+    );
 
     notification.onclick = () => {
       window.focus();
@@ -501,50 +531,16 @@ function showDesktopNotification(title, body) {
 /* -------------------- Main Component -------------------- */
 
 export default function UserMessagesPage() {
-  const [conversations, setConversations] = useState(() => {
-    try {
-      const value = localStorage.getItem(
-        "cached_user_admin_chats"
-      );
-
-      return value ? JSON.parse(value) : [DEFAULT_CONVERSATION];
-    } catch {
-      return [DEFAULT_CONVERSATION];
-    }
-  });
-
+  const [conversations, setConversations] = useState([]);
   const [selectedConversation, setSelectedConversation] =
-    useState(() => {
-      try {
-        const value = localStorage.getItem(
-          "cached_user_admin_chats"
-        );
-
-        return (
-          (value ? JSON.parse(value)[0] : null) ||
-          DEFAULT_CONVERSATION
-        );
-      } catch {
-        return DEFAULT_CONVERSATION;
-      }
-    });
-
-  const [messages, setMessages] = useState(() => {
-    try {
-      const value = localStorage.getItem(
-        `cached_user_messages_${DEFAULT_CONVERSATION_ID}`
-      );
-
-      return value ? JSON.parse(value) : [];
-    } catch {
-      return [];
-    }
-  });
+    useState(null);
+  const [messages, setMessages] = useState([]);
 
   const [search, setSearch] = useState("");
   const [message, setMessage] = useState("");
   const [selectedFiles, setSelectedFiles] = useState([]);
-  const [loading, setLoading] = useState(false);
+
+  const [loading, setLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
@@ -560,14 +556,7 @@ export default function UserMessagesPage() {
         : "unsupported";
     });
 
-  const [currentUser, setCurrentUser] = useState(() => {
-    try {
-      const value = localStorage.getItem("user");
-      return value ? JSON.parse(value) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [currentUser, setCurrentUser] = useState(null);
 
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [messageToDelete, setMessageToDelete] = useState(null);
@@ -576,9 +565,8 @@ export default function UserMessagesPage() {
   const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
   const socketRef = useRef(null);
-  const selectedConversationIdRef = useRef(
-    DEFAULT_CONVERSATION_ID
-  );
+
+  const selectedConversationIdRef = useRef(null);
   const currentUserRef = useRef(null);
   const conversationsRef = useRef([]);
   const messagesCache = useRef({});
@@ -587,10 +575,10 @@ export default function UserMessagesPage() {
   const processedMessageIdsRef = useRef(new Set());
   const notificationAudioRef = useRef(null);
   const pollingBusyRef = useRef(false);
+  const sendingRef = useRef(false);
 
   const selectedConversationId =
-    getConversationId(selectedConversation) ||
-    DEFAULT_CONVERSATION_ID;
+    getConversationId(selectedConversation);
 
   useEffect(() => {
     currentUserRef.current = currentUser;
@@ -601,13 +589,15 @@ export default function UserMessagesPage() {
   }, [conversations]);
 
   useEffect(() => {
-    selectedConversationIdRef.current = selectedConversationId;
+    selectedConversationIdRef.current =
+      selectedConversationId;
   }, [selectedConversationId]);
 
   useEffect(() => {
     if (messages.length) {
       messagesEndRef.current?.scrollIntoView({
         behavior: "smooth",
+        block: "end",
       });
     }
   }, [messages]);
@@ -615,6 +605,7 @@ export default function UserMessagesPage() {
   const scrollToBottom = useCallback((instant = false) => {
     messagesEndRef.current?.scrollIntoView({
       behavior: instant ? "auto" : "smooth",
+      block: "end",
     });
   }, []);
 
@@ -628,15 +619,10 @@ export default function UserMessagesPage() {
     }
 
     try {
-      const permission = await Notification.requestPermission();
-      setNotificationPermission(permission);
+      const permission =
+        await Notification.requestPermission();
 
-      if (permission === "granted") {
-        new Notification("LocalPro Chat notifications enabled", {
-          body: "You will receive browser notifications for new messages.",
-          icon: "/favicon.ico",
-        });
-      }
+      setNotificationPermission(permission);
     } catch {
       setNotificationPermission(Notification.permission);
     }
@@ -649,11 +635,7 @@ export default function UserMessagesPage() {
       conversationsRequestRef.current = true;
 
       try {
-        if (!silent && !conversationsRef.current.length) {
-          setLoading(true);
-        }
-
-        setError("");
+        if (!silent) setError("");
 
         let user = currentUserRef.current;
         let response;
@@ -672,7 +654,10 @@ export default function UserMessagesPage() {
             setCurrentUser(user);
 
             try {
-              localStorage.setItem("user", JSON.stringify(user));
+              localStorage.setItem(
+                "user",
+                JSON.stringify(user)
+              );
             } catch {
               // Ignore storage errors.
             }
@@ -688,12 +673,12 @@ export default function UserMessagesPage() {
         }
 
         const list = normalizeConversations(response).filter(
-          (conversation) => Boolean(getConversationId(conversation))
+          (conversation) =>
+            Boolean(getConversationId(conversation))
         );
 
-        const finalList = list.length
-          ? list
-          : [DEFAULT_CONVERSATION];
+        // Do not pretend a fake local conversation is a real DB chat.
+        const finalList = list;
 
         conversationsRef.current = finalList;
         setConversations(finalList);
@@ -710,19 +695,19 @@ export default function UserMessagesPage() {
         setSelectedConversation((previous) => {
           const previousId = getConversationId(previous);
 
-          return (
-            (previousId &&
-              finalList.find(
-                (conversation) =>
-                  String(getConversationId(conversation)) ===
-                  String(previousId)
-              )) ||
-            finalList[0] ||
-            null
-          );
+          if (previousId) {
+            const stillExists = finalList.find(
+              (item) =>
+                getConversationId(item) === previousId
+            );
+
+            if (stillExists) return stillExists;
+          }
+
+          return finalList[0] || null;
         });
       } catch (err) {
-        console.error("User conversations error:", err);
+        console.error("Load conversations error:", err);
 
         if (err?.status === 401) {
           window.location.href = "/login";
@@ -730,7 +715,9 @@ export default function UserMessagesPage() {
         }
 
         if (!silent) {
-          setError(err?.message || "Unable to load conversations.");
+          setError(
+            err?.message || "Unable to load conversations."
+          );
         }
       } finally {
         conversationsRequestRef.current = false;
@@ -741,93 +728,127 @@ export default function UserMessagesPage() {
   );
 
   useEffect(() => {
-    loadConversations(false);
-  }, [loadConversations]);
+    let cancelled = false;
 
-  const loadMessages = useCallback(async (id, silent = false) => {
-    if (!id) {
-      setMessages([]);
-      setMessagesError("");
-      setMessagesLoading(false);
-      return;
+    async function initialize() {
+      try {
+        const cachedUser = localStorage.getItem("user");
+
+        if (cachedUser && !cancelled) {
+          setCurrentUser(JSON.parse(cachedUser));
+        }
+      } catch {
+        // Ignore cache errors.
+      }
+
+      if (!cancelled) {
+        await loadConversations(false);
+      }
     }
 
-    const requestId = ++loadMessagesRequestRef.current;
+    initialize();
 
-    try {
-      if (!silent) setMessagesLoading(true);
-      setMessagesError("");
+    return () => {
+      cancelled = true;
+    };
+  }, [loadConversations]);
 
-      const response = await getConversationMessages(id);
+  const saveConversationMessages = useCallback(
+    (id, nextMessages) => {
+      if (!id) return;
 
-      if (requestId !== loadMessagesRequestRef.current) return;
-
-      const fetched = normalizeMessages(response);
-
-      const merged = mergeMessages(
-        messagesCache.current[id] || [],
-        fetched
-      );
-
-      messagesCache.current[id] = merged;
-
-      if (
-        String(selectedConversationIdRef.current) === String(id)
-      ) {
-        setMessages(merged);
-      }
+      messagesCache.current[id] = nextMessages;
 
       try {
         localStorage.setItem(
           `cached_user_messages_${id}`,
-          JSON.stringify(merged)
+          JSON.stringify(nextMessages)
         );
       } catch {
         // Ignore storage errors.
       }
-    } catch (err) {
-      if (requestId !== loadMessagesRequestRef.current) return;
 
-      console.error("Load messages error:", err);
-
-      if (!silent) {
-        setMessagesError(
-          err?.message || "Unable to load conversation messages."
-        );
+      if (
+        String(selectedConversationIdRef.current) ===
+        String(id)
+      ) {
+        setMessages(nextMessages);
       }
-    } finally {
-      if (requestId === loadMessagesRequestRef.current) {
+    },
+    []
+  );
+
+  const loadMessages = useCallback(
+    async (id, silent = false) => {
+      if (
+        !id ||
+        id === DEFAULT_CONVERSATION_ID
+      ) {
+        setMessages([]);
         setMessagesLoading(false);
+        setMessagesError("");
+        return;
       }
-    }
-  }, []);
 
-  const saveConversationMessages = useCallback((id, nextMessages) => {
-    if (!id) return;
+      const requestId = ++loadMessagesRequestRef.current;
 
-    messagesCache.current[id] = nextMessages;
+      try {
+        if (!silent) setMessagesLoading(true);
+        setMessagesError("");
 
-    try {
-      localStorage.setItem(
-        `cached_user_messages_${id}`,
-        JSON.stringify(nextMessages)
-      );
-    } catch {
-      // Ignore storage errors.
-    }
+        const response = await getConversationMessages(id);
 
-    if (
-      String(selectedConversationIdRef.current) === String(id)
-    ) {
-      setMessages(nextMessages);
-    }
-  }, []);
+        if (requestId !== loadMessagesRequestRef.current) {
+          return;
+        }
+
+        const fetched = normalizeMessages(response);
+        const cached = messagesCache.current[id] || [];
+        const merged = mergeMessages(cached, fetched);
+
+        messagesCache.current[id] = merged;
+
+        if (
+          String(selectedConversationIdRef.current) ===
+          String(id)
+        ) {
+          setMessages(merged);
+        }
+
+        try {
+          localStorage.setItem(
+            `cached_user_messages_${id}`,
+            JSON.stringify(merged)
+          );
+        } catch {
+          // Ignore storage errors.
+        }
+      } catch (err) {
+        if (requestId !== loadMessagesRequestRef.current) {
+          return;
+        }
+
+        console.error("Load messages error:", err);
+
+        if (!silent) {
+          setMessagesError(
+            err?.message || "Unable to load messages."
+          );
+        }
+      } finally {
+        if (requestId === loadMessagesRequestRef.current) {
+          setMessagesLoading(false);
+        }
+      }
+    },
+    []
+  );
 
   const handleIncomingMessage = useCallback(
     (payload) => {
-      // Support common Socket.IO event payload formats.
       const incoming =
-        payload?.message && typeof payload.message === "object"
+        payload?.message &&
+        typeof payload.message === "object"
           ? payload.message
           : payload?.data?.message &&
               typeof payload.data.message === "object"
@@ -838,26 +859,39 @@ export default function UserMessagesPage() {
               ? payload.data
               : payload;
 
-      if (!incoming || typeof incoming !== "object") return;
+      if (!incoming || typeof incoming !== "object") {
+        return;
+      }
 
       const id = getMessageId(incoming);
-      const conversationId = getMessageConversationId(incoming);
+      const conversationId =
+        getMessageConversationId(incoming);
 
       if (!conversationId) {
-        // Metadata-only events are handled by polling.
+        // If the server sends a metadata-only event, refresh
+        // the active conversation rather than silently losing it.
+        const activeId = selectedConversationIdRef.current;
+
+        if (activeId) {
+          loadMessages(activeId, true);
+        }
+
+        loadConversations(true);
+        return;
+      }
+
+      if (id && processedMessageIdsRef.current.has(id)) {
         return;
       }
 
       if (id) {
-        if (processedMessageIdsRef.current.has(id)) return;
-
         processedMessageIdsRef.current.add(id);
 
         if (processedMessageIdsRef.current.size > 1500) {
-          const oldestId =
+          const oldest =
             processedMessageIdsRef.current.values().next().value;
 
-          processedMessageIdsRef.current.delete(oldestId);
+          processedMessageIdsRef.current.delete(oldest);
         }
       }
 
@@ -871,25 +905,24 @@ export default function UserMessagesPage() {
       );
 
       const active =
-        String(selectedConversationIdRef.current) ===
+        String(selectedConversationIdRef.current || "") ===
         String(conversationId);
 
-      const nextMessages = mergeMessages(
-        messagesCache.current[conversationId] || [],
-        [incoming]
-      );
+      const latest = messagesCache.current[conversationId] || [];
+      const merged = mergeMessages(latest, [incoming]);
 
-      saveConversationMessages(conversationId, nextMessages);
+      saveConversationMessages(conversationId, merged);
 
       const preview = getMessageText(incoming);
-      const time = incoming.createdAt || new Date().toISOString();
+      const time =
+        incoming.createdAt || new Date().toISOString();
 
       setConversations((previous) => {
         let found = false;
 
         const updated = previous.map((conversation) => {
           if (
-            String(getConversationId(conversation)) !==
+            getConversationId(conversation) !==
             String(conversationId)
           ) {
             return conversation;
@@ -897,15 +930,17 @@ export default function UserMessagesPage() {
 
           found = true;
 
+          const currentUnread = Number(
+            conversation.unreadCount ??
+              conversation.unreadMessages ??
+              conversation.unread ??
+              0
+          );
+
           const unread =
             active || isOwn
               ? 0
-              : Number(
-                  conversation.unreadCount ||
-                    conversation.unread ||
-                    conversation.unreadMessages ||
-                    0
-                ) + 1;
+              : currentUnread + 1;
 
           return {
             ...conversation,
@@ -920,24 +955,26 @@ export default function UserMessagesPage() {
           };
         });
 
-        if (found) {
-          conversationsRef.current = updated;
+        conversationsRef.current = updated;
 
-          try {
-            localStorage.setItem(
-              "cached_user_admin_chats",
-              JSON.stringify(updated)
-            );
-          } catch {
-            // Ignore storage errors.
-          }
+        try {
+          localStorage.setItem(
+            "cached_user_admin_chats",
+            JSON.stringify(updated)
+          );
+        } catch {
+          // Ignore storage errors.
+        }
+
+        // If a real conversation was missing from the list,
+        // refresh the list from the server.
+        if (!found) {
+          loadConversations(true);
         }
 
         return updated;
       });
 
-      // Notify for every incoming message, even when the chat is open.
-      // Never notify for messages sent by the current user.
       if (!isOwn) {
         const sender = incoming.sender || {};
 
@@ -955,9 +992,9 @@ export default function UserMessagesPage() {
       if (active && !isOwn) {
         markConversationRead(conversationId).catch(() => {});
 
-        setConversations((previous) => {
-          const updated = previous.map((conversation) =>
-            String(getConversationId(conversation)) ===
+        setConversations((previous) =>
+          previous.map((conversation) =>
+            getConversationId(conversation) ===
             String(conversationId)
               ? {
                   ...conversation,
@@ -967,20 +1004,29 @@ export default function UserMessagesPage() {
                   unread: 0,
                 }
               : conversation
-          );
-
-          conversationsRef.current = updated;
-          return updated;
-        });
+          )
+        );
       }
     },
-    [saveConversationMessages]
+    [
+      loadConversations,
+      loadMessages,
+      saveConversationMessages,
+    ]
   );
 
+  /* -------------------- Selected Conversation -------------------- */
+
   useEffect(() => {
-    const id = selectedConversationId || DEFAULT_CONVERSATION_ID;
+    const id = selectedConversationId;
 
     selectedConversationIdRef.current = id;
+
+    if (!id) {
+      setMessages([]);
+      setMessagesLoading(false);
+      return;
+    }
 
     const cached = messagesCache.current[id];
 
@@ -1017,7 +1063,7 @@ export default function UserMessagesPage() {
       reconnectionAttempts: Infinity,
       reconnectionDelay: 500,
       reconnectionDelayMax: 3000,
-      timeout: 20000,
+      timeout: 10000,
     });
 
     socketRef.current = socket;
@@ -1025,7 +1071,14 @@ export default function UserMessagesPage() {
     const joinRooms = () => {
       setSocketConnected(true);
 
-      const conversationId = selectedConversationIdRef.current;
+      const userId = getUserId(currentUserRef.current);
+
+      if (userId) {
+        socket.emit("user_join", userId);
+      }
+
+      const conversationId =
+        selectedConversationIdRef.current;
 
       if (
         conversationId &&
@@ -1034,41 +1087,38 @@ export default function UserMessagesPage() {
         socket.emit("join_room", conversationId);
       }
 
-      const userId = getUserId(currentUserRef.current);
-
-      if (userId) {
-        socket.emit("user_join", userId);
-      }
-
-      // Re-sync after connection/reconnection to recover missed events.
+      // Recover any missed messages after reconnecting.
       loadConversations(true);
-      loadMessages(
-        selectedConversationIdRef.current,
-        true
-      );
+
+      if (conversationId) {
+        loadMessages(conversationId, true);
+      }
     };
 
-    const onDisconnect = () => setSocketConnected(false);
+    const onDisconnect = () => {
+      setSocketConnected(false);
+    };
 
     const onConnectError = (err) => {
       setSocketConnected(false);
-      console.warn("Chat socket connection error:", err?.message);
+      console.warn(
+        "Chat socket connection error:",
+        err?.message
+      );
     };
 
     socket.on("connect", joinRooms);
     socket.on("disconnect", onDisconnect);
     socket.on("connect_error", onConnectError);
 
-    // Register common event names used by chat backends.
-    const messageEvents = [
+    const eventNames = [
       "receive_message",
       "new_message",
       "message",
       "message_notification",
-      "notification",
     ];
 
-    messageEvents.forEach((eventName) => {
+    eventNames.forEach((eventName) => {
       socket.on(eventName, handleIncomingMessage);
     });
 
@@ -1077,7 +1127,7 @@ export default function UserMessagesPage() {
       socket.off("disconnect", onDisconnect);
       socket.off("connect_error", onConnectError);
 
-      messageEvents.forEach((eventName) => {
+      eventNames.forEach((eventName) => {
         socket.off(eventName, handleIncomingMessage);
       });
 
@@ -1087,31 +1137,30 @@ export default function UserMessagesPage() {
         socketRef.current = null;
       }
     };
-  }, [handleIncomingMessage, loadConversations, loadMessages]);
+  }, [
+    handleIncomingMessage,
+    loadConversations,
+    loadMessages,
+  ]);
 
-  // Join selected room whenever conversation changes.
+  // Join the selected conversation room.
   useEffect(() => {
     const socket = socketRef.current;
     const id = selectedConversationId;
 
-    if (!socket || !id || id === DEFAULT_CONVERSATION_ID) {
+    if (
+      !socket ||
+      !socket.connected ||
+      !id ||
+      id === DEFAULT_CONVERSATION_ID
+    ) {
       return;
     }
 
-    const join = () => socket.emit("join_room", id);
+    socket.emit("join_room", id);
+  }, [selectedConversationId, socketConnected]);
 
-    if (socket.connected) {
-      join();
-    } else {
-      socket.once("connect", join);
-    }
-
-    return () => {
-      socket.off("connect", join);
-    };
-  }, [selectedConversationId]);
-
-  // Join private user room if user information loads later.
+  // Join the private user room when the user profile becomes available.
   useEffect(() => {
     const socket = socketRef.current;
     const userId = getUserId(currentUser);
@@ -1119,13 +1168,11 @@ export default function UserMessagesPage() {
     if (socket?.connected && userId) {
       socket.emit("user_join", userId);
     }
-  }, [currentUser]);
+  }, [currentUser, socketConnected]);
 
   /*
-   * One-second fallback:
-   * Socket.IO is the primary realtime channel.
-   * Polling recovers messages if the server misses/emits no socket event.
-   * This increases API requests, so the backend should support these endpoints.
+   * Poll only the active chat as a fallback.
+   * Socket.IO remains the primary realtime channel.
    */
   useEffect(() => {
     let cancelled = false;
@@ -1139,19 +1186,22 @@ export default function UserMessagesPage() {
         return;
       }
 
+      const id = selectedConversationIdRef.current;
+
+      if (!id || id === DEFAULT_CONVERSATION_ID) {
+        return;
+      }
+
       pollingBusyRef.current = true;
 
       try {
-        await loadMessages(
-          selectedConversationIdRef.current,
-          true
-        );
+        await loadMessages(id, true);
       } finally {
         pollingBusyRef.current = false;
       }
     };
 
-    const interval = setInterval(sync, 1000);
+    const interval = setInterval(sync, 2000);
 
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") {
@@ -1175,13 +1225,13 @@ export default function UserMessagesPage() {
     };
   }, [loadMessages]);
 
-  // Refresh conversation list less frequently than messages.
+  // Conversation list refresh is deliberately less frequent.
   useEffect(() => {
     const interval = setInterval(() => {
       if (document.visibilityState === "visible") {
         loadConversations(true);
       }
-    }, 5000);
+    }, 10000);
 
     return () => clearInterval(interval);
   }, [loadConversations]);
@@ -1231,9 +1281,9 @@ export default function UserMessagesPage() {
   async function handleSelectConversation(conversation) {
     if (!conversation) return;
 
-    const id =
-      getConversationId(conversation) ||
-      DEFAULT_CONVERSATION_ID;
+    const id = getConversationId(conversation);
+
+    if (!id) return;
 
     setSelectedFiles([]);
     setMessagesError("");
@@ -1268,19 +1318,19 @@ export default function UserMessagesPage() {
     }
 
     const unread = Number(
-      conversation?.unreadCount ||
-        conversation?.unreadMessages ||
-        conversation?.unread ||
+      conversation.unreadCount ??
+        conversation.unreadMessages ??
+        conversation.unread ??
         0
     );
 
-    if (unread > 0 && id !== DEFAULT_CONVERSATION_ID) {
+    if (unread > 0) {
       try {
         await markConversationRead(id);
 
-        setConversations((previous) => {
-          const updated = previous.map((item) =>
-            String(getConversationId(item)) === String(id)
+        setConversations((previous) =>
+          previous.map((item) =>
+            getConversationId(item) === id
               ? {
                   ...item,
                   unreadCount: 0,
@@ -1289,13 +1339,13 @@ export default function UserMessagesPage() {
                   unread: 0,
                 }
               : item
-          );
-
-          conversationsRef.current = updated;
-          return updated;
-        });
+          )
+        );
       } catch (err) {
-        console.warn("Could not mark conversation read:", err);
+        console.warn(
+          "Could not mark conversation read:",
+          err
+        );
       }
     }
 
@@ -1308,28 +1358,35 @@ export default function UserMessagesPage() {
     event?.preventDefault();
 
     const body = message.trim();
-
     const conversationId =
-      getConversationId(selectedConversation) ||
-      DEFAULT_CONVERSATION_ID;
+      getConversationId(selectedConversation);
 
-    if (
-      (!body && selectedFiles.length === 0) ||
-      sending ||
-      !selectedConversation
-    ) {
+    const files = [...selectedFiles];
+
+    if ((!body && !files.length) || sendingRef.current) {
       return;
     }
 
-    const recipientId = getUserId(
-      getOtherParticipant(selectedConversation, currentUser)
+    if (
+      !conversationId ||
+      conversationId === DEFAULT_CONVERSATION_ID
+    ) {
+      setMessagesError(
+        "A real conversation has not loaded yet. Refresh the chat list and try again."
+      );
+      return;
+    }
+
+    const recipient = getOtherParticipant(
+      selectedConversation,
+      currentUser
     );
+
+    const recipientId = getUserId(recipient);
 
     const tempId = `temp-${Date.now()}-${Math.random()
       .toString(36)
       .slice(2, 8)}`;
-
-    const files = [...selectedFiles];
 
     const optimisticMessage = {
       _id: tempId,
@@ -1349,112 +1406,89 @@ export default function UserMessagesPage() {
         url: URL.createObjectURL(file),
       })),
       sending: true,
+      failed: false,
     };
 
-    // Immediately show the message without waiting for the backend.
+    // Optimistic UI: display immediately, before network response.
+    const latest = messagesCache.current[conversationId] || [];
+
     saveConversationMessages(
       conversationId,
-      mergeMessages(
-        messagesCache.current[conversationId] || messages,
-        [optimisticMessage]
-      )
+      mergeMessages(latest, [optimisticMessage])
     );
 
     setMessage("");
     setSelectedFiles([]);
     setSending(true);
+    sendingRef.current = true;
     setMessagesError("");
-    scrollToBottom(true);
+
+    requestAnimationFrame(() => scrollToBottom(true));
 
     try {
       let response;
 
+      // One request only. Do not retry through a second endpoint
+      // automatically, because the first request may have saved it.
       if (files.length) {
         const form = new FormData();
 
+        form.append("conversationId", conversationId);
         form.append("body", body);
         form.append("message", body);
-        form.append("recipientId", String(recipientId || ""));
-        form.append("conversationId", String(conversationId));
+        form.append("messageType", "text");
 
-        files.forEach((file) => form.append("files", file));
+        if (recipientId) {
+          form.append("recipientId", String(recipientId));
+        }
+
+        files.forEach((file) => {
+          form.append("files", file);
+        });
 
         response = await apiRequest("/messages", {
           method: "POST",
           body: form,
         });
-      } else if (
-        conversationId === DEFAULT_CONVERSATION_ID &&
-        recipientId
-      ) {
+      } else {
         response = await apiRequest("/messages", {
           method: "POST",
           body: JSON.stringify({
+            conversationId,
             recipientId,
             body,
             message: body,
+            messageType: "text",
           }),
         });
-      } else {
-        try {
-          response = await apiRequest(
-            `/conversations/${encodeURIComponent(
-              conversationId
-            )}/messages`,
-            {
-              method: "POST",
-              body: JSON.stringify({
-                body,
-                message: body,
-                messageType: "text",
-                channel: "chat",
-                direction: "internal",
-                recipientId,
-              }),
-            }
-          );
-        } catch (firstError) {
-          if (!recipientId) throw firstError;
-
-          response = await apiRequest("/messages", {
-            method: "POST",
-            body: JSON.stringify({
-              recipientId,
-              conversationId,
-              body,
-              message: body,
-            }),
-          });
-        }
       }
 
       const sent =
+        response?.messageData ||
         response?.data?.message ||
         response?.data?.data ||
         response?.data ||
-        response?.messageData ||
         (response?.message &&
         typeof response.message === "object"
           ? response.message
           : null);
 
-      const normalized =
-        sent && typeof sent === "object"
-          ? {
-              ...sent,
-              conversationId:
-                getMessageConversationId(sent) || conversationId,
-              sending: false,
-            }
-          : null;
+      const latestAfterSend =
+        messagesCache.current[conversationId] || [];
 
-      const latest = messagesCache.current[conversationId] || [];
+      if (sent && typeof sent === "object") {
+        const normalized = {
+          ...sent,
+          conversationId:
+            getMessageConversationId(sent) || conversationId,
+          sending: false,
+          failed: false,
+        };
 
-      if (normalized) {
         saveConversationMessages(
           conversationId,
           mergeMessages(
-            latest.filter(
+            latestAfterSend.filter(
               (item) => getMessageId(item) !== tempId
             ),
             [normalized]
@@ -1467,17 +1501,19 @@ export default function UserMessagesPage() {
           processedMessageIdsRef.current.add(savedId);
         }
       } else {
+        // Do not claim server delivery without a confirmed message.
         saveConversationMessages(
           conversationId,
-          latest.map((item) =>
+          latestAfterSend.map((item) =>
             getMessageId(item) === tempId
               ? { ...item, sending: false }
               : item
           )
         );
+
+        await loadMessages(conversationId, true);
       }
 
-      // Refresh list after successful persistence.
       loadConversations(true);
     } catch (err) {
       console.error("Send message error:", err);
@@ -1486,11 +1522,12 @@ export default function UserMessagesPage() {
         err?.message || "Unable to send message."
       );
 
-      const latest = messagesCache.current[conversationId] || [];
+      const latestAfterFailure =
+        messagesCache.current[conversationId] || [];
 
       saveConversationMessages(
         conversationId,
-        latest.filter(
+        latestAfterFailure.filter(
           (item) => getMessageId(item) !== tempId
         )
       );
@@ -1499,6 +1536,7 @@ export default function UserMessagesPage() {
       setSelectedFiles(files);
     } finally {
       setSending(false);
+      sendingRef.current = false;
     }
   }
 
@@ -1529,17 +1567,19 @@ export default function UserMessagesPage() {
       });
 
       const conversationId =
-        getConversationId(selectedConversation) ||
-        DEFAULT_CONVERSATION_ID;
+        getConversationId(selectedConversation);
 
-      const latest = messagesCache.current[conversationId] || messages;
+      const latest =
+        messagesCache.current[conversationId] || messages;
 
       const serverMessage =
         response?.data?.message || response?.data;
 
       const updated =
         type === "me"
-          ? latest.filter((item) => getMessageId(item) !== id)
+          ? latest.filter(
+              (item) => getMessageId(item) !== id
+            )
           : latest.map((item) =>
               getMessageId(item) !== id
                 ? item
@@ -1607,14 +1647,20 @@ export default function UserMessagesPage() {
                   <div className="mt-2 flex items-center gap-1.5 text-[10px] font-semibold">
                     {socketConnected ? (
                       <>
-                        <Wifi size={12} className="text-emerald-600" />
+                        <Wifi
+                          size={12}
+                          className="text-emerald-600"
+                        />
                         <span className="text-emerald-600">
                           Realtime connected
                         </span>
                       </>
                     ) : (
                       <>
-                        <WifiOff size={12} className="text-amber-600" />
+                        <WifiOff
+                          size={12}
+                          className="text-amber-600"
+                        />
                         <span className="text-amber-600">
                           Reconnecting…
                         </span>
@@ -1651,7 +1697,9 @@ export default function UserMessagesPage() {
 
                 <input
                   value={search}
-                  onChange={(event) => setSearch(event.target.value)}
+                  onChange={(event) =>
+                    setSearch(event.target.value)
+                  }
                   placeholder="Search admin chats..."
                   className="h-10 w-full rounded-2xl border border-slate-200/90 bg-white pl-9 pr-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10"
                 />
@@ -1662,104 +1710,108 @@ export default function UserMessagesPage() {
               {loading && !conversations.length ? (
                 <ConversationLoading />
               ) : filteredConversations.length ? (
-                filteredConversations.map((conversation, index) => {
-                  const id = getConversationId(conversation);
+                filteredConversations.map(
+                  (conversation, index) => {
+                    const id = getConversationId(conversation);
 
-                  const participant = getOtherParticipant(
-                    conversation,
-                    currentUser
-                  );
+                    const participant = getOtherParticipant(
+                      conversation,
+                      currentUser
+                    );
 
-                  const name = getParticipantName(
-                    conversation,
-                    currentUser
-                  );
+                    const name = getParticipantName(
+                      conversation,
+                      currentUser
+                    );
 
-                  const avatar = getParticipantAvatar(
-                    conversation,
-                    currentUser
-                  );
+                    const avatar = getParticipantAvatar(
+                      conversation,
+                      currentUser
+                    );
 
-                  const last =
-                    conversation?.lastMessage ||
-                    conversation?.lastMessageText ||
-                    conversation?.preview ||
-                    "No messages yet";
+                    const last =
+                      conversation?.lastMessage ||
+                      conversation?.lastMessageText ||
+                      conversation?.preview ||
+                      "No messages yet";
 
-                  const unread = Number(
-                    conversation?.unreadCount ||
-                      conversation?.unreadMessages ||
-                      conversation?.unread ||
-                      0
-                  );
+                    const unread = Number(
+                      conversation?.unreadCount ??
+                        conversation?.unreadMessages ??
+                        conversation?.unread ??
+                        0
+                    );
 
-                  const active =
-                    String(selectedConversationId || "") ===
-                    String(id || "");
+                    const active =
+                      String(selectedConversationId || "") ===
+                      String(id || "");
 
-                  return (
-                    <button
-                      key={
-                        id ||
-                        getUserId(participant) ||
-                        `contact-${index}`
-                      }
-                      onClick={() =>
-                        handleSelectConversation(conversation)
-                      }
-                      type="button"
-                      className={`flex w-full items-start gap-3 border-b border-slate-100/80 px-4 py-3.5 text-left transition ${
-                        active
-                          ? "border-violet-200/60 bg-violet-50/70"
-                          : "hover:bg-slate-50/80"
-                      }`}
-                    >
-                      <div className="relative shrink-0">
-                        <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-sm">
-                          {avatar ? (
-                            <img
-                              src={getFileUrl(avatar)}
-                              alt={name}
-                              className="h-full w-full object-cover"
-                            />
-                          ) : (
-                            getInitials(name)
+                    return (
+                      <button
+                        key={
+                          id ||
+                          getUserId(participant) ||
+                          `contact-${index}`
+                        }
+                        onClick={() =>
+                          handleSelectConversation(conversation)
+                        }
+                        type="button"
+                        className={`flex w-full items-start gap-3 border-b border-slate-100/80 px-4 py-3.5 text-left transition ${
+                          active
+                            ? "border-violet-200/60 bg-violet-50/70"
+                            : "hover:bg-slate-50/80"
+                        }`}
+                      >
+                        <div className="relative shrink-0">
+                          <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-sm">
+                            {avatar ? (
+                              <img
+                                src={getFileUrl(avatar)}
+                                alt={name}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              getInitials(name)
+                            )}
+                          </div>
+
+                          {unread > 0 && (
+                            <span className="absolute -right-2 -top-2 z-10 flex h-5 min-w-5 items-center justify-center rounded-full bg-violet-600 px-1 text-[10px] font-extrabold text-white shadow-md ring-2 ring-white">
+                              {unread > 99 ? "99+" : unread}
+                            </span>
                           )}
                         </div>
 
-                        {unread > 0 && (
-                          <span className="absolute -right-2 -top-2 z-10 flex h-5 min-w-5 items-center justify-center rounded-full bg-violet-600 px-1 text-[10px] font-extrabold text-white shadow-md ring-2 ring-white">
-                            {unread > 99 ? "99+" : unread}
-                          </span>
-                        )}
-                      </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <p
+                              className={`truncate text-xs font-bold ${
+                                unread
+                                  ? "text-slate-900"
+                                  : "text-slate-800"
+                              }`}
+                            >
+                              {name}
+                            </p>
 
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <p
-                            className={`truncate text-xs font-bold ${
-                              unread ? "text-slate-900" : "text-slate-800"
-                            }`}
-                          >
-                            {name}
+                            <span className="shrink-0 text-[10px] text-slate-400">
+                              {formatDateTime(
+                                conversation?.lastMessageAt ||
+                                  conversation?.updatedAt ||
+                                  conversation?.createdAt
+                              )}
+                            </span>
+                          </div>
+
+                          <p className="mt-1 truncate text-xs text-slate-500">
+                            {last}
                           </p>
-
-                          <span className="shrink-0 text-[10px] text-slate-400">
-                            {formatDateTime(
-                              conversation?.lastMessageAt ||
-                                conversation?.updatedAt ||
-                                conversation?.createdAt
-                            )}
-                          </span>
                         </div>
-
-                        <p className="mt-1 truncate text-xs text-slate-500">
-                          {last}
-                        </p>
-                      </div>
-                    </button>
-                  );
-                })
+                      </button>
+                    );
+                  }
+                )
               ) : (
                 <EmptyConversationList
                   search={search}
@@ -1808,6 +1860,7 @@ export default function UserMessagesPage() {
                   <h2 className="text-xs font-bold text-slate-900">
                     Select admin chat
                   </h2>
+
                   <p className="text-[11px] text-slate-400">
                     Choose from list
                   </p>
@@ -1905,7 +1958,9 @@ export default function UserMessagesPage() {
                 <div className="min-w-0 flex-1">
                   <textarea
                     value={message}
-                    onChange={(event) => setMessage(event.target.value)}
+                    onChange={(event) =>
+                      setMessage(event.target.value)
+                    }
                     onKeyDown={(event) => {
                       if (
                         event.key === "Enter" &&
@@ -1915,7 +1970,8 @@ export default function UserMessagesPage() {
                         event.preventDefault();
 
                         if (
-                          (message.trim() || selectedFiles.length) &&
+                          (message.trim() ||
+                            selectedFiles.length) &&
                           selectedConversation &&
                           !sending
                         ) {
@@ -1926,7 +1982,7 @@ export default function UserMessagesPage() {
                     placeholder={
                       selectedConversation
                         ? `Message ${selectedName} or attach files...`
-                        : "Select chat first..."
+                        : "Select a real chat first..."
                     }
                     rows={1}
                     disabled={!selectedConversation || sending}
@@ -1945,7 +2001,10 @@ export default function UserMessagesPage() {
                   className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-violet-600 text-white shadow-md hover:bg-violet-700 disabled:bg-slate-200 disabled:text-slate-400"
                 >
                   {sending ? (
-                    <Loader2 size={17} className="animate-spin" />
+                    <Loader2
+                      size={17}
+                      className="animate-spin"
+                    />
                   ) : (
                     <Send size={17} />
                   )}
@@ -1968,6 +2027,7 @@ export default function UserMessagesPage() {
                 <h3 className="text-base font-bold text-slate-900">
                   Delete Message?
                 </h3>
+
                 <p className="text-xs text-slate-400">
                   Choose how you want to delete this message.
                 </p>
@@ -1991,11 +2051,16 @@ export default function UserMessagesPage() {
                   <button
                     type="button"
                     disabled={deletingMessage}
-                    onClick={() => executeDeleteMessage("everyone")}
+                    onClick={() =>
+                      executeDeleteMessage("everyone")
+                    }
                     className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-rose-600 px-4 text-xs font-bold text-white disabled:opacity-50"
                   >
                     {deletingMessage ? (
-                      <Loader2 size={15} className="animate-spin" />
+                      <Loader2
+                        size={15}
+                        className="animate-spin"
+                      />
                     ) : (
                       <Users size={15} />
                     )}
@@ -2010,7 +2075,10 @@ export default function UserMessagesPage() {
                 className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 px-4 text-xs font-bold text-slate-700 disabled:opacity-50"
               >
                 {deletingMessage ? (
-                  <Loader2 size={15} className="animate-spin" />
+                  <Loader2
+                    size={15}
+                    className="animate-spin"
+                  />
                 ) : (
                   <Trash2 size={15} />
                 )}
@@ -2101,7 +2169,9 @@ function MessageBubble({
           <>
             <button
               type="button"
-              onClick={() => setMenuOpen((previous) => !previous)}
+              onClick={() =>
+                setMenuOpen((previous) => !previous)
+              }
               aria-label="Message options"
               className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100"
             >
@@ -2123,7 +2193,9 @@ function MessageBubble({
                   className="flex w-full items-center gap-2 px-3.5 py-2 text-left text-xs font-bold text-rose-600 hover:bg-rose-50"
                 >
                   <Trash2 size={13} />
-                  {outgoing ? "Delete Message" : "Delete for Me"}
+                  {outgoing
+                    ? "Delete Message"
+                    : "Delete for Me"}
                 </button>
               </div>
             )}
@@ -2211,6 +2283,7 @@ function MessageBubble({
                       size={15}
                       className="shrink-0 text-violet-600"
                     />
+
                     <span className="max-w-[200px] truncate">
                       {name}
                     </span>
@@ -2230,10 +2303,18 @@ function MessageBubble({
           }`}
         >
           <span>
-            {formatTime(message?.createdAt || message?.sentAt)}
+            {formatTime(
+              message?.createdAt || message?.sentAt
+            )}
           </span>
 
-          {outgoing && !deleted && <CheckCheck size={12} />}
+          {outgoing && !deleted && (
+            message?.sending ? (
+              <Check size={12} />
+            ) : (
+              <CheckCheck size={12} />
+            )
+          )}
 
           {message?.sending && <span>Sending…</span>}
         </div>
@@ -2268,7 +2349,7 @@ function EmptyConversationList({ search, loading }) {
           ? "Please wait while your chats load."
           : search
             ? "No conversation matches your search."
-            : "No admin conversation was returned by the server."}
+            : "The server has not returned a real conversation yet."}
       </p>
     </div>
   );
@@ -2309,7 +2390,10 @@ function NoMessages() {
 function ConversationLoading() {
   return (
     <div className="flex min-h-[280px] flex-col items-center justify-center p-6 text-center">
-      <Loader2 size={26} className="animate-spin text-violet-600" />
+      <Loader2
+        size={26}
+        className="animate-spin text-violet-600"
+      />
 
       <p className="mt-3 text-xs font-semibold text-slate-500">
         Loading chats...
@@ -2321,7 +2405,10 @@ function ConversationLoading() {
 function MessagesLoading() {
   return (
     <div className="flex h-full min-h-[380px] flex-col items-center justify-center text-center">
-      <Loader2 size={32} className="animate-spin text-violet-600" />
+      <Loader2
+        size={32}
+        className="animate-spin text-violet-600"
+      />
 
       <p className="mt-3 text-xs font-semibold text-slate-500">
         Loading messages...
