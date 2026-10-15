@@ -2171,20 +2171,40 @@ export default function AdminConversationsPage() {
   ========================================================== */
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] min-h-0 w-full flex-1 flex-col overflow-hidden bg-[#f7f8fc] text-slate-950">
+    <div className="flex h-[calc(100vh-4rem)] min-h-0 w-full flex-1 flex-col overflow-hidden bg-[#f4f5fb] text-slate-950">
+      {/* GLOBAL TEAMS-STYLE TOP BAR */}
+      <div className="z-20 flex h-[62px] shrink-0 items-center gap-4 border-b border-slate-200/80 bg-white px-4 shadow-[0_1px_4px_rgba(15,23,42,0.03)] sm:px-6">
+        <div className="flex w-[220px] shrink-0 items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-indigo-700 text-white shadow-md shadow-indigo-500/20">
+            <Users size={20} strokeWidth={2.5} />
+          </div>
+          <span className="text-base font-extrabold tracking-tight text-slate-900">LocalPro1</span>
+        </div>
+        <div className="hidden max-w-[680px] flex-1 items-center md:flex">
+          <div className="relative w-full">
+            <Search size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder='Search messages, people, and more' className="h-10 w-full rounded-xl border border-slate-200 bg-[#f8f9fc] pl-11 pr-4 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-4 focus:ring-indigo-500/10" />
+          </div>
+        </div>
+        <div className="ml-auto flex items-center gap-3">
+          <span title={socketConnected ? "Connected to real-time chat" : "Reconnecting to chat"} className={`hidden rounded-full px-2.5 py-1 text-[11px] font-bold sm:inline-flex ${socketConnected ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{socketConnected ? "Live" : "Connecting"}</span>
+          <button type="button" onClick={enableMessageNotifications} title="Notification settings" className="relative flex h-9 w-9 items-center justify-center rounded-full text-slate-600 transition hover:bg-slate-100"><Bell size={19} />{notificationPermission !== "granted" && <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-violet-500 ring-2 ring-white" />}</button>
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-indigo-700 text-xs font-bold text-white ring-2 ring-violet-100">AD</div>
+        </div>
+      </div>
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <section className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-white lg:flex-row">
+          {/* TEAMS-STYLE APP NAVIGATION */}
+          <nav className="hidden w-[76px] shrink-0 flex-col items-center gap-2 border-r border-slate-200/70 bg-[#f8f9fd] py-5 md:flex">
+            {[{label:"Activity", icon:Bell},{label:"Chat", icon:MessageSquare},{label:"Teams", icon:Users},{label:"Files", icon:FileText}].map((item) => { const Icon = item.icon; const active = item.label === "Chat"; return <button key={item.label} type="button" title={item.label} className={`relative flex w-full flex-col items-center gap-1.5 py-3 text-[10px] font-semibold transition ${active ? "text-indigo-700" : "text-slate-500 hover:bg-slate-100 hover:text-slate-800"}`}>{active && <span className="absolute left-0 top-1 bottom-1 w-[3px] rounded-r-full bg-violet-600" />}<span className={`flex h-9 w-9 items-center justify-center rounded-xl ${active ? "bg-violet-100 text-violet-700" : ""}`}><Icon size={20} /></span>{item.label}</button>; })}
+          </nav>
           {/* SIDEBAR */}
-          <aside className="flex h-full min-h-0 w-full shrink-0 flex-col overflow-hidden border-b border-slate-100 lg:w-[360px] lg:border-b-0 lg:border-r">
-            <div className="shrink-0 border-b border-slate-100 bg-slate-50/50 p-4 sm:p-5">
+          <aside className="flex h-full min-h-0 w-full shrink-0 flex-col overflow-hidden border-b border-slate-100 lg:w-[390px] lg:border-b-0 lg:border-r">
+            <div className="shrink-0 border-b border-slate-100 bg-white p-4 sm:p-5">
               <div className="mb-3.5 flex items-center justify-between gap-2">
                 <div>
-                  <h2 className="text-base font-extrabold text-slate-900">
-                    Chats & Teams
-                  </h2>
-                  <p className="mt-0.5 text-xs text-slate-400">
-                    Direct messages & groups
-                  </p>
+                  <h2 className="text-xl font-extrabold tracking-tight text-slate-900">Chat</h2>
+                  <p className="mt-0.5 text-xs text-slate-500">Your messages and team conversations</p>
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -2240,7 +2260,7 @@ export default function AdminConversationsPage() {
                   <button
                     type="button"
                     onClick={() => setShowGroupModal(true)}
-                    className="flex items-center gap-1.5 rounded-xl bg-[#2563EB] px-3 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-blue-700"
+                    className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-3 py-2 text-xs font-bold text-white shadow-sm shadow-indigo-600/20 transition hover:from-violet-700 hover:to-indigo-700"
                   >
                     <Plus size={15} />
                     New Group
@@ -2277,11 +2297,11 @@ export default function AdminConversationsPage() {
                           onClick={() => openConversation(group)}
                           className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${
                             isSelected
-                              ? "bg-blue-50 text-blue-700"
+                              ? "bg-violet-50 text-violet-700"
                               : "text-slate-700 hover:bg-slate-100"
                           }`}
                         >
-                          <div className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-xs font-bold text-white">
+                          <div className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-700 text-xs font-bold text-white">
                             <Users size={16} />
                             {unread > 0 && !isSelected && (
                               <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-600 px-1 text-[9px] text-white">
@@ -2321,7 +2341,7 @@ export default function AdminConversationsPage() {
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                   placeholder="Search contacts..."
-                  className="h-10 w-full rounded-2xl border border-slate-200/90 bg-white pl-9 pr-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-4 focus:ring-blue-500/10"
+                  className="h-10 w-full rounded-xl border border-slate-200 bg-[#f8f9fc] pl-9 pr-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-300 focus:bg-white focus:ring-4 focus:ring-violet-500/10"
                 />
               </div>
             </div>
@@ -2331,7 +2351,7 @@ export default function AdminConversationsPage() {
                 <div className="flex min-h-[260px] flex-col items-center justify-center p-6 text-center">
                   <Loader2
                     size={26}
-                    className="animate-spin text-[#2563EB]"
+                    className="animate-spin text-violet-700"
                   />
                   <p className="mt-3 text-xs font-semibold text-slate-400">
                     Loading contacts...
@@ -2360,11 +2380,11 @@ export default function AdminConversationsPage() {
                       onClick={() => handleSelectUser(user)}
                       className={`flex w-full items-start gap-3 border-b border-slate-100/80 px-4 py-3.5 text-left transition duration-150 ${
                         isSelected
-                          ? "border-blue-200/60 bg-blue-50/70"
+                          ? "border-violet-200/60 bg-violet-50/80"
                           : "hover:bg-slate-50/80"
                       }`}
                     >
-                      <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#2563EB] text-xs font-bold text-white shadow-sm">
+                      <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-700 text-xs font-bold text-white shadow-sm">
                         {getInitials(getUserName(user))}
 
                         <span
@@ -2422,7 +2442,7 @@ export default function AdminConversationsPage() {
           <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-50/20">
             <header className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-slate-50/50 px-5 py-3.5 sm:px-6">
               <div className="flex min-w-0 items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[#2563EB] text-xs font-bold text-white shadow-md">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-violet-500 to-indigo-700 text-xs font-bold text-white shadow-md">
                   {selectedUser ? (
                     getInitials(getUserName(selectedUser))
                   ) : (
@@ -2437,7 +2457,7 @@ export default function AdminConversationsPage() {
                       : "Select a contact"}
                   </h2>
 
-                  <p className="truncate text-xs font-semibold text-[#2563EB]">
+                  <p className="truncate text-xs font-semibold text-violet-700">
                     {selectedUser
                       ? getRole(selectedUser) || "Active Member"
                       : "Choose from list"}
@@ -2450,7 +2470,7 @@ export default function AdminConversationsPage() {
                   <button
                     type="button"
                     onClick={() => setShowMessageSearch((value) => !value)}
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border transition ${showMessageSearch ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"}`}
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border transition ${showMessageSearch ? "border-blue-200 bg-violet-50 text-violet-700" : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"}`}
                     title="Search messages"
                     aria-label="Search messages"
                   >
@@ -2504,7 +2524,7 @@ export default function AdminConversationsPage() {
                 <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
                   <Loader2
                     size={28}
-                    className="animate-spin text-[#2563EB]"
+                    className="animate-spin text-violet-700"
                   />
                   <p className="mt-2 text-xs font-semibold text-slate-400">
                     Opening conversation...
@@ -2512,7 +2532,7 @@ export default function AdminConversationsPage() {
                 </div>
               ) : !selectedUser ? (
                 <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-[#2563EB]">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-violet-700">
                     <MessageSquare size={26} />
                   </div>
                   <h3 className="mt-4 text-sm font-bold text-slate-900">
@@ -2527,7 +2547,7 @@ export default function AdminConversationsPage() {
                 <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
                   <Loader2
                     size={24}
-                    className="animate-spin text-[#2563EB]"
+                    className="animate-spin text-violet-700"
                   />
                   <p className="mt-2 text-xs text-slate-400">
                     Loading messages...
@@ -2578,12 +2598,12 @@ export default function AdminConversationsPage() {
                             isDeleted
                               ? "border border-slate-200/80 bg-slate-50 italic text-slate-400"
                               : isAdmin
-                              ? "rounded-tr-sm bg-[#2563EB] text-white shadow-blue-600/15"
+                              ? "rounded-tr-sm bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-indigo-600/15"
                               : "rounded-tl-sm border border-slate-100 bg-white text-slate-800 shadow-[0_4px_20px_rgba(45,35,100,0.03)]"
                           }`}
                         >
                           {!isAdmin && !isDeleted && (
-                            <p className="mb-1 text-[10px] font-bold text-[#2563EB]">
+                            <p className="mb-1 text-[10px] font-bold text-violet-700">
                               {getUserName(sender)}
                             </p>
                           )}
@@ -2800,7 +2820,7 @@ export default function AdminConversationsPage() {
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={!selectedUser || sendingMessage}
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200/90 bg-slate-50/50 text-slate-500 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-[#2563EB] disabled:opacity-40"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700 disabled:opacity-40"
                   aria-label="Attach files"
                 >
                   <Paperclip size={18} />
@@ -2827,7 +2847,7 @@ export default function AdminConversationsPage() {
                         handleSendMessage(event);
                       }
                     }}
-                    className="min-h-11 max-h-32 w-full resize-y rounded-2xl border border-slate-200/90 bg-slate-50/50 px-4 py-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-[#2563EB] focus:bg-white focus:ring-4 focus:ring-blue-500/10 disabled:opacity-60"
+                    className="min-h-11 max-h-32 w-full resize-y rounded-2xl border border-slate-200/90 bg-slate-50/50 px-4 py-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-400 focus:bg-white focus:ring-4 focus:ring-violet-500/10 disabled:opacity-60"
                   />
                 </div>
 
@@ -2838,7 +2858,7 @@ export default function AdminConversationsPage() {
                     sendingMessage ||
                     (!message.trim() && selectedFiles.length === 0)
                   }
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#2563EB] text-white shadow-md shadow-blue-600/25 transition hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-md shadow-indigo-600/25 transition hover:from-violet-700 hover:to-indigo-700 disabled:bg-slate-200 disabled:text-slate-400"
                   aria-label="Send message"
                 >
                   {sendingMessage ? (
@@ -2890,7 +2910,7 @@ export default function AdminConversationsPage() {
                   onChange={(event) => setGroupName(event.target.value)}
                   placeholder="e.g. Weekend Escape, Dev Team"
                   required
-                  className="mt-1 h-10 w-full rounded-xl border px-3 text-xs outline-none focus:border-[#2563EB]"
+                  className="mt-1 h-10 w-full rounded-xl border px-3 text-xs outline-none focus:border-violet-400"
                 />
               </div>
 

@@ -23,6 +23,14 @@ import {
   Send,
   Trash2,
   Users,
+  UsersRound,
+  Plus,
+  Hash,
+  PanelRightOpen,
+  PanelRightClose,
+  Smile,
+  Pin,
+  PencilLine,
   Wifi,
   WifiOff,
   X,
@@ -42,12 +50,6 @@ const BACKEND_BASE_URL = API_URL.endsWith("/api")
   : API_URL;
 
 const DEFAULT_CONVERSATION_ID = "admin-default-chat";
-const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
-const MAX_ATTACHMENTS = 5;
-const ALLOWED_ATTACHMENT_EXTENSIONS = new Set([
-  ".jpg", ".jpeg", ".png", ".webp", ".gif",
-  ".pdf", ".txt", ".csv", ".doc", ".docx", ".xls", ".xlsx",
-]);
 
 const DEFAULT_CONVERSATION = {
   id: DEFAULT_CONVERSATION_ID,
@@ -107,6 +109,15 @@ function getUserId(user) {
     user.user?._id ||
     user.user?.id ||
     null
+  );
+}
+
+function isGroupConversation(conversation) {
+  return Boolean(
+    conversation?.isGroup ||
+    conversation?.type === "group" ||
+    conversation?.conversationType === "group" ||
+    conversation?.kind === "group"
   );
 }
 
@@ -451,7 +462,7 @@ async function markConversationRead(id) {
   // Keep the endpoint already used by the existing application.
   return apiRequest(
     `/conversations/${encodeURIComponent(id)}/read`,
-    { method: "PATCH" }
+    { method: "PUT" }
   );
 }
 
@@ -563,6 +574,18 @@ export default function UserMessagesPage() {
     });
 
   const [currentUser, setCurrentUser] = useState(null);
+
+  // Frontend-first group workspace. These local groups are a UI prototype
+  // until the group APIs are added in the backend phase.
+  const [activeTab, setActiveTab] = useState("chats");
+  const [localGroups, setLocalGroups] = useState([]);
+  const [groupModalOpen, setGroupModalOpen] = useState(false);
+  const [groupNameInput, setGroupNameInput] = useState("");
+  const [groupMembersInput, setGroupMembersInput] = useState("");
+  const [groupFormError, setGroupFormError] = useState("");
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [messageSearchOpen, setMessageSearchOpen] = useState(false);
+  const [messageSearchQuery, setMessageSearchQuery] = useState("");
 
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [messageToDelete, setMessageToDelete] = useState(null);
@@ -695,7 +718,9 @@ export default function UserMessagesPage() {
         }
 
         if (!response) {
-          throw new Error("Unable to load conversations from the backend.");
+          response = await safeApiRequest(
+            "/messages/conversations"
+          );
         }
 
         const list = normalizeConversations(response).filter(
@@ -799,9 +824,10 @@ export default function UserMessagesPage() {
     async (id, silent = false) => {
       if (
         !id ||
-        id === DEFAULT_CONVERSATION_ID
+        id === DEFAULT_CONVERSATION_ID ||
+        String(id).startsWith("local-group-")
       ) {
-        setMessages([]);
+        setMessages(id ? (messagesCache.current[id] || []) : []);
         setMessagesLoading(false);
         setMessagesError("");
         return;
@@ -826,16 +852,7 @@ export default function UserMessagesPage() {
           socketRef.current?.connected &&
           id !== DEFAULT_CONVERSATION_ID
         ) {
-          socketRef.current.emit("join_room", String(id), (ack) => {
-            if (!ack?.success) {
-              console.warn(
-                "Backend rejected conversation room join:",
-                ack?.message || "Unknown room authorization error."
-              );
-            } else {
-              authorizedConversationIdsRef.current.add(String(id));
-            }
-          });
+          socketRef.current.emit("join_room", id);
         }
 
         const fetched = normalizeMessages(response);
@@ -1100,14 +1117,7 @@ export default function UserMessagesPage() {
         conversationId !== DEFAULT_CONVERSATION_ID &&
         authorizedConversationIdsRef.current.has(String(conversationId))
       ) {
-        socket.emit("join_room", String(conversationId), (ack) => {
-          if (!ack?.success) {
-            console.warn(
-              "Backend rejected conversation room join:",
-              ack?.message || "Unknown room authorization error."
-            );
-          }
-        });
+        socket.emit("join_room", conversationId);
       }
 
       // Recover any missed messages after reconnecting.
@@ -1141,57 +1151,9 @@ export default function UserMessagesPage() {
       "message_notification",
     ];
 
-    const onMessageDeleted = (payload) => {
-      const deletedMessage =
-        payload?.message && typeof payload.message === "object"
-          ? payload.message
-          : payload?.data && typeof payload.data === "object"
-            ? payload.data
-            : payload;
-
-      const deletedId = getMessageId(deletedMessage);
-      const conversationId =
-        getMessageConversationId(deletedMessage) ||
-        deletedMessage?.conversationId;
-
-      if (!deletedId || !conversationId) {
-        const activeId = selectedConversationIdRef.current;
-        if (activeId) loadMessages(activeId, true);
-        return;
-      }
-
-      const cached = messagesCache.current[String(conversationId)] || [];
-      const updated = cached.map((item) =>
-        getMessageId(item) === deletedId
-          ? {
-              ...item,
-              ...deletedMessage,
-              body: "This message was deleted",
-              message: "This message was deleted",
-              isDeletedForEveryone: true,
-              attachments: [],
-            }
-          : item
-      );
-
-      saveConversationMessages(String(conversationId), updated);
-    };
-
-    const onReadEvent = (payload) => {
-      const conversationId = String(
-        payload?.conversationId ||
-        getMessageConversationId(payload) ||
-        ""
-      );
-      if (conversationId) loadMessages(conversationId, true);
-    };
-
     eventNames.forEach((eventName) => {
       socket.on(eventName, handleIncomingMessage);
     });
-    socket.on("message_deleted", onMessageDeleted);
-    socket.on("messages_read", onReadEvent);
-    socket.on("message_read", onReadEvent);
 
     return () => {
       socket.off("connect", joinRooms);
@@ -1201,9 +1163,6 @@ export default function UserMessagesPage() {
       eventNames.forEach((eventName) => {
         socket.off(eventName, handleIncomingMessage);
       });
-      socket.off("message_deleted", onMessageDeleted);
-      socket.off("messages_read", onReadEvent);
-      socket.off("message_read", onReadEvent);
 
       socket.disconnect();
 
@@ -1287,11 +1246,19 @@ export default function UserMessagesPage() {
   /* -------------------- Conversation List -------------------- */
 
   const filteredConversations = useMemo(() => {
+    const source =
+      activeTab === "groups"
+        ? [
+            ...conversations.filter(isGroupConversation),
+            ...localGroups,
+          ]
+        : conversations.filter((conversation) => !isGroupConversation(conversation));
+
     const query = search.trim().toLowerCase();
 
-    if (!query) return conversations;
+    if (!query) return source;
 
-    return conversations.filter((conversation) =>
+    return source.filter((conversation) =>
       `${getParticipantName(conversation, currentUser)} ${getParticipantEmail(
         conversation,
         currentUser
@@ -1304,55 +1271,84 @@ export default function UserMessagesPage() {
         .toLowerCase()
         .includes(query)
     );
-  }, [conversations, search, currentUser]);
+  }, [conversations, localGroups, activeTab, search, currentUser]);
+
+  function handleCreateGroup(event) {
+    event?.preventDefault();
+
+    const name = groupNameInput.trim();
+    if (!name) {
+      setGroupFormError("Please enter a group name.");
+      return;
+    }
+
+    const memberNames = groupMembersInput
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+    const createdAt = new Date().toISOString();
+    const groupId = `local-group-${Date.now()}`;
+    const members = [
+      {
+        _id: getUserId(currentUser) || "current-user",
+        id: getUserId(currentUser) || "current-user",
+        name:
+          currentUser?.name ||
+          currentUser?.fullName ||
+          currentUser?.email ||
+          "You",
+        role: currentUser?.role || "user",
+      },
+      ...memberNames.map((member, index) => ({
+        _id: `local-member-${Date.now()}-${index}`,
+        id: `local-member-${Date.now()}-${index}`,
+        name: member,
+        role: "member",
+      })),
+    ];
+
+    const group = {
+      _id: groupId,
+      id: groupId,
+      name,
+      type: "group",
+      isGroup: true,
+      isLocalGroup: true,
+      participants: members,
+      memberCount: members.length,
+      lastMessage: "Group created",
+      lastMessageText: "Group created",
+      updatedAt: createdAt,
+      createdAt,
+      unreadCount: 0,
+    };
+
+    setLocalGroups((previous) => [group, ...previous]);
+    setActiveTab("groups");
+    setSelectedConversation(group);
+    selectedConversationIdRef.current = groupId;
+    messagesCache.current[groupId] = [];
+    setMessages([]);
+    setGroupNameInput("");
+    setGroupMembersInput("");
+    setGroupFormError("");
+    setGroupModalOpen(false);
+    setMessagesError("");
+  }
 
   function handleFileChange(event) {
     const files = Array.from(event.target.files || []);
 
+    if (files.length) {
+      setSelectedFiles((previous) =>
+        [...previous, ...files].slice(0, Math.max(0, 5 - previous.length))
+      );
+    }
+
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
-
-    if (!files.length) return;
-
-    const accepted = [];
-    const rejected = [];
-
-    for (const file of files) {
-      const extension = `.${String(file.name || "")
-        .split(".")
-        .pop()
-        .toLowerCase()}`;
-
-      if (!ALLOWED_ATTACHMENT_EXTENSIONS.has(extension)) {
-        rejected.push(`${file.name}: unsupported file type`);
-        continue;
-      }
-
-      if (file.size > MAX_ATTACHMENT_SIZE) {
-        rejected.push(`${file.name}: exceeds 10 MB`);
-        continue;
-      }
-
-      accepted.push(file);
-    }
-
-    setSelectedFiles((previous) => {
-      const remaining = Math.max(0, MAX_ATTACHMENTS - previous.length);
-      const added = accepted.slice(0, remaining);
-
-      if (accepted.length > remaining) {
-        rejected.push(`Only ${MAX_ATTACHMENTS} attachments can be sent per message.`);
-      }
-
-      if (rejected.length) {
-        setMessagesError(rejected.join(". "));
-      } else {
-        setMessagesError("");
-      }
-
-      return [...previous, ...added];
-    });
   }
 
   function removeSelectedFile(index) {
@@ -1496,6 +1492,40 @@ export default function UserMessagesPage() {
     requestAnimationFrame(() => scrollToBottom(true));
 
     try {
+      // Local-only group conversations are part of this frontend-first phase.
+      // Their messages stay in this browser session until group APIs are built.
+      if (selectedConversation?.isLocalGroup) {
+        const localSent = {
+          ...optimisticMessage,
+          sending: false,
+          failed: false,
+          localOnly: true,
+        };
+
+        const latestLocal = messagesCache.current[conversationId] || [];
+        saveConversationMessages(
+          conversationId,
+          mergeMessages(
+            latestLocal.filter((item) => getMessageId(item) !== tempId),
+            [localSent]
+          )
+        );
+
+        setLocalGroups((previous) =>
+          previous.map((group) =>
+            getConversationId(group) === conversationId
+              ? {
+                  ...group,
+                  lastMessage: body || (files.length ? "Attachment" : ""),
+                  lastMessageText: body || (files.length ? "Attachment" : ""),
+                  updatedAt: localSent.createdAt,
+                }
+              : group
+          )
+        );
+        return;
+      }
+
       let response;
 
       // One request only. Do not retry through a second endpoint
@@ -1704,8 +1734,25 @@ export default function UserMessagesPage() {
   }
 
   const selectedName = selectedConversation
-    ? getParticipantName(selectedConversation, currentUser)
+    ? isGroupConversation(selectedConversation)
+      ? selectedConversation.name || "Group conversation"
+      : getParticipantName(selectedConversation, currentUser)
     : "";
+
+  const visibleMessages = useMemo(() => {
+    const query = messageSearchQuery.trim().toLowerCase();
+    if (!query) return messages;
+
+    return messages.filter((item) => {
+      const text = getMessageText(item).toLowerCase();
+      const attachmentNames = (item?.attachments || [])
+        .map((attachment) => attachment?.originalName || attachment?.filename || "")
+        .join(" ")
+        .toLowerCase();
+
+      return text.includes(query) || attachmentNames.includes(query);
+    });
+  }, [messages, messageSearchQuery]);
 
   /* -------------------- UI -------------------- */
 
@@ -1762,6 +1809,19 @@ export default function UserMessagesPage() {
                   </div>
                 </div>
 
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setGroupFormError("");
+                      setGroupModalOpen(true);
+                    }}
+                    title="Create a group"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-600 text-white shadow-sm transition hover:bg-violet-700"
+                  >
+                    <Plus size={17} />
+                  </button>
+
                 {notificationPermission !== "unsupported" && (
                   <button
                     type="button"
@@ -1780,6 +1840,41 @@ export default function UserMessagesPage() {
                     <Bell size={16} />
                   </button>
                 )}
+                </div>
+              </div>
+
+              <div className="mb-3 grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("chats")}
+                  className={`flex h-8 items-center justify-center gap-2 rounded-lg text-[11px] font-bold transition ${
+                    activeTab === "chats"
+                      ? "bg-white text-violet-700 shadow-sm"
+                      : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  <MessageSquare size={13} />
+                  Chats
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("groups")}
+                  className={`flex h-8 items-center justify-center gap-2 rounded-lg text-[11px] font-bold transition ${
+                    activeTab === "groups"
+                      ? "bg-white text-violet-700 shadow-sm"
+                      : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  <UsersRound size={13} />
+                  Groups
+                  {(localGroups.length > 0 ||
+                    conversations.some(isGroupConversation)) && (
+                    <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] text-violet-700">
+                      {localGroups.length +
+                        conversations.filter(isGroupConversation).length}
+                    </span>
+                  )}
+                </button>
               </div>
 
               <div className="relative">
@@ -1793,7 +1888,7 @@ export default function UserMessagesPage() {
                   onChange={(event) =>
                     setSearch(event.target.value)
                   }
-                  placeholder="Search admin chats..."
+                  placeholder={activeTab === "groups" ? "Search groups..." : "Search admin chats..."}
                   className="h-10 w-full rounded-2xl border border-slate-200/90 bg-white pl-9 pr-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10"
                 />
               </div>
@@ -1812,10 +1907,9 @@ export default function UserMessagesPage() {
                       currentUser
                     );
 
-                    const name = getParticipantName(
-                      conversation,
-                      currentUser
-                    );
+                    const name = isGroupConversation(conversation)
+                      ? conversation?.name || "Group chat"
+                      : getParticipantName(conversation, currentUser);
 
                     const avatar = getParticipantAvatar(
                       conversation,
@@ -1858,7 +1952,9 @@ export default function UserMessagesPage() {
                       >
                         <div className="relative shrink-0">
                           <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-sm">
-                            {avatar ? (
+                            {isGroupConversation(conversation) ? (
+                              <UsersRound size={17} />
+                            ) : avatar ? (
                               <img
                                 src={getFileUrl(avatar)}
                                 alt={name}
@@ -1909,6 +2005,7 @@ export default function UserMessagesPage() {
                 <EmptyConversationList
                   search={search}
                   loading={loading}
+                  activeTab={activeTab}
                 />
               )}
             </div>
@@ -1917,6 +2014,7 @@ export default function UserMessagesPage() {
           <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
             <div className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-slate-50/50 px-5 py-3.5 sm:px-6">
               {selectedConversation ? (
+                <>
                 <div className="flex min-w-0 items-center gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-md">
                     {getParticipantAvatar(
@@ -1944,10 +2042,42 @@ export default function UserMessagesPage() {
                     </h2>
 
                     <p className="truncate text-xs font-semibold text-violet-600">
-                      Admin Support
+                      {isGroupConversation(selectedConversation)
+                        ? `${selectedConversation.memberCount || selectedConversation.participants?.length || 1} members · Group chat`
+                        : "Admin Support"}
                     </p>
                   </div>
                 </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMessageSearchOpen((previous) => !previous);
+                      setMessageSearchQuery("");
+                    }}
+                    title="Search messages"
+                    className={`flex h-9 w-9 items-center justify-center rounded-xl transition ${
+                      messageSearchOpen
+                        ? "bg-violet-100 text-violet-700"
+                        : "text-slate-500 hover:bg-violet-50 hover:text-violet-700"
+                    }`}
+                  >
+                    <Search size={16} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDetailsOpen((previous) => !previous)}
+                    title="Conversation details"
+                    className={`flex h-9 w-9 items-center justify-center rounded-xl transition ${
+                      detailsOpen
+                        ? "bg-violet-100 text-violet-700"
+                        : "text-slate-500 hover:bg-violet-50 hover:text-violet-700"
+                    }`}
+                  >
+                    {detailsOpen ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
+                  </button>
+                </div>
+                </>
               ) : (
                 <div>
                   <h2 className="text-xs font-bold text-slate-900">
@@ -1961,6 +2091,27 @@ export default function UserMessagesPage() {
               )}
             </div>
 
+            {messageSearchOpen && selectedConversation && (
+              <div className="shrink-0 border-b border-slate-100 bg-white px-5 py-3 sm:px-6">
+                <div className="relative">
+                  <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    value={messageSearchQuery}
+                    onChange={(event) => setMessageSearchQuery(event.target.value)}
+                    autoFocus
+                    placeholder="Find text or attachment in this conversation..."
+                    className="h-9 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-xs outline-none focus:border-violet-500 focus:bg-white"
+                  />
+                </div>
+                {messageSearchQuery.trim() && (
+                  <p className="mt-1.5 text-[10px] font-semibold text-slate-400">
+                    {visibleMessages.length} matching message{visibleMessages.length === 1 ? "" : "s"}
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
             <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-5 py-6 sm:px-6">
               {!selectedConversation ? (
                 <NoConversationSelected />
@@ -1970,9 +2121,17 @@ export default function UserMessagesPage() {
                 <MessageError message={messagesError} />
               ) : !messages.length ? (
                 <NoMessages />
+              ) : !visibleMessages.length ? (
+                messageSearchQuery.trim() ? (
+                  <div className="flex h-full min-h-[240px] flex-col items-center justify-center text-center">
+                    <Search size={24} className="text-slate-300" />
+                    <p className="mt-3 text-xs font-bold text-slate-600">No matching messages</p>
+                    <p className="mt-1 text-[11px] text-slate-400">Try another keyword.</p>
+                  </div>
+                ) : <NoMessages />
               ) : (
                 <div className="mx-auto flex w-full max-w-5xl flex-col gap-3.5">
-                  {messages.map((item, index) => (
+                  {visibleMessages.map((item, index) => (
                     <MessageBubble
                       key={
                         getMessageId(item) ||
@@ -1987,6 +2146,61 @@ export default function UserMessagesPage() {
                   <div ref={messagesEndRef} />
                 </div>
               )}
+            </div>
+
+            {detailsOpen && selectedConversation && (
+              <aside className="hidden w-64 shrink-0 overflow-y-auto border-l border-slate-100 bg-slate-50/70 p-4 xl:block">
+                <div className="flex flex-col items-center border-b border-slate-200 pb-5 text-center">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-white">
+                    {isGroupConversation(selectedConversation)
+                      ? <UsersRound size={22} />
+                      : <MessageSquare size={22} />}
+                  </div>
+                  <h3 className="mt-3 break-words text-sm font-extrabold text-slate-900">{selectedName}</h3>
+                  <p className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-violet-600">
+                    {isGroupConversation(selectedConversation) ? "Group conversation" : "Direct conversation"}
+                  </p>
+                  {isGroupConversation(selectedConversation) && (
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      {selectedConversation.memberCount || selectedConversation.participants?.length || 1} members
+                    </p>
+                  )}
+                </div>
+                <div className="mt-4">
+                  <h4 className="mb-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Conversation info</h4>
+                  <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-3 text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-slate-500">Messages loaded</span>
+                      <span className="font-bold text-slate-800">{messages.length}</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-slate-500">Connection</span>
+                      <span className={socketConnected ? "font-bold text-emerald-600" : "font-bold text-amber-600"}>
+                        {socketConnected ? "Connected" : "Offline"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                {isGroupConversation(selectedConversation) && (
+                  <div className="mt-4">
+                    <h4 className="mb-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Members</h4>
+                    <div className="space-y-2">
+                      {(selectedConversation.participants || []).map((member, index) => (
+                        <div key={getUserId(member) || index} className="flex min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-white p-2">
+                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-[9px] font-extrabold text-violet-700">{getInitials(member?.name || member?.email || "M")}</div>
+                          <span className="truncate text-[11px] font-semibold text-slate-700">{member?.name || member?.email || "Member"}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {selectedConversation.isLocalGroup && (
+                      <p className="mt-3 rounded-xl border border-amber-100 bg-amber-50 p-2.5 text-[10px] leading-4 text-amber-800">
+                        Frontend preview: group and messages are local to this browser session. Backend persistence will be connected in the next phase.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </aside>
+            )}
             </div>
 
             {messagesError && messages.length > 0 && (
@@ -2033,7 +2247,6 @@ export default function UserMessagesPage() {
                 <input
                   type="file"
                   multiple
-                  accept=".jpg,.jpeg,.png,.webp,.gif,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx"
                   ref={fileInputRef}
                   onChange={handleFileChange}
                   className="hidden"
@@ -2108,6 +2321,60 @@ export default function UserMessagesPage() {
           </div>
         </section>
       </div>
+
+      {groupModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
+          <form onSubmit={handleCreateGroup} className="w-full max-w-lg rounded-[28px] border border-slate-200 bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-violet-100 text-violet-700">
+                  <UsersRound size={20} />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900">Create a group</h3>
+                  <p className="mt-1 text-xs text-slate-500">Set up a Teams-style group conversation.</p>
+                </div>
+              </div>
+              <button type="button" onClick={() => setGroupModalOpen(false)} aria-label="Close create group" className="flex h-8 w-8 items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+                <X size={17} />
+              </button>
+            </div>
+
+            <label className="mt-5 block text-xs font-bold text-slate-700">Group name</label>
+            <input
+              value={groupNameInput}
+              onChange={(event) => setGroupNameInput(event.target.value)}
+              autoFocus
+              maxLength={80}
+              placeholder="e.g. Project Alpha"
+              className="mt-2 h-11 w-full rounded-xl border border-slate-200 px-3.5 text-sm outline-none focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10"
+            />
+
+            <label className="mt-4 block text-xs font-bold text-slate-700">Member names <span className="font-medium text-slate-400">(optional, comma-separated)</span></label>
+            <textarea
+              value={groupMembersInput}
+              onChange={(event) => setGroupMembersInput(event.target.value)}
+              rows={3}
+              placeholder="e.g. Ali, Sara, Support Team"
+              className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3.5 py-3 text-sm outline-none focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10"
+            />
+            <p className="mt-2 text-[10px] leading-4 text-slate-400">
+              This creates a frontend preview only. Real user selection, invitations, and saved group history will be connected when we build the backend.
+            </p>
+
+            {groupFormError && (
+              <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-600">{groupFormError}</p>
+            )}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" onClick={() => setGroupModalOpen(false)} className="h-10 rounded-xl border border-slate-200 px-4 text-xs font-bold text-slate-600 hover:bg-slate-50">Cancel</button>
+              <button type="submit" className="flex h-10 items-center gap-2 rounded-xl bg-violet-600 px-4 text-xs font-bold text-white shadow-sm hover:bg-violet-700">
+                <Plus size={14} /> Create group
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {deleteModalOpen && messageToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
@@ -2419,7 +2686,7 @@ function MessageBubble({
 
 /* -------------------- Empty States -------------------- */
 
-function EmptyConversationList({ search, loading }) {
+function EmptyConversationList({ search, loading, activeTab = "chats" }) {
   return (
     <div className="flex min-h-[300px] flex-col items-center justify-center px-6 py-10 text-center">
       <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
@@ -2434,8 +2701,8 @@ function EmptyConversationList({ search, loading }) {
         {loading
           ? "Loading conversations..."
           : search
-            ? "No matching chats"
-            : "No admin chats"}
+            ? (activeTab === "groups" ? "No matching groups" : "No matching chats")
+            : (activeTab === "groups" ? "No groups yet" : "No admin chats")}
       </h3>
 
       <p className="mt-1 max-w-xs text-xs leading-5 text-slate-400">
@@ -2443,7 +2710,9 @@ function EmptyConversationList({ search, loading }) {
           ? "Please wait while your chats load."
           : search
             ? "No conversation matches your search."
-            : "The server has not returned a real conversation yet."}
+            : activeTab === "groups"
+              ? "Create a group with the + button to preview group conversations."
+              : "The server has not returned a real conversation yet."}
       </p>
     </div>
   );
