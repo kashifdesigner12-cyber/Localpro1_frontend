@@ -42,6 +42,12 @@ const BACKEND_BASE_URL = API_URL.endsWith("/api")
   : API_URL;
 
 const DEFAULT_CONVERSATION_ID = "admin-default-chat";
+const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
+const MAX_ATTACHMENTS = 5;
+const ALLOWED_ATTACHMENT_EXTENSIONS = new Set([
+  ".jpg", ".jpeg", ".png", ".webp", ".gif",
+  ".pdf", ".txt", ".csv", ".doc", ".docx", ".xls", ".xlsx",
+]);
 
 const DEFAULT_CONVERSATION = {
   id: DEFAULT_CONVERSATION_ID,
@@ -445,7 +451,7 @@ async function markConversationRead(id) {
   // Keep the endpoint already used by the existing application.
   return apiRequest(
     `/conversations/${encodeURIComponent(id)}/read`,
-    { method: "PUT" }
+    { method: "PATCH" }
   );
 }
 
@@ -570,12 +576,34 @@ export default function UserMessagesPage() {
   const currentUserRef = useRef(null);
   const conversationsRef = useRef([]);
   const messagesCache = useRef({});
+  const authorizedConversationIdsRef = useRef(new Set());
   const loadMessagesRequestRef = useRef(0);
   const conversationsRequestRef = useRef(false);
   const processedMessageIdsRef = useRef(new Set());
   const notificationAudioRef = useRef(null);
   const pollingBusyRef = useRef(false);
   const sendingRef = useRef(false);
+  const objectUrlsRef = useRef(new Set());
+
+  const revokeObjectUrl = useCallback((url) => {
+    if (
+      typeof url === "string" &&
+      url.startsWith("blob:") &&
+      objectUrlsRef.current.has(url)
+    ) {
+      URL.revokeObjectURL(url);
+      objectUrlsRef.current.delete(url);
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      objectUrlsRef.current.forEach((url) => {
+        URL.revokeObjectURL(url);
+      });
+      objectUrlsRef.current.clear();
+    };
+  }, []);
 
   const selectedConversationId =
     getConversationId(selectedConversation);
@@ -667,9 +695,7 @@ export default function UserMessagesPage() {
         }
 
         if (!response) {
-          response = await safeApiRequest(
-            "/messages/conversations"
-          );
+          throw new Error("Unable to load conversations from the backend.");
         }
 
         const list = normalizeConversations(response).filter(
@@ -759,15 +785,6 @@ export default function UserMessagesPage() {
 
       messagesCache.current[id] = nextMessages;
 
-      try {
-        localStorage.setItem(
-          `cached_user_messages_${id}`,
-          JSON.stringify(nextMessages)
-        );
-      } catch {
-        // Ignore storage errors.
-      }
-
       if (
         String(selectedConversationIdRef.current) ===
         String(id)
@@ -802,6 +819,25 @@ export default function UserMessagesPage() {
           return;
         }
 
+        authorizedConversationIdsRef.current.add(String(id));
+
+        if (
+          String(selectedConversationIdRef.current || "") === String(id) &&
+          socketRef.current?.connected &&
+          id !== DEFAULT_CONVERSATION_ID
+        ) {
+          socketRef.current.emit("join_room", String(id), (ack) => {
+            if (!ack?.success) {
+              console.warn(
+                "Backend rejected conversation room join:",
+                ack?.message || "Unknown room authorization error."
+              );
+            } else {
+              authorizedConversationIdsRef.current.add(String(id));
+            }
+          });
+        }
+
         const fetched = normalizeMessages(response);
         const cached = messagesCache.current[id] || [];
         const merged = mergeMessages(cached, fetched);
@@ -815,19 +851,12 @@ export default function UserMessagesPage() {
           setMessages(merged);
         }
 
-        try {
-          localStorage.setItem(
-            `cached_user_messages_${id}`,
-            JSON.stringify(merged)
-          );
-        } catch {
-          // Ignore storage errors.
-        }
       } catch (err) {
         if (requestId !== loadMessagesRequestRef.current) {
           return;
         }
 
+        authorizedConversationIdsRef.current.delete(String(id));
         console.error("Load messages error:", err);
 
         if (!silent) {
@@ -1034,18 +1063,7 @@ export default function UserMessagesPage() {
       setMessages(cached);
       setMessagesLoading(false);
     } else {
-      try {
-        const raw = localStorage.getItem(
-          `cached_user_messages_${id}`
-        );
-
-        const parsed = raw ? JSON.parse(raw) : [];
-
-        messagesCache.current[id] = parsed;
-        setMessages(parsed);
-      } catch {
-        setMessages([]);
-      }
+      setMessages([]);
     }
 
     loadMessages(id, Boolean(cached));
@@ -1058,6 +1076,7 @@ export default function UserMessagesPage() {
       auth: {
         token: getStoredToken(),
       },
+      withCredentials: true,
       transports: ["websocket", "polling"],
       reconnection: true,
       reconnectionAttempts: Infinity,
@@ -1071,20 +1090,24 @@ export default function UserMessagesPage() {
     const joinRooms = () => {
       setSocketConnected(true);
 
-      const userId = getUserId(currentUserRef.current);
-
-      if (userId) {
-        socket.emit("user_join", userId);
-      }
-
       const conversationId =
         selectedConversationIdRef.current;
 
+      // Conversation room membership is requested only after its
+      // message-history API call has succeeded for this session.
       if (
         conversationId &&
-        conversationId !== DEFAULT_CONVERSATION_ID
+        conversationId !== DEFAULT_CONVERSATION_ID &&
+        authorizedConversationIdsRef.current.has(String(conversationId))
       ) {
-        socket.emit("join_room", conversationId);
+        socket.emit("join_room", String(conversationId), (ack) => {
+          if (!ack?.success) {
+            console.warn(
+              "Backend rejected conversation room join:",
+              ack?.message || "Unknown room authorization error."
+            );
+          }
+        });
       }
 
       // Recover any missed messages after reconnecting.
@@ -1118,9 +1141,57 @@ export default function UserMessagesPage() {
       "message_notification",
     ];
 
+    const onMessageDeleted = (payload) => {
+      const deletedMessage =
+        payload?.message && typeof payload.message === "object"
+          ? payload.message
+          : payload?.data && typeof payload.data === "object"
+            ? payload.data
+            : payload;
+
+      const deletedId = getMessageId(deletedMessage);
+      const conversationId =
+        getMessageConversationId(deletedMessage) ||
+        deletedMessage?.conversationId;
+
+      if (!deletedId || !conversationId) {
+        const activeId = selectedConversationIdRef.current;
+        if (activeId) loadMessages(activeId, true);
+        return;
+      }
+
+      const cached = messagesCache.current[String(conversationId)] || [];
+      const updated = cached.map((item) =>
+        getMessageId(item) === deletedId
+          ? {
+              ...item,
+              ...deletedMessage,
+              body: "This message was deleted",
+              message: "This message was deleted",
+              isDeletedForEveryone: true,
+              attachments: [],
+            }
+          : item
+      );
+
+      saveConversationMessages(String(conversationId), updated);
+    };
+
+    const onReadEvent = (payload) => {
+      const conversationId = String(
+        payload?.conversationId ||
+        getMessageConversationId(payload) ||
+        ""
+      );
+      if (conversationId) loadMessages(conversationId, true);
+    };
+
     eventNames.forEach((eventName) => {
       socket.on(eventName, handleIncomingMessage);
     });
+    socket.on("message_deleted", onMessageDeleted);
+    socket.on("messages_read", onReadEvent);
+    socket.on("message_read", onReadEvent);
 
     return () => {
       socket.off("connect", joinRooms);
@@ -1130,6 +1201,9 @@ export default function UserMessagesPage() {
       eventNames.forEach((eventName) => {
         socket.off(eventName, handleIncomingMessage);
       });
+      socket.off("message_deleted", onMessageDeleted);
+      socket.off("messages_read", onReadEvent);
+      socket.off("message_read", onReadEvent);
 
       socket.disconnect();
 
@@ -1143,33 +1217,6 @@ export default function UserMessagesPage() {
     loadMessages,
   ]);
 
-  // Join the selected conversation room.
-  useEffect(() => {
-    const socket = socketRef.current;
-    const id = selectedConversationId;
-
-    if (
-      !socket ||
-      !socket.connected ||
-      !id ||
-      id === DEFAULT_CONVERSATION_ID
-    ) {
-      return;
-    }
-
-    socket.emit("join_room", id);
-  }, [selectedConversationId, socketConnected]);
-
-  // Join the private user room when the user profile becomes available.
-  useEffect(() => {
-    const socket = socketRef.current;
-    const userId = getUserId(currentUser);
-
-    if (socket?.connected && userId) {
-      socket.emit("user_join", userId);
-    }
-  }, [currentUser, socketConnected]);
-
   /*
    * Poll only the active chat as a fallback.
    * Socket.IO remains the primary realtime channel.
@@ -1181,6 +1228,7 @@ export default function UserMessagesPage() {
       if (
         cancelled ||
         pollingBusyRef.current ||
+        socketConnected ||
         document.visibilityState === "hidden"
       ) {
         return;
@@ -1201,7 +1249,7 @@ export default function UserMessagesPage() {
       }
     };
 
-    const interval = setInterval(sync, 2000);
+    const interval = setInterval(sync, 5000);
 
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") {
@@ -1223,7 +1271,7 @@ export default function UserMessagesPage() {
         onVisibilityChange
       );
     };
-  }, [loadMessages]);
+  }, [loadMessages, socketConnected]);
 
   // Conversation list refresh is deliberately less frequent.
   useEffect(() => {
@@ -1261,15 +1309,50 @@ export default function UserMessagesPage() {
   function handleFileChange(event) {
     const files = Array.from(event.target.files || []);
 
-    if (files.length) {
-      setSelectedFiles((previous) =>
-        [...previous, ...files].slice(0, 5)
-      );
-    }
-
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
+
+    if (!files.length) return;
+
+    const accepted = [];
+    const rejected = [];
+
+    for (const file of files) {
+      const extension = `.${String(file.name || "")
+        .split(".")
+        .pop()
+        .toLowerCase()}`;
+
+      if (!ALLOWED_ATTACHMENT_EXTENSIONS.has(extension)) {
+        rejected.push(`${file.name}: unsupported file type`);
+        continue;
+      }
+
+      if (file.size > MAX_ATTACHMENT_SIZE) {
+        rejected.push(`${file.name}: exceeds 10 MB`);
+        continue;
+      }
+
+      accepted.push(file);
+    }
+
+    setSelectedFiles((previous) => {
+      const remaining = Math.max(0, MAX_ATTACHMENTS - previous.length);
+      const added = accepted.slice(0, remaining);
+
+      if (accepted.length > remaining) {
+        rejected.push(`Only ${MAX_ATTACHMENTS} attachments can be sent per message.`);
+      }
+
+      if (rejected.length) {
+        setMessagesError(rejected.join(". "));
+      } else {
+        setMessagesError("");
+      }
+
+      return [...previous, ...added];
+    });
   }
 
   function removeSelectedFile(index) {
@@ -1296,25 +1379,7 @@ export default function UserMessagesPage() {
     if (cached) {
       setMessages(cached);
     } else {
-      try {
-        const raw = localStorage.getItem(
-          `cached_user_messages_${id}`
-        );
-
-        const parsed = raw ? JSON.parse(raw) : [];
-
-        messagesCache.current[id] = parsed;
-        setMessages(parsed);
-      } catch {
-        setMessages([]);
-      }
-    }
-
-    if (
-      socketRef.current?.connected &&
-      id !== DEFAULT_CONVERSATION_ID
-    ) {
-      socketRef.current.emit("join_room", id);
+      setMessages([]);
     }
 
     const unread = Number(
@@ -1399,12 +1464,17 @@ export default function UserMessagesPage() {
         name: "You",
       },
       createdAt: new Date().toISOString(),
-      attachments: files.map((file) => ({
-        filename: file.name,
-        originalName: file.name,
-        mimeType: file.type,
-        url: URL.createObjectURL(file),
-      })),
+      attachments: files.map((file) => {
+        const url = URL.createObjectURL(file);
+        objectUrlsRef.current.add(url);
+
+        return {
+          filename: file.name,
+          originalName: file.name,
+          mimeType: file.type,
+          url,
+        };
+      }),
       sending: true,
       failed: false,
     };
@@ -1477,12 +1547,23 @@ export default function UserMessagesPage() {
         messagesCache.current[conversationId] || [];
 
       if (sent && typeof sent === "object") {
+        optimisticMessage.attachments.forEach((attachment) => {
+          revokeObjectUrl(attachment.url);
+        });
+
         const normalized = {
           ...sent,
           conversationId:
             getMessageConversationId(sent) || conversationId,
           sending: false,
           failed: false,
+          attachments: Array.isArray(sent.attachments)
+            ? sent.attachments.filter(
+                (attachment) =>
+                  typeof attachment?.url === "string" &&
+                  !attachment.url.startsWith("blob:")
+              )
+            : [],
         };
 
         saveConversationMessages(
@@ -1501,17 +1582,25 @@ export default function UserMessagesPage() {
           processedMessageIdsRef.current.add(savedId);
         }
       } else {
-        // Do not claim server delivery without a confirmed message.
+        // A successful HTTP status without a recognizable saved message
+        // is not enough to mark this optimistic item as delivered.
+        optimisticMessage.attachments.forEach((attachment) => {
+          revokeObjectUrl(attachment.url);
+        });
+
         saveConversationMessages(
           conversationId,
-          latestAfterSend.map((item) =>
-            getMessageId(item) === tempId
-              ? { ...item, sending: false }
-              : item
+          latestAfterSend.filter(
+            (item) => getMessageId(item) !== tempId
           )
         );
 
         await loadMessages(conversationId, true);
+        setMessage(body);
+        setSelectedFiles(files);
+        setMessagesError(
+          "The server did not return a saved message. Check the conversation history before sending again."
+        );
       }
 
       loadConversations(true);
@@ -1524,6 +1613,10 @@ export default function UserMessagesPage() {
 
       const latestAfterFailure =
         messagesCache.current[conversationId] || [];
+
+      optimisticMessage.attachments.forEach((attachment) => {
+        revokeObjectUrl(attachment.url);
+      });
 
       saveConversationMessages(
         conversationId,
@@ -1940,6 +2033,7 @@ export default function UserMessagesPage() {
                 <input
                   type="file"
                   multiple
+                  accept=".jpg,.jpeg,.png,.webp,.gif,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx"
                   ref={fileInputRef}
                   onChange={handleFileChange}
                   className="hidden"

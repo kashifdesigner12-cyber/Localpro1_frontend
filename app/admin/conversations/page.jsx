@@ -52,6 +52,20 @@ const getApiUrl = (path = "") => {
   return `${API_BASE_URL}${cleanPath}`;
 };
 
+// Keep these limits in sync with backend/middleware/uploadMiddleware.js.
+const MAX_CHAT_FILE_SIZE = 10 * 1024 * 1024;
+const MAX_CHAT_FILES = 5;
+const ALLOWED_CHAT_EXTENSIONS = new Set([
+  ".jpg", ".jpeg", ".png", ".webp", ".gif",
+  ".pdf", ".txt", ".csv", ".doc", ".docx", ".xls", ".xlsx",
+]);
+
+const getFileExtension = (filename = "") => {
+  const name = String(filename).toLowerCase();
+  const index = name.lastIndexOf(".");
+  return index >= 0 ? name.slice(index) : "";
+};
+
 const getFileUrl = (url) => {
   if (!url) return "#";
 
@@ -439,6 +453,20 @@ const unwrapSocketMessage = (payload) => {
   return null;
 };
 
+const revokeTemporaryAttachmentUrls = (message) => {
+  (Array.isArray(message?.attachments) ? message.attachments : []).forEach(
+    (attachment) => {
+      if (
+        attachment?.isLocalPreview &&
+        typeof attachment.url === "string" &&
+        attachment.url.startsWith("blob:")
+      ) {
+        URL.revokeObjectURL(attachment.url);
+      }
+    }
+  );
+};
+
 const normalizeMessage = (message, conversationId) => {
   if (!message || typeof message !== "object") return message;
 
@@ -639,6 +667,10 @@ export default function AdminConversationsPage() {
 
     return () => {
       mountedRef.current = false;
+      Object.values(messagesCache.current).forEach((list) => {
+        if (!Array.isArray(list)) return;
+        list.forEach((item) => revokeTemporaryAttachmentUrls(item));
+      });
     };
   }, []);
 
@@ -1063,7 +1095,16 @@ export default function AdminConversationsPage() {
       }
 
       if (socketRef.current?.connected) {
-        socketRef.current.emit("join_room", conversationId);
+        socketRef.current.emit("join_room", String(conversationId), (result) => {
+          if (
+            String(selectedConversationIdRef.current || "") === String(conversationId) &&
+            !result?.success
+          ) {
+            setMessagesError(
+              result?.message || "Unable to join this conversation in real time."
+            );
+          }
+        });
       }
 
       await fetchMessages(conversationId, false);
@@ -1186,7 +1227,14 @@ export default function AdminConversationsPage() {
       const activeId = selectedConversationIdRef.current;
 
       if (activeId) {
-        socket.emit("join_room", activeId);
+        // The backend authorizes room membership and acknowledges the result.
+        socket.emit("join_room", String(activeId), (result) => {
+          if (!result?.success) {
+            setMessagesError(
+              result?.message || "Unable to join this conversation in real time."
+            );
+          }
+        });
       }
 
       scheduleRefresh();
@@ -1281,11 +1329,23 @@ export default function AdminConversationsPage() {
               return true;
             }
 
-            // Match the saved message against its optimistic version.
+            // Socket delivery may race the HTTP response. Match a recent
+            // optimistic message by body and sender role as a fallback when
+            // the temporary message has no server sender ID yet.
+            const existingSender = item?.sender || {};
+            const existingSenderId = String(getSenderId(item) || "");
+            const existingRole = String(existingSender?.role || "").toLowerCase();
+            const incomingRole = String(incoming.sender?.role || "").toLowerCase();
+            const ageMs = Math.abs(
+              new Date(incoming.createdAt || Date.now()).getTime() -
+              new Date(item?.createdAt || 0).getTime()
+            );
+
             return (
               existingId.startsWith("temp-") &&
               getMessageBody(item) === incomingBody &&
-              String(getSenderId(item) || "") === incomingSenderId &&
+              (existingSenderId === incomingSenderId ||
+                (existingRole && incomingRole && existingRole === incomingRole && ageMs < 120000)) &&
               Boolean(incomingId)
             );
           });
@@ -1294,6 +1354,7 @@ export default function AdminConversationsPage() {
 
           if (existingIndex >= 0) {
             updated = [...previous];
+            revokeTemporaryAttachmentUrls(updated[existingIndex]);
             updated[existingIndex] = {
               ...updated[existingIndex],
               ...incoming,
@@ -1713,16 +1774,18 @@ export default function AdminConversationsPage() {
               String(getMessageId(item) || "") === confirmedId
           );
 
-          if (tempIndex >= 0) {
-            updated[tempIndex] = {
-              ...confirmed,
-              status: "sent",
-            };
+          if (tempIndex >= 0 && confirmedIndex >= 0 && tempIndex !== confirmedIndex) {
+            // The socket event arrived before the HTTP response. Keep the
+            // server-confirmed message once and remove both the duplicate
+            // temporary item and any duplicate server item.
+            revokeTemporaryAttachmentUrls(updated[tempIndex]);
+            updated[confirmedIndex] = { ...confirmed, status: "sent" };
+            updated.splice(tempIndex, 1);
+          } else if (tempIndex >= 0) {
+            revokeTemporaryAttachmentUrls(updated[tempIndex]);
+            updated[tempIndex] = { ...confirmed, status: "sent" };
           } else if (confirmedIndex >= 0) {
-            updated[confirmedIndex] = {
-              ...confirmed,
-              status: "sent",
-            };
+            updated[confirmedIndex] = { ...confirmed, status: "sent" };
           } else {
             updated.push({ ...confirmed, status: "sent" });
           }
@@ -1755,9 +1818,12 @@ export default function AdminConversationsPage() {
       );
 
       setMessages((previous) => {
+        const failedMessage = previous.find(
+          (item) => String(getMessageId(item) || "") === tempId
+        );
+        revokeTemporaryAttachmentUrls(failedMessage);
         const updated = previous.filter(
-          (item) =>
-            String(getMessageId(item) || "") !== tempId
+          (item) => String(getMessageId(item) || "") !== tempId
         );
 
         messagesCache.current[conversationId] = updated;
@@ -2385,29 +2451,42 @@ export default function AdminConversationsPage() {
                   type="file"
                   multiple
                   ref={fileInputRef}
+                  accept=".jpg,.jpeg,.png,.webp,.gif,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx"
                   onChange={(event) => {
-                    const newFiles = Array.from(
-                      event.target.files || []
-                    );
+                    const newFiles = Array.from(event.target.files || []);
+                    const validFiles = [];
+                    const rejected = [];
 
-                    setSelectedFiles((previous) => {
-                      const combined = [...previous, ...newFiles];
-                      const seen = new Set();
-
-                      return combined.filter((file) => {
-                        const key = [
-                          file.name,
-                          file.size,
-                          file.lastModified,
-                        ].join(":");
-
-                        if (seen.has(key)) return false;
-
-                        seen.add(key);
-                        return true;
-                      });
+                    newFiles.forEach((file) => {
+                      const extension = getFileExtension(file.name);
+                      if (!ALLOWED_CHAT_EXTENSIONS.has(extension)) {
+                        rejected.push(`${file.name}: unsupported file type`);
+                      } else if (file.size > MAX_CHAT_FILE_SIZE) {
+                        rejected.push(`${file.name}: exceeds 10 MB`);
+                      } else {
+                        validFiles.push(file);
+                      }
                     });
 
+                    const combined = [...selectedFiles, ...validFiles];
+                    const seen = new Set();
+                    const unique = combined.filter((file) => {
+                      const key = [file.name, file.size, file.lastModified].join(":");
+                      if (seen.has(key)) return false;
+                      seen.add(key);
+                      return true;
+                    });
+
+                    if (unique.length > MAX_CHAT_FILES) {
+                      rejected.push(`A maximum of ${MAX_CHAT_FILES} attachments is allowed.`);
+                    }
+                    setSelectedFiles(unique.slice(0, MAX_CHAT_FILES));
+
+                    if (rejected.length) {
+                      setMessagesError(rejected.join("; "));
+                    } else {
+                      setMessagesError("");
+                    }
                     event.target.value = "";
                   }}
                   className="hidden"
