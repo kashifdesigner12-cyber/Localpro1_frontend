@@ -22,9 +22,6 @@ import {
   WifiOff,
   Bell,
   BellOff,
-  Pencil,
-  Archive,
-  CheckCheck,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { io } from "socket.io-client";
@@ -53,20 +50,6 @@ const getApiUrl = (path = "") => {
     : `/${path}`;
 
   return `${API_BASE_URL}${cleanPath}`;
-};
-
-// Keep these limits in sync with backend/middleware/uploadMiddleware.js.
-const MAX_CHAT_FILE_SIZE = 10 * 1024 * 1024;
-const MAX_CHAT_FILES = 5;
-const ALLOWED_CHAT_EXTENSIONS = new Set([
-  ".jpg", ".jpeg", ".png", ".webp", ".gif",
-  ".pdf", ".txt", ".csv", ".doc", ".docx", ".xls", ".xlsx",
-]);
-
-const getFileExtension = (filename = "") => {
-  const name = String(filename).toLowerCase();
-  const index = name.lastIndexOf(".");
-  return index >= 0 ? name.slice(index) : "";
 };
 
 const getFileUrl = (url) => {
@@ -456,20 +439,6 @@ const unwrapSocketMessage = (payload) => {
   return null;
 };
 
-const revokeTemporaryAttachmentUrls = (message) => {
-  (Array.isArray(message?.attachments) ? message.attachments : []).forEach(
-    (attachment) => {
-      if (
-        attachment?.isLocalPreview &&
-        typeof attachment.url === "string" &&
-        attachment.url.startsWith("blob:")
-      ) {
-        URL.revokeObjectURL(attachment.url);
-      }
-    }
-  );
-};
-
 const normalizeMessage = (message, conversationId) => {
   if (!message || typeof message !== "object") return message;
 
@@ -523,11 +492,6 @@ export default function AdminConversationsPage() {
   const [sendingMessage, setSendingMessage] = useState(false);
   const [messagesError, setMessagesError] = useState("");
   const [socketConnected, setSocketConnected] = useState(false);
-  const [messageSearch, setMessageSearch] = useState("");
-  const [showMessageSearch, setShowMessageSearch] = useState(false);
-  const [editingMessageId, setEditingMessageId] = useState(null);
-  const [editDraft, setEditDraft] = useState("");
-  const [messageActionBusy, setMessageActionBusy] = useState(false);
 
   const [onlineUsers, setOnlineUsers] = useState({});
   const [notificationPermission, setNotificationPermission] =
@@ -675,10 +639,6 @@ export default function AdminConversationsPage() {
 
     return () => {
       mountedRef.current = false;
-      Object.values(messagesCache.current).forEach((list) => {
-        if (!Array.isArray(list)) return;
-        list.forEach((item) => revokeTemporaryAttachmentUrls(item));
-      });
     };
   }, []);
 
@@ -1062,10 +1022,6 @@ export default function AdminConversationsPage() {
 
       setMessagesError("");
       setSelectedFiles([]);
-      setMessageSearch("");
-      setShowMessageSearch(false);
-      setEditingMessageId(null);
-      setEditDraft("");
 
       setConversations((previous) => {
         const updated = previous.map((item) => {
@@ -1107,16 +1063,7 @@ export default function AdminConversationsPage() {
       }
 
       if (socketRef.current?.connected) {
-        socketRef.current.emit("join_room", String(conversationId), (result) => {
-          if (
-            String(selectedConversationIdRef.current || "") === String(conversationId) &&
-            !result?.success
-          ) {
-            setMessagesError(
-              result?.message || "Unable to join this conversation in real time."
-            );
-          }
-        });
+        socketRef.current.emit("join_room", conversationId);
       }
 
       await fetchMessages(conversationId, false);
@@ -1213,182 +1160,6 @@ export default function AdminConversationsPage() {
   );
 
   /* ==========================================================
-     MESSAGE ACTIONS: EDIT / REACT / DELETE
-     These use the authenticated endpoints in messageRoutes.js.
-  ========================================================== */
-
-  const updateMessageInState = useCallback((updatedMessage) => {
-    if (!updatedMessage) return;
-    const conversationId = getConversationIdFromMessage(updatedMessage) || selectedConversationIdRef.current;
-    const normalized = normalizeMessage(updatedMessage, conversationId);
-    const messageId = String(getMessageId(normalized) || "");
-    if (!messageId) return;
-
-    setMessages((previous) => {
-      const found = previous.some((item) => String(getMessageId(item) || "") === messageId);
-      const next = found
-        ? previous.map((item) => String(getMessageId(item) || "") === messageId ? { ...item, ...normalized } : item)
-        : previous;
-      if (conversationId) messagesCache.current[String(conversationId)] = next;
-      saveCache(usersRef.current, conversationsRef.current, messagesCache.current);
-      return next;
-    });
-  }, [saveCache]);
-
-  const handleSaveEditedMessage = async (item) => {
-    const id = getMessageId(item);
-    const clean = editDraft.trim();
-    if (!id || String(id).startsWith("temp-") || !clean || messageActionBusy) return;
-
-    try {
-      setMessageActionBusy(true);
-      const response = await fetch(getApiUrl(`/messages/${id}`), {
-        method: "PATCH",
-        credentials: "include",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ body: clean }),
-      });
-      const data = await parseResponse(response);
-      if (!response.ok || data?.success === false) {
-        throw new Error(data?.message || "Could not edit message.");
-      }
-      const updated = data?.data?.message || data?.data || data?.messageData || data?.message;
-      if (updated && typeof updated === "object") updateMessageInState(updated);
-      else await fetchMessages(selectedConversationIdRef.current, true);
-      setEditingMessageId(null);
-      setEditDraft("");
-    } catch (error) {
-      setMessagesError(error?.message || "Could not edit message.");
-    } finally {
-      setMessageActionBusy(false);
-    }
-  };
-
-  const handleReactToMessage = async (item, emoji) => {
-    const id = getMessageId(item);
-    if (!id || String(id).startsWith("temp-") || messageActionBusy) return;
-    try {
-      const response = await fetch(getApiUrl(`/messages/${id}/reactions`), {
-        method: "POST",
-        credentials: "include",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ emoji }),
-      });
-      const data = await parseResponse(response);
-      if (!response.ok || data?.success === false) {
-        throw new Error(data?.message || "Could not add reaction.");
-      }
-      const updated = data?.data?.message || data?.data;
-      if (updated && typeof updated === "object") updateMessageInState(updated);
-      else if (Array.isArray(data?.reactions)) {
-        updateMessageInState({ ...item, reactions: data.reactions });
-      }
-    } catch (error) {
-      setMessagesError(error?.message || "Could not add reaction.");
-    }
-  };
-
-  const handleDeleteMessage = async (item, scope = "everyone") => {
-    const id = getMessageId(item);
-    if (!id || String(id).startsWith("temp-") || messageActionBusy) return;
-    const prompt = scope === "everyone"
-      ? "Delete this message for everyone? This cannot be undone."
-      : "Remove this message from your view?";
-    if (!window.confirm(prompt)) return;
-
-    try {
-      setMessageActionBusy(true);
-      const endpoint = scope === "everyone"
-        ? `/messages/${id}/delete-for-everyone`
-        : `/messages/${id}/delete-for-me`;
-      const response = await fetch(getApiUrl(endpoint), {
-        method: "POST",
-        credentials: "include",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({}),
-      });
-      const data = await parseResponse(response);
-      if (!response.ok || data?.success === false) {
-        throw new Error(data?.message || "Could not delete message.");
-      }
-
-      if (scope === "everyone") {
-        const updated = data?.data?.message || data?.data;
-        if (updated && typeof updated === "object") updateMessageInState(updated);
-        else updateMessageInState({ ...item, isDeletedForEveryone: true, body: "This message was deleted", message: "This message was deleted", attachments: [] });
-      } else {
-        setMessages((previous) => {
-          const next = previous.filter((messageItem) => String(getMessageId(messageItem) || "") !== String(id));
-          if (selectedConversationIdRef.current) messagesCache.current[String(selectedConversationIdRef.current)] = next;
-          saveCache(usersRef.current, conversationsRef.current, messagesCache.current);
-          return next;
-        });
-      }
-    } catch (error) {
-      setMessagesError(error?.message || "Could not delete message.");
-    } finally {
-      setMessageActionBusy(false);
-    }
-  };
-
-  const handleRenameGroup = async () => {
-    const conversationId = selectedConversationIdRef.current;
-    if (!conversationId || !selectedConversation?.isGroup) return;
-    const currentName = selectedConversation.groupName || "Team Group";
-    const nextName = window.prompt("Enter a new group name:", currentName);
-    if (nextName === null || !nextName.trim() || nextName.trim() === currentName) return;
-    try {
-      const response = await fetch(getApiUrl(`/conversations/${conversationId}`), {
-        method: "PATCH",
-        credentials: "include",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ groupName: nextName.trim() }),
-      });
-      const data = await parseResponse(response);
-      if (!response.ok || data?.success === false) throw new Error(data?.message || "Could not rename group.");
-      const updated = data?.conversation || data?.data;
-      if (updated) {
-        setSelectedConversation(updated);
-        setConversations((previous) => {
-          const next = previous.map((item) => String(getConversationId(item)) === String(conversationId) ? { ...item, ...updated } : item);
-          conversationsRef.current = next;
-          saveCache(usersRef.current, next, messagesCache.current);
-          return next;
-        });
-        setSelectedUser({ name: updated.groupName || nextName.trim(), role: "Group Chat", isGroup: true });
-      }
-    } catch (error) {
-      setMessagesError(error?.message || "Could not rename group.");
-    }
-  };
-
-  const handleArchiveConversation = async () => {
-    const conversationId = selectedConversationIdRef.current;
-    if (!conversationId) return;
-    const isArchived = selectedConversation?.status === "archived";
-    try {
-      const response = await fetch(getApiUrl(`/conversations/${conversationId}`), {
-        method: "PATCH",
-        credentials: "include",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ isArchived: !isArchived }),
-      });
-      const data = await parseResponse(response);
-      if (!response.ok || data?.success === false) throw new Error(data?.message || "Could not update conversation.");
-      const updated = data?.conversation || data?.data;
-      setSelectedConversation((previous) => previous ? { ...previous, ...(updated || {}), status: isArchived ? "open" : "archived" } : previous);
-      setConversations((previous) => {
-        const next = previous.map((item) => String(getConversationId(item)) === String(conversationId) ? { ...item, ...(updated || {}), status: isArchived ? "open" : "archived" } : item);
-        conversationsRef.current = next;
-        saveCache(usersRef.current, next, messagesCache.current);
-        return next;
-      });
-    } catch (error) {
-      setMessagesError(error?.message || "Could not update conversation.");
-    }
-  };
-
-  /* ==========================================================
      SOCKET.IO REALTIME
   ========================================================== */
 
@@ -1415,14 +1186,7 @@ export default function AdminConversationsPage() {
       const activeId = selectedConversationIdRef.current;
 
       if (activeId) {
-        // The backend authorizes room membership and acknowledges the result.
-        socket.emit("join_room", String(activeId), (result) => {
-          if (!result?.success) {
-            setMessagesError(
-              result?.message || "Unable to join this conversation in real time."
-            );
-          }
-        });
+        socket.emit("join_room", activeId);
       }
 
       scheduleRefresh();
@@ -1517,23 +1281,11 @@ export default function AdminConversationsPage() {
               return true;
             }
 
-            // Socket delivery may race the HTTP response. Match a recent
-            // optimistic message by body and sender role as a fallback when
-            // the temporary message has no server sender ID yet.
-            const existingSender = item?.sender || {};
-            const existingSenderId = String(getSenderId(item) || "");
-            const existingRole = String(existingSender?.role || "").toLowerCase();
-            const incomingRole = String(incoming.sender?.role || "").toLowerCase();
-            const ageMs = Math.abs(
-              new Date(incoming.createdAt || Date.now()).getTime() -
-              new Date(item?.createdAt || 0).getTime()
-            );
-
+            // Match the saved message against its optimistic version.
             return (
               existingId.startsWith("temp-") &&
               getMessageBody(item) === incomingBody &&
-              (existingSenderId === incomingSenderId ||
-                (existingRole && incomingRole && existingRole === incomingRole && ageMs < 120000)) &&
+              String(getSenderId(item) || "") === incomingSenderId &&
               Boolean(incomingId)
             );
           });
@@ -1542,7 +1294,6 @@ export default function AdminConversationsPage() {
 
           if (existingIndex >= 0) {
             updated = [...previous];
-            revokeTemporaryAttachmentUrls(updated[existingIndex]);
             updated[existingIndex] = {
               ...updated[existingIndex],
               ...incoming,
@@ -1690,52 +1441,6 @@ export default function AdminConversationsPage() {
     socket.on("message_notification", handleNotification);
     socket.on("update_user_status", handleUserStatus);
 
-    const handleMessageMutation = (payload) => {
-      const candidate = payload?.message || payload?.data?.message || payload?.data || payload;
-      if (candidate && typeof candidate === "object" && getMessageId(candidate)) {
-        const conversationId = getConversationIdFromMessage(candidate);
-        if (!conversationId || String(conversationId) === String(selectedConversationIdRef.current || "")) {
-          updateMessageInState(candidate);
-        }
-      }
-    };
-    const handleReactionMutation = (payload) => {
-      const candidate = payload?.message || payload?.data?.message;
-      if (candidate) {
-        handleMessageMutation(candidate);
-        return;
-      }
-      const conversationId = payload?.conversationId;
-      const messageId = payload?.messageId;
-      if (String(conversationId || "") !== String(selectedConversationIdRef.current || "") || !messageId) return;
-      setMessages((previous) => {
-        const next = previous.map((item) => String(getMessageId(item) || "") === String(messageId) ? { ...item, reactions: payload.reactions || [] } : item);
-        if (conversationId) messagesCache.current[String(conversationId)] = next;
-        saveCache(usersRef.current, conversationsRef.current, messagesCache.current);
-        return next;
-      });
-    };
-    const handleConversationMutation = (payload) => {
-      const candidate = payload?.conversation || payload?.data || payload;
-      const id = getConversationId(candidate);
-      if (!id) { scheduleRefresh(); return; }
-      setConversations((previous) => {
-        const exists = previous.some((item) => String(getConversationId(item)) === String(id));
-        const next = exists
-          ? previous.map((item) => String(getConversationId(item)) === String(id) ? { ...item, ...candidate } : item)
-          : [candidate, ...previous];
-        conversationsRef.current = next;
-        saveCache(usersRef.current, next, messagesCache.current);
-        return next;
-      });
-      if (String(selectedConversationIdRef.current || "") === String(id)) setSelectedConversation(candidate);
-    };
-    socket.on("message_updated", handleMessageMutation);
-    socket.on("message_deleted", handleMessageMutation);
-    socket.on("message_reaction_updated", handleReactionMutation);
-    socket.on("message_read", handleMessageMutation);
-    socket.on("conversation_updated", handleConversationMutation);
-
     return () => {
       socket.off("connect", handleConnect);
       socket.off("disconnect", handleDisconnect);
@@ -1746,11 +1451,6 @@ export default function AdminConversationsPage() {
       socket.off("notification", handleNotification);
       socket.off("message_notification", handleNotification);
       socket.off("update_user_status", handleUserStatus);
-      socket.off("message_updated", handleMessageMutation);
-      socket.off("message_deleted", handleMessageMutation);
-      socket.off("message_reaction_updated", handleReactionMutation);
-      socket.off("message_read", handleMessageMutation);
-      socket.off("conversation_updated", handleConversationMutation);
 
       socket.disconnect();
 
@@ -1763,7 +1463,6 @@ export default function AdminConversationsPage() {
     markConversationRead,
     saveCache,
     scheduleRefresh,
-    updateMessageInState,
   ]);
 
   /* ==========================================================
@@ -1861,17 +1560,6 @@ export default function AdminConversationsPage() {
       return full.includes(query);
     });
   }, [users, search]);
-
-  const visibleMessages = useMemo(() => {
-    const query = messageSearch.trim().toLowerCase();
-    if (!query) return messages;
-    return messages.filter((item) => {
-      const body = getMessageBody(item).toLowerCase();
-      const sender = getUserName(item?.sender).toLowerCase();
-      const attachments = (item?.attachments || []).map((file) => `${file.originalName || ""} ${file.filename || ""}`).join(" ").toLowerCase();
-      return body.includes(query) || sender.includes(query) || attachments.includes(query);
-    });
-  }, [messages, messageSearch]);
 
   /* ==========================================================
      SEND MESSAGE
@@ -2025,18 +1713,16 @@ export default function AdminConversationsPage() {
               String(getMessageId(item) || "") === confirmedId
           );
 
-          if (tempIndex >= 0 && confirmedIndex >= 0 && tempIndex !== confirmedIndex) {
-            // The socket event arrived before the HTTP response. Keep the
-            // server-confirmed message once and remove both the duplicate
-            // temporary item and any duplicate server item.
-            revokeTemporaryAttachmentUrls(updated[tempIndex]);
-            updated[confirmedIndex] = { ...confirmed, status: "sent" };
-            updated.splice(tempIndex, 1);
-          } else if (tempIndex >= 0) {
-            revokeTemporaryAttachmentUrls(updated[tempIndex]);
-            updated[tempIndex] = { ...confirmed, status: "sent" };
+          if (tempIndex >= 0) {
+            updated[tempIndex] = {
+              ...confirmed,
+              status: "sent",
+            };
           } else if (confirmedIndex >= 0) {
-            updated[confirmedIndex] = { ...confirmed, status: "sent" };
+            updated[confirmedIndex] = {
+              ...confirmed,
+              status: "sent",
+            };
           } else {
             updated.push({ ...confirmed, status: "sent" });
           }
@@ -2069,12 +1755,9 @@ export default function AdminConversationsPage() {
       );
 
       setMessages((previous) => {
-        const failedMessage = previous.find(
-          (item) => String(getMessageId(item) || "") === tempId
-        );
-        revokeTemporaryAttachmentUrls(failedMessage);
         const updated = previous.filter(
-          (item) => String(getMessageId(item) || "") !== tempId
+          (item) =>
+            String(getMessageId(item) || "") !== tempId
         );
 
         messagesCache.current[conversationId] = updated;
@@ -2171,40 +1854,20 @@ export default function AdminConversationsPage() {
   ========================================================== */
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] min-h-0 w-full flex-1 flex-col overflow-hidden bg-[#f4f5fb] text-slate-950">
-      {/* GLOBAL TEAMS-STYLE TOP BAR */}
-      <div className="z-20 flex h-[62px] shrink-0 items-center gap-4 border-b border-slate-200/80 bg-white px-4 shadow-[0_1px_4px_rgba(15,23,42,0.03)] sm:px-6">
-        <div className="flex w-[220px] shrink-0 items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-indigo-700 text-white shadow-md shadow-indigo-500/20">
-            <Users size={20} strokeWidth={2.5} />
-          </div>
-          <span className="text-base font-extrabold tracking-tight text-slate-900">LocalPro1</span>
-        </div>
-        <div className="hidden max-w-[680px] flex-1 items-center md:flex">
-          <div className="relative w-full">
-            <Search size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder='Search messages, people, and more' className="h-10 w-full rounded-xl border border-slate-200 bg-[#f8f9fc] pl-11 pr-4 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-4 focus:ring-indigo-500/10" />
-          </div>
-        </div>
-        <div className="ml-auto flex items-center gap-3">
-          <span title={socketConnected ? "Connected to real-time chat" : "Reconnecting to chat"} className={`hidden rounded-full px-2.5 py-1 text-[11px] font-bold sm:inline-flex ${socketConnected ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{socketConnected ? "Live" : "Connecting"}</span>
-          <button type="button" onClick={enableMessageNotifications} title="Notification settings" className="relative flex h-9 w-9 items-center justify-center rounded-full text-slate-600 transition hover:bg-slate-100"><Bell size={19} />{notificationPermission !== "granted" && <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-violet-500 ring-2 ring-white" />}</button>
-          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-indigo-700 text-xs font-bold text-white ring-2 ring-violet-100">AD</div>
-        </div>
-      </div>
+    <div className="flex h-[calc(100vh-4rem)] min-h-0 w-full flex-1 flex-col overflow-hidden bg-[#f7f8fc] text-slate-950">
       <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <section className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-white lg:flex-row">
-          {/* TEAMS-STYLE APP NAVIGATION */}
-          <nav className="hidden w-[76px] shrink-0 flex-col items-center gap-2 border-r border-slate-200/70 bg-[#f8f9fd] py-5 md:flex">
-            {[{label:"Activity", icon:Bell},{label:"Chat", icon:MessageSquare},{label:"Teams", icon:Users},{label:"Files", icon:FileText}].map((item) => { const Icon = item.icon; const active = item.label === "Chat"; return <button key={item.label} type="button" title={item.label} className={`relative flex w-full flex-col items-center gap-1.5 py-3 text-[10px] font-semibold transition ${active ? "text-indigo-700" : "text-slate-500 hover:bg-slate-100 hover:text-slate-800"}`}>{active && <span className="absolute left-0 top-1 bottom-1 w-[3px] rounded-r-full bg-violet-600" />}<span className={`flex h-9 w-9 items-center justify-center rounded-xl ${active ? "bg-violet-100 text-violet-700" : ""}`}><Icon size={20} /></span>{item.label}</button>; })}
-          </nav>
           {/* SIDEBAR */}
-          <aside className="flex h-full min-h-0 w-full shrink-0 flex-col overflow-hidden border-b border-slate-100 lg:w-[390px] lg:border-b-0 lg:border-r">
-            <div className="shrink-0 border-b border-slate-100 bg-white p-4 sm:p-5">
+          <aside className="flex h-full min-h-0 w-full shrink-0 flex-col overflow-hidden border-b border-slate-100 lg:w-[360px] lg:border-b-0 lg:border-r">
+            <div className="shrink-0 border-b border-slate-100 bg-slate-50/50 p-4 sm:p-5">
               <div className="mb-3.5 flex items-center justify-between gap-2">
                 <div>
-                  <h2 className="text-xl font-extrabold tracking-tight text-slate-900">Chat</h2>
-                  <p className="mt-0.5 text-xs text-slate-500">Your messages and team conversations</p>
+                  <h2 className="text-base font-extrabold text-slate-900">
+                    Chats & Teams
+                  </h2>
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    Direct messages & groups
+                  </p>
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -2260,7 +1923,7 @@ export default function AdminConversationsPage() {
                   <button
                     type="button"
                     onClick={() => setShowGroupModal(true)}
-                    className="flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 px-3 py-2 text-xs font-bold text-white shadow-sm shadow-indigo-600/20 transition hover:from-violet-700 hover:to-indigo-700"
+                    className="flex items-center gap-1.5 rounded-xl bg-[#2563EB] px-3 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-blue-700"
                   >
                     <Plus size={15} />
                     New Group
@@ -2297,11 +1960,11 @@ export default function AdminConversationsPage() {
                           onClick={() => openConversation(group)}
                           className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${
                             isSelected
-                              ? "bg-violet-50 text-violet-700"
+                              ? "bg-blue-50 text-blue-700"
                               : "text-slate-700 hover:bg-slate-100"
                           }`}
                         >
-                          <div className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-violet-500 to-indigo-700 text-xs font-bold text-white">
+                          <div className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-xs font-bold text-white">
                             <Users size={16} />
                             {unread > 0 && !isSelected && (
                               <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-600 px-1 text-[9px] text-white">
@@ -2341,7 +2004,7 @@ export default function AdminConversationsPage() {
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                   placeholder="Search contacts..."
-                  className="h-10 w-full rounded-xl border border-slate-200 bg-[#f8f9fc] pl-9 pr-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-300 focus:bg-white focus:ring-4 focus:ring-violet-500/10"
+                  className="h-10 w-full rounded-2xl border border-slate-200/90 bg-white pl-9 pr-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-[#2563EB] focus:ring-4 focus:ring-blue-500/10"
                 />
               </div>
             </div>
@@ -2351,7 +2014,7 @@ export default function AdminConversationsPage() {
                 <div className="flex min-h-[260px] flex-col items-center justify-center p-6 text-center">
                   <Loader2
                     size={26}
-                    className="animate-spin text-violet-700"
+                    className="animate-spin text-[#2563EB]"
                   />
                   <p className="mt-3 text-xs font-semibold text-slate-400">
                     Loading contacts...
@@ -2380,11 +2043,11 @@ export default function AdminConversationsPage() {
                       onClick={() => handleSelectUser(user)}
                       className={`flex w-full items-start gap-3 border-b border-slate-100/80 px-4 py-3.5 text-left transition duration-150 ${
                         isSelected
-                          ? "border-violet-200/60 bg-violet-50/80"
+                          ? "border-blue-200/60 bg-blue-50/70"
                           : "hover:bg-slate-50/80"
                       }`}
                     >
-                      <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-700 text-xs font-bold text-white shadow-sm">
+                      <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-[#2563EB] text-xs font-bold text-white shadow-sm">
                         {getInitials(getUserName(user))}
 
                         <span
@@ -2442,7 +2105,7 @@ export default function AdminConversationsPage() {
           <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-50/20">
             <header className="flex shrink-0 items-center justify-between border-b border-slate-100 bg-slate-50/50 px-5 py-3.5 sm:px-6">
               <div className="flex min-w-0 items-center gap-3">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-violet-500 to-indigo-700 text-xs font-bold text-white shadow-md">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-[#2563EB] text-xs font-bold text-white shadow-md">
                   {selectedUser ? (
                     getInitials(getUserName(selectedUser))
                   ) : (
@@ -2457,7 +2120,7 @@ export default function AdminConversationsPage() {
                       : "Select a contact"}
                   </h2>
 
-                  <p className="truncate text-xs font-semibold text-violet-700">
+                  <p className="truncate text-xs font-semibold text-[#2563EB]">
                     {selectedUser
                       ? getRole(selectedUser) || "Active Member"
                       : "Choose from list"}
@@ -2466,47 +2129,20 @@ export default function AdminConversationsPage() {
               </div>
 
               {selectedConversationId && (
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setShowMessageSearch((value) => !value)}
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border transition ${showMessageSearch ? "border-blue-200 bg-violet-50 text-violet-700" : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"}`}
-                    title="Search messages"
-                    aria-label="Search messages"
-                  >
-                    <Search size={14} />
-                  </button>
-                  {selectedConversation?.isGroup && (
-                    <button type="button" onClick={handleRenameGroup} className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50" title="Rename group" aria-label="Rename group">
-                      <Pencil size={14} />
-                    </button>
-                  )}
-                  <button type="button" onClick={handleArchiveConversation} className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50" title={selectedConversation?.status === "archived" ? "Unarchive conversation" : "Archive conversation"} aria-label="Archive conversation">
-                    <Archive size={14} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDeleteConversation}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-rose-100 bg-rose-50 text-rose-600 transition hover:bg-rose-100"
-                    title="Delete Conversation"
-                    aria-label="Delete conversation"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={handleDeleteConversation}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-rose-100 bg-rose-50 text-rose-600 transition hover:bg-rose-100"
+                  title="Delete Conversation"
+                  aria-label="Delete conversation"
+                >
+                  <Trash2 size={14} />
+                </button>
               )}
             </header>
 
             {/* MESSAGE LIST */}
             <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-5 py-6 sm:px-6">
-              {showMessageSearch && (
-                <div className="sticky top-0 z-10 mb-4 flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
-                  <Search size={15} className="shrink-0 text-slate-400" />
-                  <input value={messageSearch} onChange={(event) => setMessageSearch(event.target.value)} placeholder="Search messages and attachments..." className="min-w-0 flex-1 bg-transparent px-1 py-1 text-xs outline-none" autoFocus />
-                  {messageSearch && <button type="button" onClick={() => setMessageSearch("")} className="text-[11px] font-semibold text-slate-500 hover:text-slate-800">Clear</button>}
-                  <button type="button" onClick={() => { setShowMessageSearch(false); setMessageSearch(""); }} aria-label="Close message search" className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"><X size={14} /></button>
-                </div>
-              )}
               {messagesError && (
                 <div className="mb-4 flex items-start justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
                   <p>{messagesError}</p>
@@ -2524,7 +2160,7 @@ export default function AdminConversationsPage() {
                 <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
                   <Loader2
                     size={28}
-                    className="animate-spin text-violet-700"
+                    className="animate-spin text-[#2563EB]"
                   />
                   <p className="mt-2 text-xs font-semibold text-slate-400">
                     Opening conversation...
@@ -2532,7 +2168,7 @@ export default function AdminConversationsPage() {
                 </div>
               ) : !selectedUser ? (
                 <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-violet-700">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-[#2563EB]">
                     <MessageSquare size={26} />
                   </div>
                   <h3 className="mt-4 text-sm font-bold text-slate-900">
@@ -2547,24 +2183,24 @@ export default function AdminConversationsPage() {
                 <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
                   <Loader2
                     size={24}
-                    className="animate-spin text-violet-700"
+                    className="animate-spin text-[#2563EB]"
                   />
                   <p className="mt-2 text-xs text-slate-400">
                     Loading messages...
                   </p>
                 </div>
-              ) : visibleMessages.length === 0 ? (
+              ) : messages.length === 0 ? (
                 <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
                   <h3 className="text-sm font-bold text-slate-800">
-                    {messageSearch.trim() ? "No matching messages" : "Say Hello 👋"}
+                    Say Hello 👋
                   </h3>
                   <p className="mt-1 text-xs text-slate-400">
-                    {messageSearch.trim() ? "Try another search term." : "Start the discussion below."}
+                    Start the discussion below.
                   </p>
                 </div>
               ) : (
                 <div className="flex w-full flex-col gap-3.5">
-                  {visibleMessages.map((item, index) => {
+                  {messages.map((item, index) => {
                     const sender = item?.sender;
                     const isDeleted = Boolean(
                       item?.isDeletedForEveryone
@@ -2598,12 +2234,12 @@ export default function AdminConversationsPage() {
                             isDeleted
                               ? "border border-slate-200/80 bg-slate-50 italic text-slate-400"
                               : isAdmin
-                              ? "rounded-tr-sm bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-indigo-600/15"
+                              ? "rounded-tr-sm bg-[#2563EB] text-white shadow-blue-600/15"
                               : "rounded-tl-sm border border-slate-100 bg-white text-slate-800 shadow-[0_4px_20px_rgba(45,35,100,0.03)]"
                           }`}
                         >
                           {!isAdmin && !isDeleted && (
-                            <p className="mb-1 text-[10px] font-bold text-violet-700">
+                            <p className="mb-1 text-[10px] font-bold text-[#2563EB]">
                               {getUserName(sender)}
                             </p>
                           )}
@@ -2680,35 +2316,10 @@ export default function AdminConversationsPage() {
                             </div>
                           )}
 
-                          {editingMessageId === String(getMessageId(item) || "") ? (
-                            <div className="min-w-[220px] space-y-2">
-                              <textarea value={editDraft} onChange={(event) => setEditDraft(event.target.value)} rows={3} autoFocus className="w-full resize-y rounded-lg border border-white/30 bg-white/10 p-2 text-xs text-current outline-none placeholder:text-current/60" />
-                              <div className="flex justify-end gap-2">
-                                <button type="button" onClick={() => { setEditingMessageId(null); setEditDraft(""); }} className="rounded-lg bg-black/10 px-2.5 py-1 text-[10px] font-bold">Cancel</button>
-                                <button type="button" disabled={messageActionBusy || !editDraft.trim()} onClick={() => handleSaveEditedMessage(item)} className="rounded-lg bg-white/20 px-2.5 py-1 text-[10px] font-bold disabled:opacity-50">{messageActionBusy ? "Saving..." : "Save edit"}</button>
-                              </div>
-                            </div>
-                          ) : body ? (
-                            <p className="whitespace-pre-wrap break-words text-xs font-medium leading-relaxed">{body}</p>
-                          ) : null}
-
-                          {Array.isArray(item?.reactions) && item.reactions.length > 0 && (
-                            <div className="mt-2 flex flex-wrap gap-1.5">
-                              {item.reactions.map((reaction, reactionIndex) => (
-                                <button key={`${reaction.userId || reaction.user || "r"}-${reactionIndex}`} type="button" onClick={() => handleReactToMessage(item, reaction.emoji || "👍")} title="Toggle reaction" className={`rounded-full border px-2 py-0.5 text-[11px] ${isAdmin ? "border-white/20 bg-white/10" : "border-slate-200 bg-slate-50"}`}>{reaction.emoji || "👍"}</button>
-                              ))}
-                            </div>
-                          )}
-
-                          {!isDeleted && !String(getMessageId(item) || "").startsWith("temp-") && (
-                            <div className={`mt-2 flex flex-wrap items-center gap-1 opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 ${isAdmin ? "justify-end" : "justify-start"}`}>
-                              <button type="button" onClick={() => handleReactToMessage(item, "👍")} title="Like" aria-label="Like message" className={`rounded-md p-1 ${isAdmin ? "text-blue-100 hover:bg-white/15" : "text-slate-400 hover:bg-slate-100 hover:text-blue-600"}`}><span className="text-xs">👍</span></button>
-                              <button type="button" onClick={() => handleReactToMessage(item, "❤️")} title="Love" aria-label="Love message" className={`rounded-md p-1 ${isAdmin ? "text-blue-100 hover:bg-white/15" : "text-slate-400 hover:bg-slate-100 hover:text-rose-500"}`}><span className="text-xs">❤️</span></button>
-                              <button type="button" onClick={() => handleReactToMessage(item, "😂")} title="Laugh" aria-label="Laugh at message" className={`rounded-md p-1 ${isAdmin ? "text-blue-100 hover:bg-white/15" : "text-slate-400 hover:bg-slate-100"}`}><span className="text-xs">😂</span></button>
-                              <button type="button" onClick={() => { setEditingMessageId(String(getMessageId(item))); setEditDraft(getMessageBody(item)); }} title="Edit message" aria-label="Edit message" className={`rounded-md p-1 ${isAdmin ? "text-blue-100 hover:bg-white/15" : "text-slate-400 hover:bg-slate-100 hover:text-blue-600"}`}><Pencil size={12} /></button>
-                              <button type="button" onClick={() => handleDeleteMessage(item, "everyone")} title="Delete for everyone" aria-label="Delete message for everyone" className={`rounded-md p-1 ${isAdmin ? "text-blue-100 hover:bg-white/15" : "text-slate-400 hover:bg-rose-50 hover:text-rose-600"}`}><Trash2 size={12} /></button>
-                              <button type="button" onClick={() => handleDeleteMessage(item, "me")} title="Remove for me" aria-label="Remove message for me" className={`rounded-md p-1 ${isAdmin ? "text-blue-100 hover:bg-white/15" : "text-slate-400 hover:bg-slate-100"}`}><X size={12} /></button>
-                            </div>
+                          {body && (
+                            <p className="whitespace-pre-wrap break-words text-xs font-medium leading-relaxed">
+                              {body}
+                            </p>
                           )}
 
                           <span
@@ -2725,7 +2336,6 @@ export default function AdminConversationsPage() {
                             {item?.status === "sent" && isAdmin
                               ? " · Sent"
                               : ""}
-                            {isAdmin && (item?.isRead || item?.readAt || item?.readBy?.length > 0) ? <CheckCheck size={11} className="ml-1 inline text-sky-200" aria-label="Read" /> : null}
                           </span>
                         </div>
                       </div>
@@ -2775,42 +2385,29 @@ export default function AdminConversationsPage() {
                   type="file"
                   multiple
                   ref={fileInputRef}
-                  accept=".jpg,.jpeg,.png,.webp,.gif,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx"
                   onChange={(event) => {
-                    const newFiles = Array.from(event.target.files || []);
-                    const validFiles = [];
-                    const rejected = [];
+                    const newFiles = Array.from(
+                      event.target.files || []
+                    );
 
-                    newFiles.forEach((file) => {
-                      const extension = getFileExtension(file.name);
-                      if (!ALLOWED_CHAT_EXTENSIONS.has(extension)) {
-                        rejected.push(`${file.name}: unsupported file type`);
-                      } else if (file.size > MAX_CHAT_FILE_SIZE) {
-                        rejected.push(`${file.name}: exceeds 10 MB`);
-                      } else {
-                        validFiles.push(file);
-                      }
+                    setSelectedFiles((previous) => {
+                      const combined = [...previous, ...newFiles];
+                      const seen = new Set();
+
+                      return combined.filter((file) => {
+                        const key = [
+                          file.name,
+                          file.size,
+                          file.lastModified,
+                        ].join(":");
+
+                        if (seen.has(key)) return false;
+
+                        seen.add(key);
+                        return true;
+                      });
                     });
 
-                    const combined = [...selectedFiles, ...validFiles];
-                    const seen = new Set();
-                    const unique = combined.filter((file) => {
-                      const key = [file.name, file.size, file.lastModified].join(":");
-                      if (seen.has(key)) return false;
-                      seen.add(key);
-                      return true;
-                    });
-
-                    if (unique.length > MAX_CHAT_FILES) {
-                      rejected.push(`A maximum of ${MAX_CHAT_FILES} attachments is allowed.`);
-                    }
-                    setSelectedFiles(unique.slice(0, MAX_CHAT_FILES));
-
-                    if (rejected.length) {
-                      setMessagesError(rejected.join("; "));
-                    } else {
-                      setMessagesError("");
-                    }
                     event.target.value = "";
                   }}
                   className="hidden"
@@ -2820,7 +2417,7 @@ export default function AdminConversationsPage() {
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={!selectedUser || sendingMessage}
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700 disabled:opacity-40"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200/90 bg-slate-50/50 text-slate-500 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-[#2563EB] disabled:opacity-40"
                   aria-label="Attach files"
                 >
                   <Paperclip size={18} />
@@ -2847,7 +2444,7 @@ export default function AdminConversationsPage() {
                         handleSendMessage(event);
                       }
                     }}
-                    className="min-h-11 max-h-32 w-full resize-y rounded-2xl border border-slate-200/90 bg-slate-50/50 px-4 py-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-violet-400 focus:bg-white focus:ring-4 focus:ring-violet-500/10 disabled:opacity-60"
+                    className="min-h-11 max-h-32 w-full resize-y rounded-2xl border border-slate-200/90 bg-slate-50/50 px-4 py-3 text-xs font-medium text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-[#2563EB] focus:bg-white focus:ring-4 focus:ring-blue-500/10 disabled:opacity-60"
                   />
                 </div>
 
@@ -2858,7 +2455,7 @@ export default function AdminConversationsPage() {
                     sendingMessage ||
                     (!message.trim() && selectedFiles.length === 0)
                   }
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-md shadow-indigo-600/25 transition hover:from-violet-700 hover:to-indigo-700 disabled:bg-slate-200 disabled:text-slate-400"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#2563EB] text-white shadow-md shadow-blue-600/25 transition hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400"
                   aria-label="Send message"
                 >
                   {sendingMessage ? (
@@ -2910,7 +2507,7 @@ export default function AdminConversationsPage() {
                   onChange={(event) => setGroupName(event.target.value)}
                   placeholder="e.g. Weekend Escape, Dev Team"
                   required
-                  className="mt-1 h-10 w-full rounded-xl border px-3 text-xs outline-none focus:border-violet-400"
+                  className="mt-1 h-10 w-full rounded-xl border px-3 text-xs outline-none focus:border-[#2563EB]"
                 />
               </div>
 
