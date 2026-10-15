@@ -22,6 +22,9 @@ import {
   WifiOff,
   Bell,
   BellOff,
+  Pencil,
+  Archive,
+  CheckCheck,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { io } from "socket.io-client";
@@ -520,6 +523,11 @@ export default function AdminConversationsPage() {
   const [sendingMessage, setSendingMessage] = useState(false);
   const [messagesError, setMessagesError] = useState("");
   const [socketConnected, setSocketConnected] = useState(false);
+  const [messageSearch, setMessageSearch] = useState("");
+  const [showMessageSearch, setShowMessageSearch] = useState(false);
+  const [editingMessageId, setEditingMessageId] = useState(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [messageActionBusy, setMessageActionBusy] = useState(false);
 
   const [onlineUsers, setOnlineUsers] = useState({});
   const [notificationPermission, setNotificationPermission] =
@@ -1054,6 +1062,10 @@ export default function AdminConversationsPage() {
 
       setMessagesError("");
       setSelectedFiles([]);
+      setMessageSearch("");
+      setShowMessageSearch(false);
+      setEditingMessageId(null);
+      setEditDraft("");
 
       setConversations((previous) => {
         const updated = previous.map((item) => {
@@ -1199,6 +1211,182 @@ export default function AdminConversationsPage() {
     },
     [findConversationForUser, openConversation, saveCache]
   );
+
+  /* ==========================================================
+     MESSAGE ACTIONS: EDIT / REACT / DELETE
+     These use the authenticated endpoints in messageRoutes.js.
+  ========================================================== */
+
+  const updateMessageInState = useCallback((updatedMessage) => {
+    if (!updatedMessage) return;
+    const conversationId = getConversationIdFromMessage(updatedMessage) || selectedConversationIdRef.current;
+    const normalized = normalizeMessage(updatedMessage, conversationId);
+    const messageId = String(getMessageId(normalized) || "");
+    if (!messageId) return;
+
+    setMessages((previous) => {
+      const found = previous.some((item) => String(getMessageId(item) || "") === messageId);
+      const next = found
+        ? previous.map((item) => String(getMessageId(item) || "") === messageId ? { ...item, ...normalized } : item)
+        : previous;
+      if (conversationId) messagesCache.current[String(conversationId)] = next;
+      saveCache(usersRef.current, conversationsRef.current, messagesCache.current);
+      return next;
+    });
+  }, [saveCache]);
+
+  const handleSaveEditedMessage = async (item) => {
+    const id = getMessageId(item);
+    const clean = editDraft.trim();
+    if (!id || String(id).startsWith("temp-") || !clean || messageActionBusy) return;
+
+    try {
+      setMessageActionBusy(true);
+      const response = await fetch(getApiUrl(`/messages/${id}`), {
+        method: "PATCH",
+        credentials: "include",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ body: clean }),
+      });
+      const data = await parseResponse(response);
+      if (!response.ok || data?.success === false) {
+        throw new Error(data?.message || "Could not edit message.");
+      }
+      const updated = data?.data?.message || data?.data || data?.messageData || data?.message;
+      if (updated && typeof updated === "object") updateMessageInState(updated);
+      else await fetchMessages(selectedConversationIdRef.current, true);
+      setEditingMessageId(null);
+      setEditDraft("");
+    } catch (error) {
+      setMessagesError(error?.message || "Could not edit message.");
+    } finally {
+      setMessageActionBusy(false);
+    }
+  };
+
+  const handleReactToMessage = async (item, emoji) => {
+    const id = getMessageId(item);
+    if (!id || String(id).startsWith("temp-") || messageActionBusy) return;
+    try {
+      const response = await fetch(getApiUrl(`/messages/${id}/reactions`), {
+        method: "POST",
+        credentials: "include",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ emoji }),
+      });
+      const data = await parseResponse(response);
+      if (!response.ok || data?.success === false) {
+        throw new Error(data?.message || "Could not add reaction.");
+      }
+      const updated = data?.data?.message || data?.data;
+      if (updated && typeof updated === "object") updateMessageInState(updated);
+      else if (Array.isArray(data?.reactions)) {
+        updateMessageInState({ ...item, reactions: data.reactions });
+      }
+    } catch (error) {
+      setMessagesError(error?.message || "Could not add reaction.");
+    }
+  };
+
+  const handleDeleteMessage = async (item, scope = "everyone") => {
+    const id = getMessageId(item);
+    if (!id || String(id).startsWith("temp-") || messageActionBusy) return;
+    const prompt = scope === "everyone"
+      ? "Delete this message for everyone? This cannot be undone."
+      : "Remove this message from your view?";
+    if (!window.confirm(prompt)) return;
+
+    try {
+      setMessageActionBusy(true);
+      const endpoint = scope === "everyone"
+        ? `/messages/${id}/delete-for-everyone`
+        : `/messages/${id}/delete-for-me`;
+      const response = await fetch(getApiUrl(endpoint), {
+        method: "POST",
+        credentials: "include",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({}),
+      });
+      const data = await parseResponse(response);
+      if (!response.ok || data?.success === false) {
+        throw new Error(data?.message || "Could not delete message.");
+      }
+
+      if (scope === "everyone") {
+        const updated = data?.data?.message || data?.data;
+        if (updated && typeof updated === "object") updateMessageInState(updated);
+        else updateMessageInState({ ...item, isDeletedForEveryone: true, body: "This message was deleted", message: "This message was deleted", attachments: [] });
+      } else {
+        setMessages((previous) => {
+          const next = previous.filter((messageItem) => String(getMessageId(messageItem) || "") !== String(id));
+          if (selectedConversationIdRef.current) messagesCache.current[String(selectedConversationIdRef.current)] = next;
+          saveCache(usersRef.current, conversationsRef.current, messagesCache.current);
+          return next;
+        });
+      }
+    } catch (error) {
+      setMessagesError(error?.message || "Could not delete message.");
+    } finally {
+      setMessageActionBusy(false);
+    }
+  };
+
+  const handleRenameGroup = async () => {
+    const conversationId = selectedConversationIdRef.current;
+    if (!conversationId || !selectedConversation?.isGroup) return;
+    const currentName = selectedConversation.groupName || "Team Group";
+    const nextName = window.prompt("Enter a new group name:", currentName);
+    if (nextName === null || !nextName.trim() || nextName.trim() === currentName) return;
+    try {
+      const response = await fetch(getApiUrl(`/conversations/${conversationId}`), {
+        method: "PATCH",
+        credentials: "include",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ groupName: nextName.trim() }),
+      });
+      const data = await parseResponse(response);
+      if (!response.ok || data?.success === false) throw new Error(data?.message || "Could not rename group.");
+      const updated = data?.conversation || data?.data;
+      if (updated) {
+        setSelectedConversation(updated);
+        setConversations((previous) => {
+          const next = previous.map((item) => String(getConversationId(item)) === String(conversationId) ? { ...item, ...updated } : item);
+          conversationsRef.current = next;
+          saveCache(usersRef.current, next, messagesCache.current);
+          return next;
+        });
+        setSelectedUser({ name: updated.groupName || nextName.trim(), role: "Group Chat", isGroup: true });
+      }
+    } catch (error) {
+      setMessagesError(error?.message || "Could not rename group.");
+    }
+  };
+
+  const handleArchiveConversation = async () => {
+    const conversationId = selectedConversationIdRef.current;
+    if (!conversationId) return;
+    const isArchived = selectedConversation?.status === "archived";
+    try {
+      const response = await fetch(getApiUrl(`/conversations/${conversationId}`), {
+        method: "PATCH",
+        credentials: "include",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ isArchived: !isArchived }),
+      });
+      const data = await parseResponse(response);
+      if (!response.ok || data?.success === false) throw new Error(data?.message || "Could not update conversation.");
+      const updated = data?.conversation || data?.data;
+      setSelectedConversation((previous) => previous ? { ...previous, ...(updated || {}), status: isArchived ? "open" : "archived" } : previous);
+      setConversations((previous) => {
+        const next = previous.map((item) => String(getConversationId(item)) === String(conversationId) ? { ...item, ...(updated || {}), status: isArchived ? "open" : "archived" } : item);
+        conversationsRef.current = next;
+        saveCache(usersRef.current, next, messagesCache.current);
+        return next;
+      });
+    } catch (error) {
+      setMessagesError(error?.message || "Could not update conversation.");
+    }
+  };
 
   /* ==========================================================
      SOCKET.IO REALTIME
@@ -1502,6 +1690,52 @@ export default function AdminConversationsPage() {
     socket.on("message_notification", handleNotification);
     socket.on("update_user_status", handleUserStatus);
 
+    const handleMessageMutation = (payload) => {
+      const candidate = payload?.message || payload?.data?.message || payload?.data || payload;
+      if (candidate && typeof candidate === "object" && getMessageId(candidate)) {
+        const conversationId = getConversationIdFromMessage(candidate);
+        if (!conversationId || String(conversationId) === String(selectedConversationIdRef.current || "")) {
+          updateMessageInState(candidate);
+        }
+      }
+    };
+    const handleReactionMutation = (payload) => {
+      const candidate = payload?.message || payload?.data?.message;
+      if (candidate) {
+        handleMessageMutation(candidate);
+        return;
+      }
+      const conversationId = payload?.conversationId;
+      const messageId = payload?.messageId;
+      if (String(conversationId || "") !== String(selectedConversationIdRef.current || "") || !messageId) return;
+      setMessages((previous) => {
+        const next = previous.map((item) => String(getMessageId(item) || "") === String(messageId) ? { ...item, reactions: payload.reactions || [] } : item);
+        if (conversationId) messagesCache.current[String(conversationId)] = next;
+        saveCache(usersRef.current, conversationsRef.current, messagesCache.current);
+        return next;
+      });
+    };
+    const handleConversationMutation = (payload) => {
+      const candidate = payload?.conversation || payload?.data || payload;
+      const id = getConversationId(candidate);
+      if (!id) { scheduleRefresh(); return; }
+      setConversations((previous) => {
+        const exists = previous.some((item) => String(getConversationId(item)) === String(id));
+        const next = exists
+          ? previous.map((item) => String(getConversationId(item)) === String(id) ? { ...item, ...candidate } : item)
+          : [candidate, ...previous];
+        conversationsRef.current = next;
+        saveCache(usersRef.current, next, messagesCache.current);
+        return next;
+      });
+      if (String(selectedConversationIdRef.current || "") === String(id)) setSelectedConversation(candidate);
+    };
+    socket.on("message_updated", handleMessageMutation);
+    socket.on("message_deleted", handleMessageMutation);
+    socket.on("message_reaction_updated", handleReactionMutation);
+    socket.on("message_read", handleMessageMutation);
+    socket.on("conversation_updated", handleConversationMutation);
+
     return () => {
       socket.off("connect", handleConnect);
       socket.off("disconnect", handleDisconnect);
@@ -1512,6 +1746,11 @@ export default function AdminConversationsPage() {
       socket.off("notification", handleNotification);
       socket.off("message_notification", handleNotification);
       socket.off("update_user_status", handleUserStatus);
+      socket.off("message_updated", handleMessageMutation);
+      socket.off("message_deleted", handleMessageMutation);
+      socket.off("message_reaction_updated", handleReactionMutation);
+      socket.off("message_read", handleMessageMutation);
+      socket.off("conversation_updated", handleConversationMutation);
 
       socket.disconnect();
 
@@ -1524,6 +1763,7 @@ export default function AdminConversationsPage() {
     markConversationRead,
     saveCache,
     scheduleRefresh,
+    updateMessageInState,
   ]);
 
   /* ==========================================================
@@ -1621,6 +1861,17 @@ export default function AdminConversationsPage() {
       return full.includes(query);
     });
   }, [users, search]);
+
+  const visibleMessages = useMemo(() => {
+    const query = messageSearch.trim().toLowerCase();
+    if (!query) return messages;
+    return messages.filter((item) => {
+      const body = getMessageBody(item).toLowerCase();
+      const sender = getUserName(item?.sender).toLowerCase();
+      const attachments = (item?.attachments || []).map((file) => `${file.originalName || ""} ${file.filename || ""}`).join(" ").toLowerCase();
+      return body.includes(query) || sender.includes(query) || attachments.includes(query);
+    });
+  }, [messages, messageSearch]);
 
   /* ==========================================================
      SEND MESSAGE
@@ -2195,20 +2446,47 @@ export default function AdminConversationsPage() {
               </div>
 
               {selectedConversationId && (
-                <button
-                  type="button"
-                  onClick={handleDeleteConversation}
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-rose-100 bg-rose-50 text-rose-600 transition hover:bg-rose-100"
-                  title="Delete Conversation"
-                  aria-label="Delete conversation"
-                >
-                  <Trash2 size={14} />
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowMessageSearch((value) => !value)}
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border transition ${showMessageSearch ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"}`}
+                    title="Search messages"
+                    aria-label="Search messages"
+                  >
+                    <Search size={14} />
+                  </button>
+                  {selectedConversation?.isGroup && (
+                    <button type="button" onClick={handleRenameGroup} className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50" title="Rename group" aria-label="Rename group">
+                      <Pencil size={14} />
+                    </button>
+                  )}
+                  <button type="button" onClick={handleArchiveConversation} className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50" title={selectedConversation?.status === "archived" ? "Unarchive conversation" : "Archive conversation"} aria-label="Archive conversation">
+                    <Archive size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDeleteConversation}
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-rose-100 bg-rose-50 text-rose-600 transition hover:bg-rose-100"
+                    title="Delete Conversation"
+                    aria-label="Delete conversation"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               )}
             </header>
 
             {/* MESSAGE LIST */}
             <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-5 py-6 sm:px-6">
+              {showMessageSearch && (
+                <div className="sticky top-0 z-10 mb-4 flex items-center gap-2 rounded-xl border border-slate-200 bg-white p-2 shadow-sm">
+                  <Search size={15} className="shrink-0 text-slate-400" />
+                  <input value={messageSearch} onChange={(event) => setMessageSearch(event.target.value)} placeholder="Search messages and attachments..." className="min-w-0 flex-1 bg-transparent px-1 py-1 text-xs outline-none" autoFocus />
+                  {messageSearch && <button type="button" onClick={() => setMessageSearch("")} className="text-[11px] font-semibold text-slate-500 hover:text-slate-800">Clear</button>}
+                  <button type="button" onClick={() => { setShowMessageSearch(false); setMessageSearch(""); }} aria-label="Close message search" className="rounded-lg p-1 text-slate-400 hover:bg-slate-100"><X size={14} /></button>
+                </div>
+              )}
               {messagesError && (
                 <div className="mb-4 flex items-start justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
                   <p>{messagesError}</p>
@@ -2255,18 +2533,18 @@ export default function AdminConversationsPage() {
                     Loading messages...
                   </p>
                 </div>
-              ) : messages.length === 0 ? (
+              ) : visibleMessages.length === 0 ? (
                 <div className="flex h-full min-h-[300px] flex-col items-center justify-center text-center">
                   <h3 className="text-sm font-bold text-slate-800">
-                    Say Hello 👋
+                    {messageSearch.trim() ? "No matching messages" : "Say Hello 👋"}
                   </h3>
                   <p className="mt-1 text-xs text-slate-400">
-                    Start the discussion below.
+                    {messageSearch.trim() ? "Try another search term." : "Start the discussion below."}
                   </p>
                 </div>
               ) : (
                 <div className="flex w-full flex-col gap-3.5">
-                  {messages.map((item, index) => {
+                  {visibleMessages.map((item, index) => {
                     const sender = item?.sender;
                     const isDeleted = Boolean(
                       item?.isDeletedForEveryone
@@ -2382,10 +2660,35 @@ export default function AdminConversationsPage() {
                             </div>
                           )}
 
-                          {body && (
-                            <p className="whitespace-pre-wrap break-words text-xs font-medium leading-relaxed">
-                              {body}
-                            </p>
+                          {editingMessageId === String(getMessageId(item) || "") ? (
+                            <div className="min-w-[220px] space-y-2">
+                              <textarea value={editDraft} onChange={(event) => setEditDraft(event.target.value)} rows={3} autoFocus className="w-full resize-y rounded-lg border border-white/30 bg-white/10 p-2 text-xs text-current outline-none placeholder:text-current/60" />
+                              <div className="flex justify-end gap-2">
+                                <button type="button" onClick={() => { setEditingMessageId(null); setEditDraft(""); }} className="rounded-lg bg-black/10 px-2.5 py-1 text-[10px] font-bold">Cancel</button>
+                                <button type="button" disabled={messageActionBusy || !editDraft.trim()} onClick={() => handleSaveEditedMessage(item)} className="rounded-lg bg-white/20 px-2.5 py-1 text-[10px] font-bold disabled:opacity-50">{messageActionBusy ? "Saving..." : "Save edit"}</button>
+                              </div>
+                            </div>
+                          ) : body ? (
+                            <p className="whitespace-pre-wrap break-words text-xs font-medium leading-relaxed">{body}</p>
+                          ) : null}
+
+                          {Array.isArray(item?.reactions) && item.reactions.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {item.reactions.map((reaction, reactionIndex) => (
+                                <button key={`${reaction.userId || reaction.user || "r"}-${reactionIndex}`} type="button" onClick={() => handleReactToMessage(item, reaction.emoji || "👍")} title="Toggle reaction" className={`rounded-full border px-2 py-0.5 text-[11px] ${isAdmin ? "border-white/20 bg-white/10" : "border-slate-200 bg-slate-50"}`}>{reaction.emoji || "👍"}</button>
+                              ))}
+                            </div>
+                          )}
+
+                          {!isDeleted && !String(getMessageId(item) || "").startsWith("temp-") && (
+                            <div className={`mt-2 flex flex-wrap items-center gap-1 opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 ${isAdmin ? "justify-end" : "justify-start"}`}>
+                              <button type="button" onClick={() => handleReactToMessage(item, "👍")} title="Like" aria-label="Like message" className={`rounded-md p-1 ${isAdmin ? "text-blue-100 hover:bg-white/15" : "text-slate-400 hover:bg-slate-100 hover:text-blue-600"}`}><span className="text-xs">👍</span></button>
+                              <button type="button" onClick={() => handleReactToMessage(item, "❤️")} title="Love" aria-label="Love message" className={`rounded-md p-1 ${isAdmin ? "text-blue-100 hover:bg-white/15" : "text-slate-400 hover:bg-slate-100 hover:text-rose-500"}`}><span className="text-xs">❤️</span></button>
+                              <button type="button" onClick={() => handleReactToMessage(item, "😂")} title="Laugh" aria-label="Laugh at message" className={`rounded-md p-1 ${isAdmin ? "text-blue-100 hover:bg-white/15" : "text-slate-400 hover:bg-slate-100"}`}><span className="text-xs">😂</span></button>
+                              <button type="button" onClick={() => { setEditingMessageId(String(getMessageId(item))); setEditDraft(getMessageBody(item)); }} title="Edit message" aria-label="Edit message" className={`rounded-md p-1 ${isAdmin ? "text-blue-100 hover:bg-white/15" : "text-slate-400 hover:bg-slate-100 hover:text-blue-600"}`}><Pencil size={12} /></button>
+                              <button type="button" onClick={() => handleDeleteMessage(item, "everyone")} title="Delete for everyone" aria-label="Delete message for everyone" className={`rounded-md p-1 ${isAdmin ? "text-blue-100 hover:bg-white/15" : "text-slate-400 hover:bg-rose-50 hover:text-rose-600"}`}><Trash2 size={12} /></button>
+                              <button type="button" onClick={() => handleDeleteMessage(item, "me")} title="Remove for me" aria-label="Remove message for me" className={`rounded-md p-1 ${isAdmin ? "text-blue-100 hover:bg-white/15" : "text-slate-400 hover:bg-slate-100"}`}><X size={12} /></button>
+                            </div>
                           )}
 
                           <span
@@ -2402,6 +2705,7 @@ export default function AdminConversationsPage() {
                             {item?.status === "sent" && isAdmin
                               ? " · Sent"
                               : ""}
+                            {isAdmin && (item?.isRead || item?.readAt || item?.readBy?.length > 0) ? <CheckCheck size={11} className="ml-1 inline text-sky-200" aria-label="Read" /> : null}
                           </span>
                         </div>
                       </div>
