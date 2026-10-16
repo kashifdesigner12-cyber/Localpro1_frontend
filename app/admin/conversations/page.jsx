@@ -115,6 +115,9 @@ const getStoredToken = () => {
     "authToken",
     "auth_token",
     "jwt",
+    "userToken",
+    "localpro_token",
+    "localProToken",
   ];
   for (const key of keys) {
     try {
@@ -868,7 +871,15 @@ export default function AdminConversationsPage() {
         const receivedUsers = normalizeUsers(usersData);
         const receivedConversations = normalizeConversations(conversationsData);
 
-        if (receivedUsers.length === 0 && receivedConversations.length === 0) {
+        // Only use preview/demo data when the backend is unavailable and no
+        // authenticated session exists. An authenticated empty response means
+        // the real account has no records; never replace it with fake chats.
+        if (
+          receivedUsers.length === 0 &&
+          receivedConversations.length === 0 &&
+          (!usersRes.ok || !conversationsRes.ok) &&
+          !getStoredToken()
+        ) {
           if (mountedRef.current) {
             setDemoMode(true);
             setUsers(DEMO_USERS);
@@ -895,7 +906,7 @@ export default function AdminConversationsPage() {
 
         if (mountedRef.current) setDemoMode(false);
 
-        if (usersRes.ok && receivedUsers.length > 0) {
+        if (usersRes.ok) {
           if (mountedRef.current) {
             setUsers(receivedUsers);
             usersRef.current = receivedUsers;
@@ -907,7 +918,7 @@ export default function AdminConversationsPage() {
           }
         }
 
-        if (conversationsRes.ok && receivedConversations.length > 0) {
+        if (conversationsRes.ok) {
           if (mountedRef.current) {
             setConversations((previous) => {
               const merged = receivedConversations.map((incoming) => {
@@ -927,6 +938,14 @@ export default function AdminConversationsPage() {
               return merged;
             });
 
+            if (receivedConversations.length === 0) {
+              selectedConversationIdRef.current = null;
+              setSelectedConversationId(null);
+              setSelectedConversation(null);
+              setSelectedUser(null);
+              setMessages([]);
+            }
+
             // If nothing selected yet, select the first conversation
             if (!selectedConversationIdRef.current && receivedConversations[0]) {
               const first = receivedConversations[0];
@@ -937,6 +956,7 @@ export default function AdminConversationsPage() {
       } catch {
         if (
           mountedRef.current &&
+          !getStoredToken() &&
           usersRef.current.length === 0 &&
           conversationsRef.current.length === 0
         ) {
@@ -1096,8 +1116,8 @@ export default function AdminConversationsPage() {
         return updated;
       });
       try {
-        const response = await fetch(
-          getApiUrl(`/conversations/${conversationId}/read`),
+        let response = await fetch(
+          getApiUrl(`/messages/read/${conversationId}`),
           {
             method: "PUT",
             credentials: "include",
@@ -1105,12 +1125,16 @@ export default function AdminConversationsPage() {
           }
         );
         if (!response.ok) {
-          await fetch(getApiUrl(`/messages/read/${conversationId}`), {
-            method: "PUT",
-            credentials: "include",
-            headers: getAuthHeaders(),
-          });
+          response = await fetch(
+            getApiUrl(`/conversations/${conversationId}/read`),
+            {
+              method: "PUT",
+              credentials: "include",
+              headers: getAuthHeaders(),
+            }
+          );
         }
+        // Keep compatibility with socket servers that implement read receipts.
         socketRef.current?.emit("mark_messages_read", {
           conversationId: String(conversationId),
         });
@@ -1400,6 +1424,8 @@ export default function AdminConversationsPage() {
       "receive_message",
       "new_message",
       "message_notification",
+      "message_sent",
+      "message:new",
     ].forEach((eventName) => {
       socket.on(eventName, handleIncomingMessage);
     });
@@ -1408,13 +1434,29 @@ export default function AdminConversationsPage() {
       "message_edited",
       "message_deleted",
       "message_reaction_updated",
+      "message:updated",
+      "message:deleted",
     ].forEach((eventName) => {
       socket.on(eventName, handleMessageUpdate);
     });
-    ["messages_read", "message_read", "read_receipt"].forEach((eventName) => {
+    [
+      "messages_read",
+      "message_read",
+      "read_receipt",
+      "message:read",
+      "messages:read",
+    ].forEach((eventName) => {
       socket.on(eventName, handleReadUpdate);
     });
-    ["user_online", "user_offline", "presence_update"].forEach((eventName) => {
+    [
+      "user_online",
+      "user_offline",
+      "presence_update",
+      "update_user_status",
+      "user_status_update",
+      "user:online",
+      "user:offline",
+    ].forEach((eventName) => {
       socket.on(eventName, handlePresence);
     });
 
@@ -1563,8 +1605,11 @@ export default function AdminConversationsPage() {
         return;
       }
 
-      let response;
+      let data;
+
       if (filesToSend.length) {
+        // Keep file uploads on the existing authenticated REST endpoint;
+        // Socket.IO is used for text messages to avoid an extra HTTP round trip.
         const form = new FormData();
         form.append("conversationId", String(conversationId));
         form.append("body", cleanBody);
@@ -1573,35 +1618,72 @@ export default function AdminConversationsPage() {
         if (replyContext)
           form.append("replyToId", String(getMessageId(replyContext)));
         filesToSend.forEach((file) => form.append("files", file));
-        response = await fetch(getApiUrl("/messages"), {
+
+        const response = await fetch(getApiUrl("/messages"), {
           method: "POST",
           credentials: "include",
           headers: getAuthHeaders(false),
           body: form,
         });
+        data = await parseResponse(response);
+        if (!response.ok || data?.success === false) {
+          throw new Error(data?.message || "Failed to send message.");
+        }
       } else {
-        response = await fetch(getApiUrl("/messages"), {
-          method: "POST",
-          credentials: "include",
-          headers: getAuthHeaders(),
-          body: JSON.stringify({
-            conversationId,
-            recipientId,
-            body: cleanBody,
-            message: cleanBody,
-            messageType: "text",
-            clientMessageId: tempId,
-            replyToId: replyContext ? getMessageId(replyContext) : undefined,
-          }),
-        });
+        const socket = socketRef.current;
+        const payload = {
+          conversationId: String(conversationId),
+          recipientId: recipientId ? String(recipientId) : null,
+          body: cleanBody,
+          message: cleanBody,
+          messageType: "text",
+          clientMessageId: tempId,
+          replyToId: replyContext ? getMessageId(replyContext) : null,
+        };
+
+        if (socket?.connected) {
+          // The backend must acknowledge only after the message is persisted.
+          // Never fall back to REST after an acknowledgement timeout: the
+          // socket may already have saved it and a REST retry could duplicate it.
+          data = await new Promise((resolve, reject) => {
+            socket.timeout(10000).emit("send_message", payload, (error, result) => {
+              if (error) {
+                reject(
+                  new Error(
+                    "Socket message timed out. Please check the connection and retry."
+                  )
+                );
+                return;
+              }
+              if (!result || result.success === false) {
+                reject(new Error(result?.message || "Failed to send message."));
+                return;
+              }
+              resolve(result);
+            });
+          });
+        } else {
+          // Preserve text-message delivery during temporary socket disconnects.
+          // This REST fallback runs only when no socket send was attempted.
+          const response = await fetch(getApiUrl("/messages"), {
+            method: "POST",
+            credentials: "include",
+            headers: getAuthHeaders(),
+            body: JSON.stringify(payload),
+          });
+          data = await parseResponse(response);
+          if (!response.ok || data?.success === false) {
+            throw new Error(data?.message || "Failed to send message.");
+          }
+        }
       }
 
-      const data = await parseResponse(response);
-      if (!response.ok || data?.success === false) {
-        throw new Error(data?.message || "Failed to send message.");
-      }
-
-      const sentMessage = data?.message || data?.data?.message || data?.data;
+      const sentMessage =
+        data?.data?.message ||
+        data?.data ||
+        (data?.message && typeof data.message === "object"
+          ? data.message
+          : null);
       if (
         sentMessage &&
         typeof sentMessage === "object" &&

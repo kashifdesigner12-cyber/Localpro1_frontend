@@ -74,7 +74,11 @@ function getStoredToken() {
       localStorage.getItem("token") ||
       localStorage.getItem("accessToken") ||
       localStorage.getItem("authToken") ||
+      localStorage.getItem("userToken") ||
+      localStorage.getItem("localpro_token") ||
+      localStorage.getItem("localProToken") ||
       sessionStorage.getItem("token") ||
+      sessionStorage.getItem("accessToken") ||
       ""
     );
   } catch {
@@ -227,6 +231,7 @@ function normalizeConversations(response) {
     response?.conversations ??
     response?.data?.conversations ??
     response?.results ??
+    response?.data?.data?.conversations ??
     response?.data;
   return Array.isArray(value)
     ? value.filter(Boolean)
@@ -240,6 +245,7 @@ function normalizeMessages(response) {
     response?.messages ??
     response?.data?.messages ??
     response?.results ??
+    response?.data?.data?.messages ??
     response?.data;
   return Array.isArray(value)
     ? value.filter(Boolean)
@@ -322,14 +328,21 @@ async function safeApiRequest(endpoint) {
 
 async function getConversationMessages(id) {
   if (!id || id === DEFAULT_CONVERSATION_ID) return { messages: [] };
-  return apiRequest(`/messages/${encodeURIComponent(id)}`);
+  // The backend getMessages controller reads conversationId from the query string.
+  return apiRequest(`/messages?conversationId=${encodeURIComponent(id)}`);
 }
 
 async function markConversationRead(id) {
   if (!id || id === DEFAULT_CONVERSATION_ID) return;
-  return apiRequest(`/conversations/${encodeURIComponent(id)}/read`, {
-    method: "PUT",
-  });
+  const conversationId = encodeURIComponent(id);
+  try {
+    // Canonical protected message route exposed by the LocalPro1 backend.
+    return await apiRequest(`/messages/read/${conversationId}`, { method: "PUT" });
+  } catch (error) {
+    // Compatibility with deployments that still expose the legacy route.
+    if (error?.status !== 404 && error?.status !== 405) throw error;
+    return apiRequest(`/conversations/${conversationId}/read`, { method: "PUT" });
+  }
 }
 
 function playNotificationSound() {
@@ -596,8 +609,9 @@ export default function UserConversationsPage() {
         Boolean(getConversationId(c))
       );
 
-      // Fallback to sample Admin chats if backend is empty / in preview
-      if (!list.length) {
+      // Demo conversations are only for an unauthenticated preview. A successful
+      // authenticated empty response must reflect the real backend state.
+      if (!list.length && !getStoredToken()) {
         list = DEMO_ADMIN_CONVERSATIONS;
         messagesCache.current = {
           ...messagesCache.current,
@@ -608,7 +622,7 @@ export default function UserConversationsPage() {
       conversationsRef.current = list;
       setConversations(list);
 
-      // Default select the first Admin chat
+      // Keep the selected chat if it still exists; otherwise select the first.
       setSelectedConversation((prev) => {
         const prevId = getConversationId(prev);
         if (prevId) {
@@ -617,13 +631,25 @@ export default function UserConversationsPage() {
         }
         return list[0] || null;
       });
+      if (!list.length) {
+        selectedConversationIdRef.current = null;
+        setMessages([]);
+      }
     } catch {
-      setConversations(DEMO_ADMIN_CONVERSATIONS);
-      messagesCache.current = {
-        ...messagesCache.current,
-        ...DEMO_ADMIN_MESSAGES,
-      };
-      setSelectedConversation(DEMO_ADMIN_CONVERSATIONS[0]);
+      if (!getStoredToken()) {
+        conversationsRef.current = DEMO_ADMIN_CONVERSATIONS;
+        setConversations(DEMO_ADMIN_CONVERSATIONS);
+        messagesCache.current = {
+          ...messagesCache.current,
+          ...DEMO_ADMIN_MESSAGES,
+        };
+        setSelectedConversation(DEMO_ADMIN_CONVERSATIONS[0]);
+      } else {
+        conversationsRef.current = [];
+        setConversations([]);
+        setSelectedConversation(null);
+        setMessages([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -723,7 +749,8 @@ export default function UserConversationsPage() {
 
       if (active) {
         setMessages(merged);
-        markConversationRead(conversationId);
+        markConversationRead(conversationId).catch(() => {});
+        socketRef.current?.emit("mark_messages_read", { conversationId });
       }
 
       const preview =
@@ -773,16 +800,40 @@ export default function UserConversationsPage() {
     socket.on("disconnect", () => setSocketConnected(false));
     socket.on("connect_error", () => setSocketConnected(false));
 
-    [
+    const incomingEvents = [
       "receive_message",
       "new_message",
+      "message:new",
       "message",
       "message_notification",
-    ].forEach((ev) => {
-      socket.on(ev, handleIncomingMessage);
+      "message_sent",
+    ];
+    incomingEvents.forEach((eventName) => {
+      socket.on(eventName, handleIncomingMessage);
+    });
+
+    // Keep unread badges and the open chat in sync with backend read receipts.
+    const handleMessagesRead = (payload) => {
+      const conversationId =
+        payload?.conversationId || payload?.roomId || payload?.conversation;
+      if (!conversationId) return;
+      const normalizedId = typeof conversationId === "object"
+        ? getConversationId(conversationId)
+        : String(conversationId);
+      if (!normalizedId) return;
+      setConversations((previous) => previous.map((conv) =>
+        getConversationId(conv) === normalizedId
+          ? { ...conv, unreadCount: 0, unread: 0 }
+          : conv
+      ));
+    };
+    ["messages_read", "message:read"].forEach((eventName) => {
+      socket.on(eventName, handleMessagesRead);
     });
 
     return () => {
+      incomingEvents.forEach((eventName) => socket.off(eventName, handleIncomingMessage));
+      ["messages_read", "message:read"].forEach((eventName) => socket.off(eventName, handleMessagesRead));
       socket.disconnect();
     };
   }, [handleIncomingMessage]);
@@ -795,8 +846,15 @@ export default function UserConversationsPage() {
 
     setSelectedFiles([]);
     setMessagesError("");
+    const previousId = selectedConversationIdRef.current;
+    if (previousId && previousId !== id) {
+      socketRef.current?.emit("leave_room", previousId);
+    }
     setSelectedConversation(conversation);
     selectedConversationIdRef.current = id;
+    if (socketRef.current?.connected) {
+      socketRef.current.emit("join_room", id);
+    }
     setHeaderTab("chat");
     setReplyingTo(null);
 
@@ -804,6 +862,7 @@ export default function UserConversationsPage() {
     if (unread > 0) {
       try {
         await markConversationRead(id);
+        socketRef.current?.emit("mark_messages_read", { conversationId: id });
         setConversations((prev) =>
           prev.map((c) =>
             getConversationId(c) === id
@@ -903,8 +962,15 @@ export default function UserConversationsPage() {
         });
       }
 
-      const sent =
-        response?.messageData || response?.data?.message || response?.data;
+      const sentCandidate =
+        response?.messageData ||
+        response?.message ||
+        response?.data?.message ||
+        response?.data?.data ||
+        response?.data;
+      const sent = sentCandidate && typeof sentCandidate === "object"
+        ? sentCandidate
+        : null;
       if (sent) {
         const updatedLatest = messagesCache.current[conversationId] || [];
         const finalMerged = mergeMessages(
@@ -913,6 +979,13 @@ export default function UserConversationsPage() {
         );
         messagesCache.current[conversationId] = finalMerged;
         setMessages(finalMerged);
+      } else {
+        const latestAfterSend = messagesCache.current[conversationId] || [];
+        const resolved = latestAfterSend.map((item) =>
+          getMessageId(item) === tempId ? { ...item, sending: false } : item
+        );
+        messagesCache.current[conversationId] = resolved;
+        setMessages(resolved);
       }
     } catch (err) {
       setMessagesError(err?.message || "Failed to send reply to Admin.");
