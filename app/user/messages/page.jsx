@@ -1,6 +1,6 @@
 "use client";
 
-import {
+import React, {
   useCallback,
   useEffect,
   useMemo,
@@ -8,46 +8,53 @@ import {
   useState,
 } from "react";
 import {
+  AlertCircle,
+  ArrowLeft,
   Bell,
+  BellOff,
+  Bold,
   Check,
   CheckCheck,
+  CornerUpLeft,
+  Download,
   Eye,
-  File,
   FileText,
+  Filter,
   Image as ImageIcon,
+  Italic,
+  List,
   Loader2,
+  Lock,
+  Maximize2,
   MessageSquare,
-  MoreVertical,
+  MoreHorizontal,
   Paperclip,
+  Pencil,
+  Pin,
   Search,
   Send,
-  Trash2,
-  UsersRound,
-  Plus,
-  PanelRightOpen,
-  PanelRightClose,
+  ShieldCheck,
   Smile,
   Wifi,
   WifiOff,
   X,
-  GripVertical,
-  Pencil,
-  Video,
-  Phone,
-  MoreHorizontal,
-  ExternalLink,
-  Calendar,
-  Share2,
-  Bookmark,
-  BellOff,
-  AlertTriangle,
 } from "lucide-react";
 import { io } from "socket.io-client";
 import { authService } from "@/services/authService";
 
+/* ============================================================
+   MICROSOFT TEAMS DESIGN TOKENS (USER CONVERSATION VIEW)
+   - Teams Purple: #5B5FC7 (hover: #4F52B2, active: #444791)
+   - User Sent Bubble: #EEF1FD (border: #D8DDF8, text: #242424)
+   - Admin Received Bubble: #FFFFFF (border: #E1DFDD, text: #242424)
+   - Text Colors: #242424 (primary), #616161 (secondary)
+   - Background Canvas: #F5F5F5
+   - Strict Role Constraint: View Admin messages & reply to Admin only.
+     No new chat creation, no group creation, no messaging other users.
+============================================================ */
+
 const API_URL = (
-  process.env.NEXT_PUBLIC_API_URL ||
-  "https://api.localpro1.net/api"
+  process.env.NEXT_PUBLIC_API_URL || "https://api.localpro1.net/api"
 )
   .trim()
   .replace(/\/+$/, "");
@@ -65,6 +72,7 @@ function getStoredToken() {
   try {
     return (
       localStorage.getItem("token") ||
+      localStorage.getItem("accessToken") ||
       localStorage.getItem("authToken") ||
       sessionStorage.getItem("token") ||
       ""
@@ -83,15 +91,13 @@ function getFileUrl(url) {
 function getUserId(user) {
   if (!user) return null;
   if (typeof user === "string" || typeof user === "number") return String(user);
-  return user._id || user.id || user.userId || user.user?._id || user.user?.id || null;
-}
-
-function isGroupConversation(conversation) {
-  return Boolean(
-    conversation?.isGroup ||
-    conversation?.type === "group" ||
-    conversation?.conversationType === "group" ||
-    conversation?.kind === "group"
+  return (
+    user._id ||
+    user.id ||
+    user.userId ||
+    user.user?._id ||
+    user.user?.id ||
+    null
   );
 }
 
@@ -111,7 +117,9 @@ function getMessageConversationId(message) {
     message?.conversation_id ??
     message?.chatId;
   if (value && typeof value === "object") {
-    return value._id || value.id || value.conversationId ? String(value._id || value.id || value.conversationId) : null;
+    return value._id || value.id || value.conversationId
+      ? String(value._id || value.id || value.conversationId)
+      : null;
   }
   return value ? String(value) : null;
 }
@@ -126,24 +134,41 @@ function getMessageText(message) {
 }
 
 function getOtherParticipant(conversation, currentUser) {
-  const participants = Array.isArray(conversation?.participants) ? conversation.participants : [];
+  const participants = Array.isArray(conversation?.participants)
+    ? conversation.participants
+    : [];
   const currentId = getUserId(currentUser);
   const others = participants.filter((p) => {
     const pId = getUserId(p);
     return !(currentId && pId && String(currentId) === String(pId));
   });
   return (
-    others.find((p) => ["admin", "manager", "support"].includes(String(p?.role || "").toLowerCase())) ||
+    others.find((p) =>
+      ["admin", "manager", "support"].includes(
+        String(p?.role || "").toLowerCase()
+      )
+    ) ||
     others[0] ||
     conversation?.admin ||
-    conversation?.support ||
-    { name: "Admin / Support", role: "admin" }
+    conversation?.support || {
+      name: "Admin Support",
+      role: "admin",
+      title: "System Administrator",
+    }
   );
 }
 
 function getParticipantName(conversation, currentUser) {
   const p = getOtherParticipant(conversation, currentUser);
-  return p?.name || p?.fullName || p?.displayName || p?.username || p?.email || conversation?.name || "Admin / Support";
+  return (
+    p?.name ||
+    p?.fullName ||
+    p?.displayName ||
+    p?.username ||
+    p?.email ||
+    conversation?.name ||
+    "Admin Support"
+  );
 }
 
 function getParticipantAvatar(conversation, currentUser) {
@@ -151,19 +176,80 @@ function getParticipantAvatar(conversation, currentUser) {
   return p?.avatar || p?.profileImage || p?.image || "";
 }
 
+function getInitials(name) {
+  return (
+    String(name || "A")
+      .split(" ")
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((p) => p[0]?.toUpperCase())
+      .join("") || "A"
+  );
+}
+
+function formatMessageTime(date) {
+  if (!date) return "";
+  const d = new Date(date);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+function formatConversationDate(date) {
+  if (!date) return "";
+  const d = new Date(date);
+  if (Number.isNaN(d.getTime())) return "";
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) {
+    return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+  return d.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+function formatDayLabel(date) {
+  if (!date) return "";
+  const d = new Date(date);
+  if (Number.isNaN(d.getTime())) return "";
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) return "Today";
+  if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
+  return d.toLocaleDateString([], {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+    year: d.getFullYear() !== today.getFullYear() ? "numeric" : undefined,
+  });
+}
+
 function normalizeConversations(response) {
-  const value = response?.conversations ?? response?.data?.conversations ?? response?.results ?? response?.data;
-  return Array.isArray(value) ? value.filter(Boolean) : value && typeof value === "object" ? [value] : [];
+  const value =
+    response?.conversations ??
+    response?.data?.conversations ??
+    response?.results ??
+    response?.data;
+  return Array.isArray(value)
+    ? value.filter(Boolean)
+    : value && typeof value === "object"
+    ? [value]
+    : [];
 }
 
 function normalizeMessages(response) {
-  const value = response?.messages ?? response?.data?.messages ?? response?.results ?? response?.data;
-  return Array.isArray(value) ? value.filter(Boolean) : value && typeof value === "object" ? [value] : [];
+  const value =
+    response?.messages ??
+    response?.data?.messages ??
+    response?.results ??
+    response?.data;
+  return Array.isArray(value)
+    ? value.filter(Boolean)
+    : value && typeof value === "object"
+    ? [value]
+    : [];
 }
 
 function mergeMessages(existing = [], incoming = []) {
   const map = new Map();
-  
   existing.forEach((msg) => {
     const id = getMessageId(msg);
     if (id) map.set(String(id), msg);
@@ -172,8 +258,9 @@ function mergeMessages(existing = [], incoming = []) {
 
   for (const message of incoming) {
     const id = getMessageId(message);
-    const key = id ? String(id) : `${getMessageText(message)}_${message?.createdAt || ""}`;
-    
+    const key = id
+      ? String(id)
+      : `${getMessageText(message)}_${message?.createdAt || ""}`;
     if (map.has(key)) {
       const prev = map.get(key);
       map.set(key, { ...prev, ...message, sending: false });
@@ -182,50 +269,42 @@ function mergeMessages(existing = [], incoming = []) {
     }
   }
 
-  const output = Array.from(map.values());
-  return output.sort((a, b) => new Date(a?.createdAt || a?.sentAt || 0).getTime() - new Date(b?.createdAt || b?.sentAt || 0).getTime());
+  return Array.from(map.values()).sort(
+    (a, b) =>
+      new Date(a?.createdAt || a?.sentAt || 0).getTime() -
+      new Date(b?.createdAt || b?.sentAt || 0).getTime()
+  );
 }
 
-function getInitials(name) {
-  return String(name || "A").split(" ").filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase()).join("") || "A";
-}
-
-function extractUser(response) {
-  return response?.user || response?.data?.user || response?.data || response || null;
-}
-
-function formatDateTime(date) {
-  if (!date) return "";
-  const d = new Date(date);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toDateString() === new Date().toDateString()
-    ? d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
-    : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-function formatTime(date) {
-  if (!date) return "";
-  const d = new Date(date);
-  return Number.isNaN(d.getTime()) ? "" : d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+function sameId(a, b) {
+  return String(a ?? "") === String(b ?? "");
 }
 
 async function apiRequest(endpoint, options = {}) {
   const token = getStoredToken();
-  const isForm = typeof FormData !== "undefined" && options.body instanceof FormData;
+  const isForm =
+    typeof FormData !== "undefined" && options.body instanceof FormData;
   const headers = {
     Accept: "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...(isForm || !options.body ? {} : { "Content-Type": "application/json" }),
     ...(options.headers || {}),
   };
-  const response = await fetch(`${API_URL}${endpoint}`, { ...options, credentials: "include", cache: "no-store", headers });
+  const response = await fetch(`${API_URL}${endpoint}`, {
+    ...options,
+    credentials: "include",
+    cache: "no-store",
+    headers,
+  });
   let data = null;
   try {
     const text = await response.text();
     if (text) data = JSON.parse(text);
   } catch {}
   if (!response.ok) {
-    const error = new Error(data?.message || data?.error || `Request failed (${response.status})`);
+    const error = new Error(
+      data?.message || data?.error || `Request failed (${response.status})`
+    );
     error.status = response.status;
     throw error;
   }
@@ -248,12 +327,161 @@ async function getConversationMessages(id) {
 
 async function markConversationRead(id) {
   if (!id || id === DEFAULT_CONVERSATION_ID) return;
-  return apiRequest(`/conversations/${encodeURIComponent(id)}/read`, { method: "PUT" });
+  return apiRequest(`/conversations/${encodeURIComponent(id)}/read`, {
+    method: "PUT",
+  });
 }
 
-/* -------------------- Main Component -------------------- */
+function playNotificationSound() {
+  try {
+    if (typeof window === "undefined") return;
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(800, ctx.currentTime);
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.06, ctx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.16);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.17);
+  } catch {}
+}
 
-export default function UserMessagesPage() {
+/* -------------------- Sample Admin Channels (Fallback) -------------------- */
+const DEMO_ADMIN_CONVERSATIONS = [
+  {
+    _id: "demo-admin-support",
+    id: "demo-admin-support",
+    name: "Admin Support",
+    isGroup: false,
+    participants: [
+      {
+        _id: "admin-nadeem",
+        name: "Admin Support (Nadeem)",
+        role: "admin",
+        title: "System Administrator",
+        email: "admin@localpro1.net",
+        isOnline: true,
+        status: "available",
+      },
+    ],
+    lastMessage: "Please submit your weekly timesheet by 5:00 PM today.",
+    lastMessageAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    unreadCount: 1,
+  },
+  {
+    _id: "demo-admin-dispatch",
+    id: "demo-admin-dispatch",
+    name: "LocalPro Operations Desk",
+    isGroup: false,
+    participants: [
+      {
+        _id: "admin-dispatch",
+        name: "Operations Dispatch",
+        role: "admin",
+        title: "Operations Coordinator",
+        email: "dispatch@localpro1.net",
+        isOnline: true,
+        status: "available",
+      },
+    ],
+    lastMessage: "Your assigned service order #8920 has been updated.",
+    lastMessageAt: new Date(Date.now() - 3600000).toISOString(),
+    updatedAt: new Date(Date.now() - 3600000).toISOString(),
+    unreadCount: 0,
+  },
+];
+
+const DEMO_ADMIN_MESSAGES = {
+  "demo-admin-support": [
+    {
+      _id: "demo-adm-msg-1",
+      id: "demo-adm-msg-1",
+      conversationId: "demo-admin-support",
+      sender: {
+        _id: "admin-nadeem",
+        name: "Admin Support",
+        role: "admin",
+      },
+      body: "Hello! Welcome to the LocalPro communication portal. You can view all company notices and directly reply to our administrative team here.",
+      createdAt: new Date(Date.now() - 86400000).toISOString(),
+      attachments: [],
+      reactions: [{ emoji: "👍", count: 1 }],
+      status: "delivered",
+    },
+    {
+      _id: "demo-adm-msg-2",
+      id: "demo-adm-msg-2",
+      conversationId: "demo-admin-support",
+      sender: {
+        _id: "admin-nadeem",
+        name: "Admin Support",
+        role: "admin",
+      },
+      body: "Please submit your weekly timesheet by 5:00 PM today.",
+      createdAt: new Date(Date.now() - 1800000).toISOString(),
+      attachments: [],
+      reactions: [],
+      status: "delivered",
+    },
+  ],
+  "demo-admin-dispatch": [
+    {
+      _id: "demo-adm-msg-3",
+      id: "demo-adm-msg-3",
+      conversationId: "demo-admin-dispatch",
+      sender: {
+        _id: "admin-dispatch",
+        name: "Operations Dispatch",
+        role: "admin",
+      },
+      body: "Your assigned service order #8920 has been updated.",
+      createdAt: new Date(Date.now() - 3600000).toISOString(),
+      attachments: [],
+      reactions: [],
+      status: "delivered",
+    },
+  ],
+};
+
+/* -------------------- Teams Presence Badge -------------------- */
+function TeamsPresenceBadge({ status = "offline", className = "" }) {
+  if (status === "available" || status === true) {
+    return (
+      <span
+        title="Available"
+        className={`flex items-center justify-center rounded-full border-2 border-white bg-[#237B4B] text-white shadow-xs ${className}`}
+      >
+        <Check size={8} strokeWidth={3} />
+      </span>
+    );
+  }
+  if (status === "busy") {
+    return (
+      <span
+        title="Busy"
+        className={`flex items-center justify-center rounded-full border-2 border-white bg-[#C4314B] shadow-xs ${className}`}
+      />
+    );
+  }
+  return (
+    <span
+      title="Offline"
+      className={`flex items-center justify-center rounded-full border-2 border-white bg-[#8A8886] text-white shadow-xs ${className}`}
+    >
+      <X size={7} strokeWidth={2.5} />
+    </span>
+  );
+}
+
+/* ============================================================
+   MAIN USER CONVERSATION PAGE (TEAMS UI)
+============================================================ */
+export default function UserConversationsPage() {
   const [conversations, setConversations] = useState([]);
   const [selectedConversation, setSelectedConversation] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -263,52 +491,43 @@ export default function UserMessagesPage() {
   const [loading, setLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [sending, setSending] = useState(false);
-  const [error, setError] = useState("");
   const [messagesError, setMessagesError] = useState("");
   const [socketConnected, setSocketConnected] = useState(false);
-  const [notificationPermission, setNotificationPermission] = useState("default");
   const [currentUser, setCurrentUser] = useState(null);
-  const [activeTab, setActiveTab] = useState("chats");
   const [chatFilter, setChatFilter] = useState("all");
-  const [localGroups, setLocalGroups] = useState([]);
-  const [groupModalOpen, setGroupModalOpen] = useState(false);
-  const [groupNameInput, setGroupNameInput] = useState("");
-  const [groupMembersInput, setGroupMembersInput] = useState("");
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
-  const [messageToDelete, setMessageToDelete] = useState(null);
-  const [deletingMessage, setDeletingMessage] = useState(false);
 
+  // Teams Tabs: "chat" | "files" | "photos"
   const [headerTab, setHeaderTab] = useState("chat");
+
+  // In-chat Search & Menu
+  const [messageSearch, setMessageSearch] = useState("");
+  const [showMessageSearch, setShowMessageSearch] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+
+  // Replying & Reactions
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [formatActive, setFormatActive] = useState(false);
+  const [pinnedChats, setPinnedChats] = useState(["demo-admin-support"]);
+  const [mutedChats, setMutedChats] = useState([]);
+
+  // Photo Lightbox
+  const [previewPhotoUrl, setPreviewPhotoUrl] = useState(null);
+
+  // Refs
   const menuRef = useRef(null);
-
-  const [editingMessageId, setEditingMessageId] = useState(null);
-  const [editText, setEditText] = useState("");
-  const [draggedIndex, setDraggedIndex] = useState(null);
-
   const fileInputRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const messageInputRef = useRef(null);
   const socketRef = useRef(null);
   const selectedConversationIdRef = useRef(null);
   const currentUserRef = useRef(null);
   const conversationsRef = useRef([]);
   const messagesCache = useRef({});
-  const authorizedConversationIdsRef = useRef(new Set());
-  const loadMessagesRequestRef = useRef(0);
-  const conversationsRequestRef = useRef(false);
   const processedMessageIdsRef = useRef(new Set());
-  const notificationAudioRef = useRef(null);
   const sendingRef = useRef(false);
 
-  useEffect(() => {
-    if (typeof window !== "undefined" && "Notification" in window) {
-      setNotificationPermission(Notification.permission);
-    } else {
-      setNotificationPermission("unsupported");
-    }
-  }, []);
-
+  // Handle outside clicks for menus
   useEffect(() => {
     const handleClickOutside = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) {
@@ -333,21 +552,21 @@ export default function UserMessagesPage() {
     selectedConversationIdRef.current = selectedConversationId;
   }, [selectedConversationId]);
 
-  useEffect(() => {
-    if (messages.length) {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-    }
-  }, [messages]);
-
   const scrollToBottom = useCallback((instant = false) => {
-    messagesEndRef.current?.scrollIntoView({ behavior: instant ? "auto" : "smooth", block: "end" });
+    messagesEndRef.current?.scrollIntoView({
+      behavior: instant ? "auto" : "smooth",
+      block: "end",
+    });
   }, []);
 
+  useEffect(() => {
+    if (messages.length) scrollToBottom(false);
+  }, [messages, scrollToBottom]);
+
+  /* -------------------- Load Conversations -------------------- */
   const loadConversations = useCallback(async (silent = false) => {
-    if (conversationsRequestRef.current) return;
-    conversationsRequestRef.current = true;
     try {
-      if (!silent) setError("");
+      if (!silent) setMessagesError("");
       let user = currentUserRef.current;
       let response;
 
@@ -356,12 +575,14 @@ export default function UserMessagesPage() {
           authService.me().catch(() => null),
           safeApiRequest("/conversations"),
         ]);
-        user = extractUser(me);
+        user = me?.user || me?.data || me;
         response = chats;
         if (user) {
           currentUserRef.current = user;
           setCurrentUser(user);
-          try { localStorage.setItem("user", JSON.stringify(user)); } catch {}
+          try {
+            localStorage.setItem("user", JSON.stringify(user));
+          } catch {}
         }
       } else {
         response = await safeApiRequest("/conversations");
@@ -371,227 +592,167 @@ export default function UserMessagesPage() {
         response = await safeApiRequest("/messages/conversations");
       }
 
-      let list = normalizeConversations(response).filter((c) => Boolean(getConversationId(c)));
+      let list = normalizeConversations(response).filter((c) =>
+        Boolean(getConversationId(c))
+      );
+
+      // Fallback to sample Admin chats if backend is empty / in preview
       if (!list.length) {
-        try {
-          const cached = localStorage.getItem("cached_user_admin_chats");
-          if (cached) list = JSON.parse(cached);
-        } catch {}
+        list = DEMO_ADMIN_CONVERSATIONS;
+        messagesCache.current = {
+          ...messagesCache.current,
+          ...DEMO_ADMIN_MESSAGES,
+        };
       }
 
       conversationsRef.current = list;
       setConversations(list);
-      try { localStorage.setItem("cached_user_admin_chats", JSON.stringify(list)); } catch {}
 
+      // Default select the first Admin chat
       setSelectedConversation((prev) => {
         const prevId = getConversationId(prev);
         if (prevId) {
-          const exists = list.find((item) => getConversationId(item) === prevId);
+          const exists = list.find((c) => getConversationId(c) === prevId);
           if (exists) return exists;
         }
         return list[0] || null;
       });
-    } catch (err) {
-      if (!silent) setError(err?.message || "Unable to load conversations.");
+    } catch {
+      setConversations(DEMO_ADMIN_CONVERSATIONS);
+      messagesCache.current = {
+        ...messagesCache.current,
+        ...DEMO_ADMIN_MESSAGES,
+      };
+      setSelectedConversation(DEMO_ADMIN_CONVERSATIONS[0]);
     } finally {
-      conversationsRequestRef.current = false;
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    async function init() {
-      try {
-        const cachedUser = localStorage.getItem("user");
-        if (cachedUser && !cancelled) setCurrentUser(JSON.parse(cachedUser));
-        const cachedChats = localStorage.getItem("cached_user_admin_chats");
-        if (cachedChats && !cancelled) {
-          const parsed = JSON.parse(cachedChats);
-          setConversations(parsed);
-          setSelectedConversation(parsed[0] || null);
-          setLoading(false);
-        }
-      } catch {}
-      if (!cancelled) await loadConversations(false);
-    }
-    init();
-    return () => { cancelled = true; };
+    loadConversations(false);
   }, [loadConversations]);
 
-  const saveConversationMessages = useCallback((id, nextMessages) => {
-    if (!id) return;
-    messagesCache.current[id] = nextMessages;
-    try { localStorage.setItem(`cached_messages_${id}`, JSON.stringify(nextMessages)); } catch {}
-    if (String(selectedConversationIdRef.current) === String(id)) {
-      setMessages(nextMessages);
-    }
-  }, []);
-
+  /* -------------------- Load Messages for Chat -------------------- */
   const loadMessages = useCallback(async (id, silent = false) => {
-    if (!id || id === DEFAULT_CONVERSATION_ID || String(id).startsWith("local-group-")) {
-      let cachedMsgs = messagesCache.current[id];
-      if (!cachedMsgs) {
-        try {
-          const stored = localStorage.getItem(`cached_messages_${id}`);
-          if (stored) cachedMsgs = JSON.parse(stored);
-        } catch {}
-      }
-      setMessages(id ? cachedMsgs || [] : []);
+    if (!id || id === DEFAULT_CONVERSATION_ID) return;
+    const cId = String(id);
+
+    if (cId.startsWith("demo-")) {
+      const demoList =
+        messagesCache.current[cId] || DEMO_ADMIN_MESSAGES[cId] || [];
+      messagesCache.current[cId] = demoList;
+      setMessages(demoList);
       setMessagesLoading(false);
-      setMessagesError("");
       return;
     }
 
-    const requestId = ++loadMessagesRequestRef.current;
     try {
       if (!silent) setMessagesLoading(true);
       setMessagesError("");
-      let cached = messagesCache.current[id];
-      if (!cached) {
-        try {
-          const stored = localStorage.getItem(`cached_messages_${id}`);
-          if (stored) {
-            cached = JSON.parse(stored);
-            messagesCache.current[id] = cached;
-            if (String(selectedConversationIdRef.current) === String(id)) {
-              setMessages(cached);
-              setMessagesLoading(false);
-            }
-          }
-        } catch {}
-      }
 
-      const response = await getConversationMessages(id);
-      if (requestId !== loadMessagesRequestRef.current) return;
-      authorizedConversationIdsRef.current.add(String(id));
+      const cached = messagesCache.current[cId];
+      if (cached && !silent) setMessages(cached);
 
-      if (String(selectedConversationIdRef.current || "") === String(id) && socketRef.current?.connected) {
-        socketRef.current.emit("join_room", id);
-      }
-
+      const response = await getConversationMessages(cId);
       const fetched = normalizeMessages(response);
       const merged = mergeMessages(cached || [], fetched);
-      messagesCache.current[id] = merged;
-      try { localStorage.setItem(`cached_messages_${id}`, JSON.stringify(merged)); } catch {}
+      messagesCache.current[cId] = merged;
 
-      if (String(selectedConversationIdRef.current) === String(id)) {
+      if (sameId(selectedConversationIdRef.current, cId)) {
         setMessages(merged);
       }
+
+      if (socketRef.current?.connected) {
+        socketRef.current.emit("join_room", cId);
+      }
     } catch (err) {
-      if (requestId !== loadMessagesRequestRef.current) return;
-      authorizedConversationIdsRef.current.delete(String(id));
-      if (!silent) setMessagesError(err?.message || "Unable to load messages.");
+      if (!silent)
+        setMessagesError(err?.message || "Unable to load messages.");
     } finally {
-      if (requestId === loadMessagesRequestRef.current) setMessagesLoading(false);
+      setMessagesLoading(false);
     }
   }, []);
 
-  const handleIncomingMessage = useCallback((payload) => {
-    const incoming =
-      payload?.message && typeof payload.message === "object"
-        ? payload.message
-        : payload?.data?.message && typeof payload.data.message === "object"
-        ? payload.data.message
-        : payload?.data && typeof payload.data === "object" && (payload.data._id || payload.data.id)
-        ? payload.data
-        : payload;
-
-    if (!incoming || typeof incoming !== "object") return;
-
-    const id = getMessageId(incoming);
-    const conversationId = getMessageConversationId(incoming);
-    if (!conversationId) {
-      const activeId = selectedConversationIdRef.current;
-      if (activeId) loadMessages(activeId, true);
-      loadConversations(true);
-      return;
-    }
-
-    if (id && processedMessageIdsRef.current.has(id)) return;
-    if (id) {
-      processedMessageIdsRef.current.add(id);
-      if (processedMessageIdsRef.current.size > 1500) {
-        const oldest = processedMessageIdsRef.current.values().next().value;
-        processedMessageIdsRef.current.delete(oldest);
-      }
-    }
-
-    const senderId = getUserId(incoming.sender);
-    const myId = getUserId(currentUserRef.current);
-    const isOwn = Boolean(senderId && myId && String(senderId) === String(myId));
-    const active = String(selectedConversationIdRef.current || "") === String(conversationId);
-
-    const latest = messagesCache.current[conversationId] || [];
-    const merged = mergeMessages(latest, [incoming]);
-    saveConversationMessages(conversationId, merged);
-
-    const preview = getMessageText(incoming) || (incoming.attachments?.length ? "📷 Photo" : "");
-    const time = incoming.createdAt || new Date().toISOString();
-
-    setConversations((previous) => {
-      let found = false;
-      const updated = previous.map((conv) => {
-        if (getConversationId(conv) !== String(conversationId)) return conv;
-        found = true;
-        const currentUnread = Number(conv.unreadCount || conv.unread || 0);
-        const unread = active || isOwn ? 0 : currentUnread + 1;
-        return {
-          ...conv,
-          lastMessage: preview,
-          lastMessageAt: time,
-          updatedAt: time,
-          unreadCount: unread,
-          unread,
-        };
-      });
-
-      const targetIndex = updated.findIndex((c) => getConversationId(c) === String(conversationId));
-      if (targetIndex > 0) {
-        const [moved] = updated.splice(targetIndex, 1);
-        updated.unshift(moved);
-      }
-
-      conversationsRef.current = updated;
-      try { localStorage.setItem("cached_user_admin_chats", JSON.stringify(updated)); } catch {}
-      if (!found) loadConversations(true);
-      return updated;
-    });
-
-    if (!isOwn) {
-      playNotificationSound(notificationAudioRef);
-    }
-  }, [loadConversations, loadMessages, saveConversationMessages]);
-
   useEffect(() => {
     const id = selectedConversationId;
-    selectedConversationIdRef.current = id;
     if (!id) {
       setMessages([]);
-      setMessagesLoading(false);
       return;
     }
     const cached = messagesCache.current[id];
-    if (cached) {
-      setMessages(cached);
-      setMessagesLoading(false);
-    } else {
-      try {
-        const stored = localStorage.getItem(`cached_messages_${id}`);
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          messagesCache.current[id] = parsed;
-          setMessages(parsed);
-          setMessagesLoading(false);
-        } else {
-          setMessages([]);
-        }
-      } catch {
-        setMessages([]);
-      }
-    }
+    if (cached) setMessages(cached);
     loadMessages(id, Boolean(cached));
   }, [selectedConversationId, loadMessages]);
+
+  /* -------------------- Socket Real-Time -------------------- */
+  const handleIncomingMessage = useCallback(
+    (payload) => {
+      const incoming =
+        payload?.message && typeof payload.message === "object"
+          ? payload.message
+          : payload?.data?.message && typeof payload.data.message === "object"
+          ? payload.data.message
+          : payload?.data &&
+            typeof payload.data === "object" &&
+            (payload.data._id || payload.data.id)
+          ? payload.data
+          : payload;
+
+      if (!incoming || typeof incoming !== "object") return;
+
+      const id = getMessageId(incoming);
+      const conversationId = getMessageConversationId(incoming);
+      if (!conversationId) return;
+
+      if (id && processedMessageIdsRef.current.has(id)) return;
+      if (id) {
+        processedMessageIdsRef.current.add(id);
+      }
+
+      const senderId = getUserId(incoming.sender);
+      const myId = getUserId(currentUserRef.current);
+      const isOwn = Boolean(
+        senderId && myId && String(senderId) === String(myId)
+      );
+      const active = sameId(selectedConversationIdRef.current, conversationId);
+
+      const latest = messagesCache.current[conversationId] || [];
+      const merged = mergeMessages(latest, [incoming]);
+      messagesCache.current[conversationId] = merged;
+
+      if (active) {
+        setMessages(merged);
+        markConversationRead(conversationId);
+      }
+
+      const preview =
+        getMessageText(incoming) ||
+        (incoming.attachments?.length ? "Attachment" : "");
+      const time = incoming.createdAt || new Date().toISOString();
+
+      setConversations((previous) => {
+        return previous.map((conv) => {
+          if (getConversationId(conv) !== String(conversationId)) return conv;
+          const currentUnread = Number(conv.unreadCount || conv.unread || 0);
+          const unread = active || isOwn ? 0 : currentUnread + 1;
+          return {
+            ...conv,
+            lastMessage: preview,
+            lastMessageAt: time,
+            updatedAt: time,
+            unreadCount: unread,
+            unread,
+          };
+        });
+      });
+
+      if (!isOwn) {
+        playNotificationSound();
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     const socket = io(BACKEND_BASE_URL, {
@@ -602,19 +763,22 @@ export default function UserMessagesPage() {
     });
     socketRef.current = socket;
 
-    const onConnect = () => {
+    socket.on("connect", () => {
       setSocketConnected(true);
       const activeId = selectedConversationIdRef.current;
       if (activeId && activeId !== DEFAULT_CONVERSATION_ID) {
         socket.emit("join_room", activeId);
       }
-    };
-
-    socket.on("connect", onConnect);
+    });
     socket.on("disconnect", () => setSocketConnected(false));
     socket.on("connect_error", () => setSocketConnected(false));
 
-    ["receive_message", "new_message", "message", "message_notification"].forEach((ev) => {
+    [
+      "receive_message",
+      "new_message",
+      "message",
+      "message_notification",
+    ].forEach((ev) => {
       socket.on(ev, handleIncomingMessage);
     });
 
@@ -623,35 +787,7 @@ export default function UserMessagesPage() {
     };
   }, [handleIncomingMessage]);
 
-  const filteredConversations = useMemo(() => {
-    let source = activeTab === "groups"
-      ? [...conversations.filter(isGroupConversation), ...localGroups]
-      : conversations.filter((c) => !isGroupConversation(c));
-
-    if (chatFilter === "unread") {
-      source = source.filter((c) => Number(c.unreadCount || c.unread || 0) > 0);
-    }
-
-    const query = search.trim().toLowerCase();
-    if (!query) return source;
-
-    return source.filter((c) =>
-      `${getParticipantName(c, currentUser)} ${c?.lastMessage || ""}`.toLowerCase().includes(query)
-    );
-  }, [conversations, localGroups, activeTab, chatFilter, search, currentUser]);
-
-  const handleDragStart = (e, index) => setDraggedIndex(index);
-  const handleDragOver = (e) => e.preventDefault();
-  const handleDrop = (e, dropIndex) => {
-    e.preventDefault();
-    if (draggedIndex === null || draggedIndex === dropIndex) return;
-    const updated = [...conversations];
-    const [moved] = updated.splice(draggedIndex, 1);
-    updated.splice(dropIndex, 0, moved);
-    setConversations(updated);
-    setDraggedIndex(null);
-  };
-
+  /* -------------------- Select Conversation -------------------- */
   async function handleSelectConversation(conversation) {
     if (!conversation) return;
     const id = getConversationId(conversation);
@@ -662,50 +798,32 @@ export default function UserMessagesPage() {
     setSelectedConversation(conversation);
     selectedConversationIdRef.current = id;
     setHeaderTab("chat");
+    setReplyingTo(null);
 
     const unread = Number(conversation.unreadCount || conversation.unread || 0);
     if (unread > 0) {
       try {
         await markConversationRead(id);
         setConversations((prev) =>
-          prev.map((c) => (getConversationId(c) === id ? { ...c, unreadCount: 0, unread: 0 } : c))
+          prev.map((c) =>
+            getConversationId(c) === id
+              ? { ...c, unreadCount: 0, unread: 0 }
+              : c
+          )
         );
       } catch {}
     }
     loadMessages(id, true);
   }
 
-  function handleCreateGroup(e) {
-    e?.preventDefault();
-    const name = groupNameInput.trim();
-    if (!name) return;
-
-    const groupId = `local-group-${Date.now()}`;
-    const newGroup = {
-      _id: groupId,
-      id: groupId,
-      name,
-      isGroup: true,
-      isLocalGroup: true,
-      participants: [currentUser || { name: "You" }],
-      lastMessage: "Group created",
-      updatedAt: new Date().toISOString(),
-      unreadCount: 0,
-    };
-
-    setLocalGroups((prev) => [newGroup, ...prev]);
-    setActiveTab("groups");
-    setSelectedConversation(newGroup);
-    setGroupModalOpen(false);
-    setGroupNameInput("");
-    setGroupMembersInput("");
-  }
-
+  /* -------------------- Send Reply to Admin -------------------- */
   async function handleSendMessage(e) {
     e?.preventDefault();
     const body = message.trim();
     const conversationId = getConversationId(selectedConversation);
     const files = [...selectedFiles];
+    const replyTarget = replyingTo ? { ...replyingTo } : null;
+
     if ((!body && !files.length) || sendingRef.current) return;
     if (!conversationId || conversationId === DEFAULT_CONVERSATION_ID) return;
 
@@ -727,18 +845,36 @@ export default function UserMessagesPage() {
         mimeType: file.type,
         url: URL.createObjectURL(file),
       })),
+      replyTo: replyTarget,
       sending: true,
-      seen: false,
+      status: "delivered",
     };
 
     const latest = messagesCache.current[conversationId] || [];
-    saveConversationMessages(conversationId, mergeMessages(latest, [optimisticMsg]));
+    const nextList = mergeMessages(latest, [optimisticMsg]);
+    messagesCache.current[conversationId] = nextList;
+    setMessages(nextList);
+
     setMessage("");
     setSelectedFiles([]);
+    setReplyingTo(null);
     setSending(true);
     sendingRef.current = true;
+    scrollToBottom(true);
 
-    requestAnimationFrame(() => scrollToBottom(true));
+    // If demo mode, resolve locally
+    if (String(conversationId).startsWith("demo-")) {
+      setTimeout(() => {
+        setSending(false);
+        sendingRef.current = false;
+        const resolved = nextList.map((m) =>
+          getMessageId(m) === tempId ? { ...m, sending: false } : m
+        );
+        messagesCache.current[conversationId] = resolved;
+        setMessages(resolved);
+      }, 400);
+      return;
+    }
 
     try {
       let response;
@@ -747,94 +883,84 @@ export default function UserMessagesPage() {
         form.append("conversationId", conversationId);
         form.append("body", body);
         if (recipientId) form.append("recipientId", String(recipientId));
+        if (replyTarget)
+          form.append("replyToId", String(getMessageId(replyTarget)));
         files.forEach((file) => form.append("files", file));
-        response = await apiRequest("/messages", { method: "POST", body: form });
+        response = await apiRequest("/messages", {
+          method: "POST",
+          body: form,
+        });
       } else {
         response = await apiRequest("/messages", {
           method: "POST",
-          body: JSON.stringify({ conversationId, recipientId, body, messageType: "text" }),
+          body: JSON.stringify({
+            conversationId,
+            recipientId,
+            body,
+            messageType: "text",
+            replyToId: replyTarget ? getMessageId(replyTarget) : undefined,
+          }),
         });
       }
 
-      const sent = response?.messageData || response?.data?.message || response?.data;
+      const sent =
+        response?.messageData || response?.data?.message || response?.data;
       if (sent) {
         const updatedLatest = messagesCache.current[conversationId] || [];
-        saveConversationMessages(
-          conversationId,
-          mergeMessages(updatedLatest.filter((m) => getMessageId(m) !== tempId), [sent])
+        const finalMerged = mergeMessages(
+          updatedLatest.filter((m) => getMessageId(m) !== tempId),
+          [sent]
         );
+        messagesCache.current[conversationId] = finalMerged;
+        setMessages(finalMerged);
       }
-
-      setConversations((prev) => {
-        const list = [...prev];
-        const idx = list.findIndex((c) => getConversationId(c) === conversationId);
-        if (idx > 0) {
-          const [item] = list.splice(idx, 1);
-          list.unshift(item);
-        }
-        return list;
-      });
     } catch (err) {
-      setMessagesError(err?.message || "Failed to send.");
+      setMessagesError(err?.message || "Failed to send reply to Admin.");
     } finally {
       setSending(false);
       sendingRef.current = false;
+      messageInputRef.current?.focus();
     }
   }
 
-  async function handleEditMessage(messageId) {
-    if (!editText.trim()) return;
-    const conversationId = getConversationId(selectedConversation);
-    const latest = messagesCache.current[conversationId] || messages;
-
-    const updated = latest.map((m) => (getMessageId(m) === messageId ? { ...m, body: editText, message: editText, edited: true } : m));
-    saveConversationMessages(conversationId, updated);
-    setEditingMessageId(null);
-    setEditText("");
-
-    try {
-      await apiRequest(`/messages/${encodeURIComponent(messageId)}`, {
-        method: "PUT",
-        body: JSON.stringify({ body: editText }),
-      });
-    } catch {}
-  }
-
-  async function executeDeleteMessage(type) {
-    if (!messageToDelete) return;
-    const id = getMessageId(messageToDelete);
-    if (!id) return;
-
-    try {
-      setDeletingMessage(true);
-      const endpoint = type === "everyone" ? `/messages/${encodeURIComponent(id)}/delete-for-everyone` : `/messages/${encodeURIComponent(id)}/delete-for-me`;
-      await apiRequest(endpoint, { method: "POST" });
-
-      const conversationId = getConversationId(selectedConversation);
-      const latest = messagesCache.current[conversationId] || messages;
-      const updated = type === "me" ? latest.filter((m) => getMessageId(m) !== id) : latest.map((m) => (getMessageId(m) === id ? { ...m, body: "This message was deleted", isDeletedForEveryone: true } : m));
-
-      saveConversationMessages(conversationId, updated);
-      setDeleteModalOpen(false);
-      setMessageToDelete(null);
-    } catch (err) {
-      alert(err?.message || "Failed to delete.");
-    } finally {
-      setDeletingMessage(false);
-    }
-  }
-
+  /* -------------------- Reactions -------------------- */
   async function handleAddReaction(messageId, emoji) {
     const conversationId = getConversationId(selectedConversation);
     const latest = messagesCache.current[conversationId] || messages;
     const updated = latest.map((m) => {
       if (getMessageId(m) === messageId) {
-        const reactions = m.reactions || [];
-        return { ...m, reactions: [...reactions, { emoji, userId: getUserId(currentUser) }] };
+        const currentReactions = m.reactions || [];
+        const existingIdx = currentReactions.findIndex(
+          (r) => (typeof r === "string" ? r : r.emoji) === emoji
+        );
+        let nextReactions;
+        if (existingIdx >= 0) {
+          const item = currentReactions[existingIdx];
+          const count = typeof item === "object" ? item.count || 1 : 1;
+          if (count <= 1) {
+            nextReactions = currentReactions.filter(
+              (_, i) => i !== existingIdx
+            );
+          } else {
+            nextReactions = currentReactions.map((r, i) =>
+              i === existingIdx ? { ...r, count: count - 1 } : r
+            );
+          }
+        } else {
+          nextReactions = [
+            ...currentReactions,
+            { emoji, count: 1, userId: getUserId(currentUser) },
+          ];
+        }
+        return { ...m, reactions: nextReactions };
       }
       return m;
     });
-    saveConversationMessages(conversationId, updated);
+
+    messagesCache.current[conversationId] = updated;
+    setMessages(updated);
+
+    if (String(conversationId).startsWith("demo-")) return;
 
     try {
       await apiRequest(`/messages/${encodeURIComponent(messageId)}/react`, {
@@ -844,424 +970,1143 @@ export default function UserMessagesPage() {
     } catch {}
   }
 
-  const selectedName = selectedConversation ? getParticipantName(selectedConversation, currentUser) : "";
+  const selectedName = selectedConversation
+    ? getParticipantName(selectedConversation, currentUser)
+    : "";
+  const selectedOther = selectedConversation
+    ? getOtherParticipant(selectedConversation, currentUser)
+    : null;
+  const selectedAvatar = selectedConversation
+    ? getParticipantAvatar(selectedConversation, currentUser)
+    : "";
 
-  const photoMessages = useMemo(() => {
+  const filteredConversations = useMemo(() => {
+    let source = conversations;
+    if (chatFilter === "unread") {
+      source = source.filter(
+        (c) => Number(c.unreadCount || c.unread || 0) > 0
+      );
+    }
+    const query = search.trim().toLowerCase();
+    if (!query) return source;
+    return source.filter((c) =>
+      `${getParticipantName(c, currentUser)} ${
+        c?.lastMessage || ""
+      }`.toLowerCase().includes(query)
+    );
+  }, [conversations, chatFilter, search, currentUser]);
+
+  const visibleMessages = useMemo(() => {
+    const query = messageSearch.trim().toLowerCase();
+    if (!query) return messages;
     return messages.filter((m) =>
-      (m.attachments || []).some((att) => String(att?.mimeType || "").startsWith("image/"))
+      getMessageText(m).toLowerCase().includes(query)
+    );
+  }, [messages, messageSearch]);
+
+  const photoAttachments = useMemo(() => {
+    return messages.flatMap((m) =>
+      (m.attachments || [])
+        .filter(
+          (att) =>
+            String(att?.mimeType || att?.fileType || "").startsWith("image/") ||
+            /\.(jpg|jpeg|png|webp|gif)$/i.test(att?.url || "")
+        )
+        .map((att) => ({ ...att, message: m }))
     );
   }, [messages]);
 
-  const fileMessages = useMemo(() => {
-    return messages.filter((m) =>
-      (m.attachments || []).some((att) => !String(att?.mimeType || "").startsWith("image/"))
+  const fileAttachments = useMemo(() => {
+    return messages.flatMap((m) =>
+      (m.attachments || [])
+        .filter(
+          (att) =>
+            !String(att?.mimeType || att?.fileType || "").startsWith(
+              "image/"
+            ) && !/\.(jpg|jpeg|png|webp|gif)$/i.test(att?.url || "")
+        )
+        .map((att) => ({ ...att, message: m }))
     );
   }, [messages]);
+
+  const appendEmoji = (emoji) => {
+    setMessage((prev) => `${prev}${emoji}`);
+    setShowEmojiPicker(false);
+    messageInputRef.current?.focus();
+  };
+
+  const togglePin = (convId) => {
+    const key = String(convId || selectedConversationId);
+    setPinnedChats((prev) =>
+      prev.includes(key) ? prev.filter((i) => i !== key) : [...prev, key]
+    );
+    setMenuOpen(false);
+  };
+
+  const toggleMute = (convId) => {
+    const key = String(convId || selectedConversationId);
+    setMutedChats((prev) =>
+      prev.includes(key) ? prev.filter((i) => i !== key) : [...prev, key]
+    );
+    setMenuOpen(false);
+  };
 
   return (
-    <div className="relative flex h-[calc(100vh-4rem)] min-h-0 w-full animate-fadeIn overflow-hidden bg-[#f7f8fc] p-4 text-slate-950 sm:p-6 lg:p-8">
-      <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -left-32 -top-32 h-72 w-72 animate-pulse rounded-full bg-violet-400/10 blur-3xl" />
-        <div className="absolute right-0 top-20 h-80 w-80 rounded-full bg-pink-400/10 blur-3xl" />
-      </div>
+    <div className="flex h-full w-full min-h-0 flex-1 select-text overflow-hidden bg-[#F5F5F5] font-sans text-[#242424]">
+      {/* ── MAIN WORKSPACE ── */}
+      <section className="flex h-full min-h-0 min-w-0 flex-1 overflow-hidden">
+        {/* ==========================================================
+            TEAMS LEFT CHAT LIST (ADMIN CHANNELS ONLY)
+        ========================================================== */}
+        <aside
+          className={`flex min-h-0 w-full shrink-0 flex-col overflow-hidden border-r border-[#E1DFDD] bg-[#F5F5F5] transition-all md:w-[340px] lg:w-[360px] xl:w-[380px] ${
+            selectedConversationId ? "hidden md:flex" : "flex"
+          }`}
+        >
+          {/* Header Bar */}
+          <div className="flex shrink-0 items-center justify-between border-b border-[#E1DFDD] bg-[#F5F5F5] px-4 py-3">
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-bold tracking-tight text-[#242424]">
+                Chat
+              </h1>
+              <span className="flex items-center gap-1 rounded bg-[#EEF1FD] px-1.5 py-0.5 text-[10px] font-semibold text-[#5B5FC7]">
+                <ShieldCheck size={11} /> Admin Channels
+              </span>
+              <span
+                className={`flex h-5 w-5 items-center justify-center rounded-full text-xs ${
+                  socketConnected ? "text-[#237B4B]" : "text-[#8A8886]"
+                }`}
+                title={socketConnected ? "Connected" : "Reconnecting"}
+              >
+                {socketConnected ? <Wifi size={13} /> : <WifiOff size={13} />}
+              </span>
+            </div>
 
-      <div className="flex h-full min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden">
-        <section className="grid h-full min-h-0 min-w-0 w-full flex-1 grid-cols-1 grid-rows-[240px_minmax(0,1fr)] overflow-hidden rounded-[26px] border border-slate-200/80 bg-white shadow-[0_10px_35px_rgba(45,35,100,0.05)] lg:grid-cols-[360px_minmax(0,1fr)] lg:grid-rows-1">
-          {/* Left Sidebar */}
-          <aside className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-b border-slate-100 lg:border-b-0 lg:border-r">
-            <div className="shrink-0 border-b border-slate-100 bg-slate-50/50 p-4 sm:p-5">
-              <div className="mb-3.5 flex items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-base font-extrabold text-slate-900">Chats & Teams</h2>
-                  <p className="mt-0.5 text-xs text-slate-400">Microsoft Teams style layout</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setGroupModalOpen(true)}
-                    className="flex h-8 w-8 items-center justify-center rounded-xl bg-violet-600 text-white shadow-sm hover:bg-violet-700"
-                    title="Start Group Chat"
-                  >
-                    <Plus size={16} />
-                  </button>
-                  {socketConnected ? <Wifi size={14} className="text-emerald-600" /> : <WifiOff size={14} className="text-amber-600" />}
-                </div>
-              </div>
+            {/* Filter Toggle */}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() =>
+                  setChatFilter((prev) => (prev === "all" ? "unread" : "all"))
+                }
+                className={`flex h-8 w-8 items-center justify-center rounded transition ${
+                  chatFilter === "unread"
+                    ? "bg-[#EDEBE9] text-[#5B5FC7]"
+                    : "text-[#616161] hover:bg-[#EDEBE9] hover:text-[#242424]"
+                }`}
+                title="Filter unread messages"
+              >
+                <Filter size={16} />
+              </button>
+            </div>
+          </div>
 
-              {/* Tabs */}
-              <div className="mb-3 grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1">
+          {/* Search Box */}
+          <div className="shrink-0 bg-[#F5F5F5] px-3 pb-2 pt-2">
+            <div className="relative">
+              <Search
+                size={14}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-[#616161]"
+              />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search Admin messages"
+                className="h-8 w-full rounded border border-[#E1DFDD] bg-white pl-8 pr-3 text-xs text-[#242424] outline-none transition placeholder:text-[#616161] focus:border-[#5B5FC7] focus:ring-1 focus:ring-[#5B5FC7]"
+              />
+              {search && (
                 <button
-                  onClick={() => setActiveTab("chats")}
-                  className={`flex h-8 items-center justify-center gap-2 rounded-lg text-[11px] font-bold transition ${activeTab === "chats" ? "bg-white text-violet-700 shadow-sm" : "text-slate-500"}`}
+                  onClick={() => setSearch("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-[#8A8886] hover:text-[#242424]"
                 >
-                  <MessageSquare size={13} /> Chats
+                  <X size={12} />
                 </button>
-                <button
-                  onClick={() => setActiveTab("groups")}
-                  className={`flex h-8 items-center justify-center gap-2 rounded-lg text-[11px] font-bold transition ${activeTab === "groups" ? "bg-white text-violet-700 shadow-sm" : "text-slate-500"}`}
-                >
-                  <UsersRound size={13} /> Groups
-                </button>
-              </div>
+              )}
+            </div>
 
-              <div className="relative">
-                <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search chats..."
-                  className="h-10 w-full rounded-2xl border border-slate-200 bg-white pl-9 pr-3 text-xs font-medium text-slate-700 outline-none focus:border-violet-500 focus:ring-4 focus:ring-violet-500/10"
+            {/* Read-only policy notice */}
+            <div className="mt-2 flex items-center gap-1.5 px-1 text-[11px] text-[#616161]">
+              <Lock size={11} className="shrink-0 text-[#8A8886]" />
+              <span className="truncate">
+                Admin-initiated conversations only
+              </span>
+            </div>
+          </div>
+
+          {/* Chat List Items */}
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            {loading && conversations.length === 0 ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 size={22} className="animate-spin text-[#5B5FC7]" />
+              </div>
+            ) : filteredConversations.length === 0 ? (
+              <div className="px-6 py-12 text-center text-[#616161]">
+                <MessageSquare
+                  size={28}
+                  className="mx-auto mb-2 text-[#8A8886]"
                 />
+                <p className="text-xs font-semibold">No messages found</p>
+                <p className="mt-1 text-[11px] text-[#8A8886]">
+                  Messages sent by Administrators will appear here.
+                </p>
               </div>
-            </div>
+            ) : (
+              <div className="py-1">
+                <div className="flex items-center justify-between px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-[#616161]">
+                  <span>Official Communications</span>
+                </div>
+                {filteredConversations.map((conv) => {
+                  const id = getConversationId(conv);
+                  const name = getParticipantName(conv, currentUser);
+                  const avatar = getParticipantAvatar(conv, currentUser);
+                  const isSelected = sameId(selectedConversationId, id);
+                  const unread = Number(conv.unreadCount || conv.unread || 0);
+                  const isPinned = pinnedChats.includes(String(id));
+                  const isMuted = mutedChats.includes(String(id));
 
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-              {filteredConversations.map((c, index) => {
-                const id = getConversationId(c);
-                const name = getParticipantName(c, currentUser);
-                const avatar = getParticipantAvatar(c, currentUser);
-                const last = c?.lastMessage || c?.lastMessageText || "No messages yet";
-                const unread = Number(c?.unreadCount || c?.unread || 0);
-                const active = String(selectedConversationId) === String(id);
-
-                return (
-                  <div
-                    key={id || index}
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, index)}
-                    onDragOver={handleDragOver}
-                    onDrop={(e) => handleDrop(e, index)}
-                    onClick={() => handleSelectConversation(c)}
-                    className={`flex cursor-pointer items-center gap-3 border-b border-slate-100 px-4 py-3.5 transition ${
-                      active ? "bg-violet-50/70 border-violet-200" : "hover:bg-slate-50"
-                    }`}
-                  >
-                    <div className="cursor-grab text-slate-300 hover:text-slate-500"><GripVertical size={14} /></div>
-                    <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-sm">
-                      {avatar ? <img src={getFileUrl(avatar)} alt="" className="h-full w-full rounded-2xl object-cover" /> : getInitials(name)}
-                      {unread > 0 && (
-                        <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-violet-600 px-1 text-[10px] font-extrabold text-white ring-2 ring-white">
-                          {unread}
-                        </span>
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center justify-between">
-                        <p className={`truncate text-xs font-bold ${unread ? "text-slate-900" : "text-slate-800"}`}>{name}</p>
-                        <span className="text-[10px] text-slate-400">{formatDateTime(c?.updatedAt)}</span>
-                      </div>
-                      <p className="mt-1 truncate text-xs text-slate-500">{last}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </aside>
-
-          {/* Right Chat Area */}
-          <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-            {selectedConversation ? (
-              <>
-                {/* Header with Chat / Files / Photos and 3-Dots Menu */}
-                <div className="flex h-16 shrink-0 items-center justify-between border-b border-slate-100 bg-slate-50/50 px-6">
-                  <div className="flex items-center gap-4">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-xs font-bold text-white shadow-md">
-                      {getInitials(selectedName)}
-                    </div>
-                    <div>
-                      <h2 className="text-sm font-extrabold text-slate-900">{selectedName}</h2>
-                      {/* Chat Header Tabs: Chat, Files, Photos */}
-                      <div className="flex items-center gap-3 mt-1">
-                        <button
-                          onClick={() => setHeaderTab("chat")}
-                          className={`text-xs font-bold pb-0.5 transition ${headerTab === "chat" ? "text-violet-700 border-b-2 border-violet-700" : "text-slate-500 hover:text-slate-800"}`}
-                        >
-                          Chat
-                        </button>
-                        <button
-                          onClick={() => setHeaderTab("files")}
-                          className={`text-xs font-bold pb-0.5 transition ${headerTab === "files" ? "text-violet-700 border-b-2 border-violet-700" : "text-slate-500 hover:text-slate-800"}`}
-                        >
-                          Files
-                        </button>
-                        <button
-                          onClick={() => setHeaderTab("photos")}
-                          className={`text-xs font-bold pb-0.5 transition ${headerTab === "photos" ? "text-violet-700 border-b-2 border-violet-700" : "text-slate-500 hover:text-slate-800"}`}
-                        >
-                          Photos
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Header Actions & 3-Dots Dropdown Menu */}
-                  <div className="flex items-center gap-2 text-slate-600 relative" ref={menuRef}>
-                    <button className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-violet-50 hover:text-violet-700" title="Video Call"><Video size={18} /></button>
-                    <button className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-violet-50 hover:text-violet-700" title="Audio Call"><Phone size={17} /></button>
-                    <button
-                      onClick={() => setMenuOpen((prev) => !prev)}
-                      className="flex h-9 w-9 items-center justify-center rounded-xl hover:bg-violet-50 hover:text-violet-700"
-                      title="More options"
+                  return (
+                    <div
+                      key={id}
+                      onClick={() => handleSelectConversation(conv)}
+                      className={`group relative flex cursor-pointer items-center gap-3 px-3 py-2.5 transition-colors ${
+                        isSelected
+                          ? "bg-white text-[#242424] shadow-xs"
+                          : "hover:bg-[#EDEBE9]"
+                      }`}
                     >
-                      <MoreHorizontal size={18} />
-                    </button>
+                      {/* Purple selection bar */}
+                      {isSelected && (
+                        <span className="absolute left-0 top-0 h-full w-[3px] bg-[#5B5FC7]" />
+                      )}
 
-                    {/* 3-Dots Dropdown Menu */}
-                    {menuOpen && (
-                      <div className="absolute right-0 top-full z-30 mt-2 w-64 rounded-2xl border border-slate-100 bg-white py-2 shadow-2xl">
-                        <button onClick={() => setMenuOpen(false)} className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-xs font-semibold text-slate-700 hover:bg-violet-50">
-                          <ExternalLink size={15} /> Open in new window <span className="ml-auto text-[10px] text-slate-400">Ctrl+O</span>
-                        </button>
-                        <button onClick={() => setMenuOpen(false)} className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-xs font-semibold text-slate-700 hover:bg-violet-50">
-                          <Calendar size={15} /> Schedule meeting
-                        </button>
-                        <button onClick={() => setMenuOpen(false)} className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-xs font-semibold text-slate-700 hover:bg-violet-50">
-                          <Share2 size={15} /> Share screen <span className="ml-auto text-[10px] text-slate-400">Ctrl+Shift+E</span>
-                        </button>
-                        <div className="my-1 border-t border-slate-100" />
-                        <button onClick={() => setMenuOpen(false)} className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-xs font-semibold text-slate-700 hover:bg-violet-50">
-                          <Check size={15} /> Mark as unread
-                        </button>
-                        <button onClick={() => setMenuOpen(false)} className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-xs font-semibold text-slate-700 hover:bg-violet-50">
-                          <Bookmark size={15} className="text-violet-600" /> Favorite
-                        </button>
-                        <button onClick={() => setMenuOpen(false)} className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-xs font-semibold text-slate-700 hover:bg-violet-50">
-                          <BellOff size={15} /> Mute
-                        </button>
-                        <div className="my-1 border-t border-slate-100" />
-                        <button onClick={() => setMenuOpen(false)} className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50">
-                          <AlertTriangle size={15} /> Report a concern
-                        </button>
-                        <button onClick={() => { setMenuOpen(false); setDeleteModalOpen(true); }} className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-xs font-semibold text-rose-600 hover:bg-rose-50">
-                          <Trash2 size={15} /> Delete conversation
-                        </button>
+                      {/* Avatar with Presence */}
+                      <div className="relative h-9 w-9 shrink-0">
+                        <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-[#5B5FC7] text-xs font-bold text-white shadow-xs">
+                          {avatar ? (
+                            <img
+                              src={getFileUrl(avatar)}
+                              alt=""
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            getInitials(name)
+                          )}
+                        </div>
+                        <TeamsPresenceBadge
+                          status="available"
+                          className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5"
+                        />
                       </div>
+
+                      {/* Text preview */}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-1">
+                          <span
+                            className={`truncate text-xs ${
+                              unread > 0
+                                ? "font-bold text-[#242424]"
+                                : isSelected
+                                ? "font-semibold text-[#242424]"
+                                : "text-[#242424]"
+                            }`}
+                          >
+                            {name}
+                          </span>
+                          <span className="shrink-0 text-[10px] text-[#616161]">
+                            {formatConversationDate(
+                              conv.lastMessageAt || conv.updatedAt
+                            )}
+                          </span>
+                        </div>
+                        <div className="mt-0.5 flex items-center justify-between gap-1">
+                          <p
+                            className={`truncate text-[11px] ${
+                              unread > 0
+                                ? "font-bold text-[#242424]"
+                                : "text-[#616161]"
+                            }`}
+                          >
+                            {conv.lastMessage || "Admin communication"}
+                          </p>
+                          <div className="flex shrink-0 items-center gap-1">
+                            {isMuted && (
+                              <BellOff size={11} className="text-[#8A8886]" />
+                            )}
+                            {isPinned && (
+                              <Pin
+                                size={11}
+                                className="fill-[#5B5FC7] text-[#5B5FC7]"
+                              />
+                            )}
+                            {unread > 0 && (
+                              <span className="flex h-4 min-w-[16px] shrink-0 items-center justify-center rounded-full bg-[#5B5FC7] px-1 text-[10px] font-bold text-white">
+                                {unread}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </aside>
+
+        {/* ==========================================================
+            TEAMS RIGHT CONVERSATION PANE (VIEW & REPLY DIRECTLY)
+        ========================================================== */}
+        <main
+          className={`flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white ${
+            selectedConversationId ? "flex" : "hidden md:flex"
+          }`}
+        >
+          {selectedConversationId ? (
+            <>
+              {/* Header Bar */}
+              <header className="z-10 flex min-h-[58px] shrink-0 items-center justify-between border-b border-[#E1DFDD] bg-white px-4 sm:px-6">
+                <div className="flex min-w-0 items-center gap-3">
+                  {/* Mobile Back Button */}
+                  <button
+                    onClick={() => setSelectedConversation(null)}
+                    className="mr-1 rounded p-1.5 text-[#616161] hover:bg-[#EDEBE9] md:hidden"
+                    title="Back to chats"
+                  >
+                    <ArrowLeft size={18} />
+                  </button>
+
+                  {/* Header Avatar */}
+                  <div className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#5B5FC7] text-xs font-bold text-white shadow-xs">
+                    {selectedAvatar ? (
+                      <img
+                        src={getFileUrl(selectedAvatar)}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      getInitials(selectedName)
                     )}
+                    <TeamsPresenceBadge
+                      status="available"
+                      className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5"
+                    />
+                  </div>
+
+                  {/* Title & Tabs */}
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h2 className="truncate text-sm font-bold text-[#242424]">
+                        {selectedName}
+                      </h2>
+                      <span className="rounded bg-[#EEF1FD] px-1.5 py-0.5 text-[10px] font-semibold text-[#5B5FC7]">
+                        Verified Admin
+                      </span>
+                    </div>
+
+                    <div className="mt-1 flex items-center gap-4">
+                      {[
+                        { id: "chat", label: "Chat" },
+                        { id: "files", label: "Files" },
+                        { id: "photos", label: "Photos" },
+                      ].map((tab) => (
+                        <button
+                          key={tab.id}
+                          onClick={() => setHeaderTab(tab.id)}
+                          className={`relative pb-1 text-xs font-semibold transition ${
+                            headerTab === tab.id
+                              ? "text-[#5B5FC7]"
+                              : "text-[#616161] hover:text-[#242424]"
+                          }`}
+                        >
+                          {tab.label}
+                          {headerTab === tab.id && (
+                            <span className="absolute bottom-0 left-0 h-[2px] w-full bg-[#5B5FC7]" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
 
-                {/* Content based on Header Tab (Chat, Files, Photos) */}
-                {headerTab === "chat" && (
-                  <>
-                    <div className="flex-1 overflow-y-auto overscroll-contain px-6 py-6 bg-slate-50/30">
-                      <div className="mx-auto flex w-full max-w-4xl flex-col gap-4">
-                        {messages.map((item, index) => {
-                          const isOutgoing = String(getUserId(item?.sender)) === String(getUserId(currentUser));
+                {/* Right Options Toolbar */}
+                <div
+                  className="relative flex shrink-0 items-center gap-1 text-[#616161]"
+                  ref={menuRef}
+                >
+                  {/* Search in chat */}
+                  {showMessageSearch && (
+                    <div className="absolute right-0 top-12 z-30 flex w-72 items-center rounded border border-[#E1DFDD] bg-white p-1.5 shadow-lg">
+                      <Search size={14} className="ml-1 text-[#616161]" />
+                      <input
+                        autoFocus
+                        value={messageSearch}
+                        onChange={(e) => setMessageSearch(e.target.value)}
+                        placeholder="Search in chat..."
+                        className="min-w-0 flex-1 px-2 py-0.5 text-xs outline-none"
+                      />
+                      <button
+                        onClick={() => {
+                          setShowMessageSearch(false);
+                          setMessageSearch("");
+                        }}
+                        className="rounded p-1 hover:bg-[#EDEBE9]"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={() => setShowMessageSearch((prev) => !prev)}
+                    className="flex h-8 w-8 items-center justify-center rounded text-[#616161] transition hover:bg-[#EDEBE9] hover:text-[#242424]"
+                    title="Search in chat"
+                  >
+                    <Search size={16} />
+                  </button>
+                  <button
+                    onClick={() => setMenuOpen((prev) => !prev)}
+                    className="flex h-8 w-8 items-center justify-center rounded text-[#616161] transition hover:bg-[#EDEBE9] hover:text-[#242424]"
+                    title="More options"
+                  >
+                    <MoreHorizontal size={18} />
+                  </button>
+
+                  {/* Options Menu */}
+                  {menuOpen && (
+                    <div className="absolute right-0 top-10 z-40 w-52 rounded-md border border-[#E1DFDD] bg-white py-1.5 shadow-lg">
+                      <button
+                        onClick={() => {
+                          togglePin();
+                        }}
+                        className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-xs font-medium text-[#242424] hover:bg-[#F5F5F5]"
+                      >
+                        <Pin size={14} className="text-[#5B5FC7]" />
+                        {pinnedChats.includes(String(selectedConversationId))
+                          ? "Unpin chat"
+                          : "Pin chat"}
+                      </button>
+                      <button
+                        onClick={() => {
+                          toggleMute();
+                        }}
+                        className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-xs font-medium text-[#242424] hover:bg-[#F5F5F5]"
+                      >
+                        {mutedChats.includes(String(selectedConversationId)) ? (
+                          <Bell size={14} />
+                        ) : (
+                          <BellOff size={14} />
+                        )}
+                        {mutedChats.includes(String(selectedConversationId))
+                          ? "Unmute"
+                          : "Mute notifications"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </header>
+
+              {/* Error Notice */}
+              {messagesError && (
+                <div className="flex shrink-0 items-center justify-between border-b border-[#F9D9DC] bg-[#FDF3F4] px-4 py-2 text-xs text-[#C4314B]">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle size={14} />
+                    <span>{messagesError}</span>
+                  </div>
+                  <button onClick={() => setMessagesError("")}>
+                    <X size={13} />
+                  </button>
+                </div>
+              )}
+
+              {/* ── TAB 1: CHAT CANVAS ── */}
+              {headerTab === "chat" && (
+                <>
+                  <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-white px-4 py-5 sm:px-6">
+                    <div className="mx-auto flex w-full max-w-4xl flex-col gap-4">
+                      {messagesLoading ? (
+                        <div className="flex items-center justify-center py-16">
+                          <Loader2
+                            size={24}
+                            className="animate-spin text-[#5B5FC7]"
+                          />
+                        </div>
+                      ) : visibleMessages.length === 0 ? (
+                        <div className="flex min-h-[300px] flex-1 flex-col items-center justify-center text-center">
+                          <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-[#EEF1FD] text-[#5B5FC7]">
+                            <MessageSquare size={26} />
+                          </div>
+                          <h3 className="text-sm font-bold text-[#242424]">
+                            Official Admin Channel
+                          </h3>
+                          <p className="mt-1 max-w-xs text-xs text-[#616161]">
+                            All updates from your administration team will appear here. You can reply directly below.
+                          </p>
+                        </div>
+                      ) : (
+                        visibleMessages.map((item, index) => {
+                          const sender = item?.sender;
+                          const senderId = getUserId(sender);
+                          const myId = getUserId(currentUser);
+                          const isOwn = Boolean(
+                            (senderId && myId && sameId(senderId, myId)) ||
+                              sender?.name === "You" ||
+                              String(sender?.role || "").toLowerCase() === "user"
+                          );
                           const msgId = getMessageId(item);
-                          const isEditing = editingMessageId === msgId;
-                          const attachments = Array.isArray(item?.attachments) ? item.attachments : [];
+                          const isDeleted = Boolean(item?.isDeletedForEveryone);
+                          const body = isDeleted
+                            ? "This message was deleted."
+                            : getMessageText(item);
+                          const attachments = Array.isArray(item?.attachments)
+                            ? item.attachments
+                            : [];
+                          const previous = visibleMessages[index - 1];
+                          const showDay =
+                            !previous ||
+                            formatDayLabel(item?.createdAt) !==
+                              formatDayLabel(previous?.createdAt);
+                          const replyInfo = item?.replyTo;
 
                           return (
-                            <div key={msgId || index} className={`group flex gap-3 ${isOutgoing ? "justify-end" : "justify-start"}`}>
-                              <div className={`relative max-w-[75%] rounded-[20px] px-4 py-3 shadow-sm ${isOutgoing ? "rounded-tr-xs bg-violet-600 text-white" : "rounded-tl-xs border border-slate-100 bg-white text-slate-800"}`}>
-                                {!isOutgoing && <p className="mb-1 text-[10px] font-bold text-violet-600">{selectedName}</p>}
+                            <div key={msgId || index} className="group relative">
+                              {/* Date Separator */}
+                              {showDay && (
+                                <div className="my-4 flex items-center justify-center">
+                                  <span className="rounded-full bg-[#F5F5F5] px-3 py-1 text-[11px] font-semibold text-[#616161] shadow-2xs">
+                                    {formatDayLabel(item?.createdAt)}
+                                  </span>
+                                </div>
+                              )}
 
-                                {item.isDeletedForEveryone ? (
-                                  <p className="italic text-slate-400 text-xs">This message was deleted</p>
-                                ) : isEditing ? (
-                                  <div className="flex flex-col gap-2">
-                                    <input
-                                      value={editText}
-                                      onChange={(e) => setEditText(e.target.value)}
-                                      className="rounded-xl border border-slate-200 px-3 py-1 text-xs text-slate-800 bg-white outline-none"
-                                    />
-                                    <div className="flex gap-2">
-                                      <button onClick={() => handleEditMessage(msgId)} className="rounded-lg bg-violet-700 px-2.5 py-1 text-white text-[10px] font-bold">Save</button>
-                                      <button onClick={() => setEditingMessageId(null)} className="rounded-lg border px-2.5 py-1 text-[10px] font-bold">Cancel</button>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <>
-                                    {getMessageText(item) && (
-                                      <p className="whitespace-pre-wrap break-words text-xs font-medium leading-relaxed">{getMessageText(item)}</p>
+                              {/* Message Row */}
+                              <div
+                                className={`flex w-full items-start gap-2.5 ${
+                                  isOwn ? "flex-row-reverse" : "flex-row"
+                                }`}
+                              >
+                                {/* Avatar */}
+                                <div className="mt-0.5 h-8 w-8 shrink-0">
+                                  <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-[#5B5FC7] text-[11px] font-bold text-white shadow-2xs">
+                                    {isOwn ? (
+                                      "You"
+                                    ) : (
+                                      getInitials(selectedName)
                                     )}
-                                    {/* Render Attachments/Images properly */}
-                                    {attachments.length > 0 && (
-                                      <div className={`flex flex-col gap-2 ${getMessageText(item) ? "mt-2" : ""}`}>
-                                        {attachments.map((att, attIndex) => {
+                                  </div>
+                                </div>
+
+                                {/* Bubble Box */}
+                                <div
+                                  className={`relative max-w-[85%] sm:max-w-[75%] ${
+                                    isOwn ? "items-end" : "items-start"
+                                  } flex flex-col`}
+                                >
+                                  {/* Header Info */}
+                                  <div className="mb-1 flex items-center gap-2 px-1 text-[11px] text-[#616161]">
+                                    <span className="font-semibold text-[#242424]">
+                                      {isOwn ? "You" : selectedName}
+                                    </span>
+                                    {!isOwn && (
+                                      <span className="rounded bg-[#EEF1FD] px-1 text-[10px] font-bold text-[#5B5FC7]">
+                                        Admin
+                                      </span>
+                                    )}
+                                    <span>
+                                      {formatMessageTime(item?.createdAt)}
+                                    </span>
+                                  </div>
+
+                                  {/* Bubble Content */}
+                                  <div
+                                    className={`relative rounded-xl px-4 py-2.5 text-xs shadow-2xs transition-shadow ${
+                                      isDeleted
+                                        ? "border border-[#E1DFDD] bg-[#F5F5F5] italic text-[#8A8886]"
+                                        : isOwn
+                                        ? "rounded-tr-xs border border-[#D8DDF8] bg-[#EEF1FD] text-[#242424]"
+                                        : "rounded-tl-xs border border-[#E1DFDD] bg-white text-[#242424]"
+                                    }`}
+                                  >
+                                    {/* Quoted Reply Block */}
+                                    {replyInfo && !isDeleted && (
+                                      <div className="mb-2 border-l-2 border-[#5B5FC7] bg-[#EDEBE9]/40 pl-2.5 py-1 text-[11px]">
+                                        <p className="font-semibold text-[#5B5FC7]">
+                                          Admin Support
+                                        </p>
+                                        <p className="line-clamp-2 text-[#616161]">
+                                          {getMessageText(replyInfo) ||
+                                            "Attachment"}
+                                        </p>
+                                      </div>
+                                    )}
+
+                                    {/* Text */}
+                                    {body && (
+                                      <p className="whitespace-pre-wrap break-words leading-relaxed">
+                                        {body}
+                                      </p>
+                                    )}
+
+                                    {/* Attachments */}
+                                    {attachments.length > 0 && !isDeleted && (
+                                      <div
+                                        className={`flex flex-col gap-2 ${
+                                          body ? "mt-2.5" : ""
+                                        }`}
+                                      >
+                                        {attachments.map((att, attIdx) => {
                                           const fileUrl = getFileUrl(att?.url);
-                                          const isImage = String(att?.mimeType || att?.fileType || "").includes("image") || /\.(jpg|jpeg|png|webp|gif)$/i.test(att?.url || "");
-                                          
+                                          const isImage =
+                                            String(
+                                              att?.mimeType ||
+                                                att?.fileType ||
+                                                ""
+                                            ).startsWith("image/") ||
+                                            /\.(jpg|jpeg|png|webp|gif)$/i.test(
+                                              att?.url || ""
+                                            );
+
                                           if (isImage) {
                                             return (
-                                              <a key={attIndex} href={fileUrl} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-xl border border-white/20 bg-black/5">
-                                                <img src={fileUrl} alt={att?.originalName || "Attachment"} className="max-h-60 w-full object-cover rounded-xl" />
-                                              </a>
+                                              <div
+                                                key={`${att.url}-${attIdx}`}
+                                                onClick={() =>
+                                                  setPreviewPhotoUrl(fileUrl)
+                                                }
+                                                className="group/img relative cursor-pointer overflow-hidden rounded-lg border border-[#E1DFDD]"
+                                              >
+                                                <img
+                                                  src={fileUrl}
+                                                  alt="Attachment"
+                                                  className="max-h-72 max-w-full rounded object-contain transition duration-150 group-hover/img:scale-[1.01]"
+                                                  loading="lazy"
+                                                />
+                                                <div className="absolute right-2 top-2 rounded bg-black/60 p-1 text-white opacity-0 transition group-hover/img:opacity-100">
+                                                  <Maximize2 size={13} />
+                                                </div>
+                                              </div>
                                             );
                                           }
 
                                           return (
-                                            <a key={attIndex} href={fileUrl} target="_blank" rel="noopener noreferrer" className={`flex items-center gap-2.5 rounded-xl p-2.5 text-xs font-medium transition ${isOutgoing ? "bg-white/10 hover:bg-white/20 text-white" : "bg-slate-100 hover:bg-slate-200 text-slate-800"}`}>
-                                              <FileText size={18} className="shrink-0" />
-                                              <span className="truncate">{att?.originalName || att?.filename || "Download File"}</span>
+                                            <a
+                                              key={`${att.url}-${attIdx}`}
+                                              href={fileUrl}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="flex items-center gap-3 rounded-lg border border-[#E1DFDD] bg-white p-2.5 transition hover:bg-[#F5F5F5]"
+                                            >
+                                              <div className="flex h-8 w-8 items-center justify-center rounded bg-[#EEF1FD] text-[#5B5FC7]">
+                                                <FileText size={17} />
+                                              </div>
+                                              <div className="min-w-0 flex-1">
+                                                <p className="truncate text-xs font-semibold text-[#242424]">
+                                                  {att.originalName ||
+                                                    att.filename ||
+                                                    "Document"}
+                                                </p>
+                                                <p className="text-[10px] text-[#616161]">
+                                                  Attachment
+                                                </p>
+                                              </div>
+                                              <Download
+                                                size={14}
+                                                className="text-[#616161]"
+                                              />
                                             </a>
                                           );
                                         })}
                                       </div>
                                     )}
-                                  </>
-                                )}
 
-                                {/* Reactions */}
-                                {Array.isArray(item?.reactions) && item.reactions.length > 0 && (
-                                  <div className="mt-1.5 flex flex-wrap gap-1">
-                                    {item.reactions.map((r, i) => (
-                                      <span key={i} className="rounded-full bg-black/10 px-2 py-0.5 text-[10px] font-bold">{r.emoji}</span>
-                                    ))}
+                                    {/* Sent Status for User */}
+                                    {isOwn && !isDeleted && (
+                                      <div className="mt-1 flex items-center justify-end gap-1 text-[10px] text-[#616161]">
+                                        {item?.sending ? (
+                                          <Loader2
+                                            size={11}
+                                            className="animate-spin text-[#5B5FC7]"
+                                          />
+                                        ) : item?.seen ? (
+                                          <Eye
+                                            size={12}
+                                            className="text-[#5B5FC7]"
+                                            title="Seen by Admin"
+                                          />
+                                        ) : (
+                                          <CheckCheck
+                                            size={12}
+                                            className="text-[#616161]"
+                                            title="Delivered to Admin"
+                                          />
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Emoji Reactions Bar */}
+                                  {item?.reactions?.length > 0 && (
+                                    <div className="mt-1.5 flex flex-wrap gap-1 px-1">
+                                      {item.reactions.map((r, rIdx) => {
+                                        const emoji =
+                                          typeof r === "string" ? r : r?.emoji;
+                                        const count =
+                                          typeof r === "object"
+                                            ? r?.count ||
+                                              r?.users?.length ||
+                                              1
+                                            : 1;
+                                        if (!emoji) return null;
+                                        return (
+                                          <button
+                                            key={`${emoji}-${rIdx}`}
+                                            onClick={() =>
+                                              handleAddReaction(msgId, emoji)
+                                            }
+                                            className="flex items-center gap-1 rounded-full border border-[#E1DFDD] bg-[#F5F5F5] px-2 py-0.5 text-[11px] transition hover:bg-white"
+                                          >
+                                            <span>{emoji}</span>
+                                            {count > 1 && (
+                                              <span className="font-semibold text-[#616161]">
+                                                {count}
+                                              </span>
+                                            )}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Floating Reaction & Reply Bar on Hover */}
+                                {!isDeleted && (
+                                  <div
+                                    className={`absolute top-0 z-20 hidden -translate-y-4 items-center rounded-full border border-[#E1DFDD] bg-white px-1.5 py-1 shadow-md group-hover:flex ${
+                                      isOwn ? "left-12" : "right-12"
+                                    }`}
+                                  >
+                                    {["👍", "❤️", "😂", "😮", "👏"].map(
+                                      (emoji) => (
+                                        <button
+                                          key={emoji}
+                                          onClick={() =>
+                                            handleAddReaction(msgId, emoji)
+                                          }
+                                          className="rounded-full p-1 text-sm transition hover:scale-125 hover:bg-[#F5F5F5]"
+                                          title={`React with ${emoji}`}
+                                        >
+                                          {emoji}
+                                        </button>
+                                      )
+                                    )}
+                                    <div className="mx-1 h-3.5 w-px bg-[#E1DFDD]" />
+                                    {/* Reply Directly to Message */}
+                                    <button
+                                      onClick={() => {
+                                        setReplyingTo(item);
+                                        messageInputRef.current?.focus();
+                                      }}
+                                      className="rounded p-1 text-[#616161] hover:bg-[#F5F5F5] hover:text-[#5B5FC7]"
+                                      title="Reply to message"
+                                    >
+                                      <CornerUpLeft size={13} />
+                                    </button>
                                   </div>
                                 )}
-
-                                <div className={`mt-1.5 flex items-center justify-end gap-1 text-[10px] ${isOutgoing ? "text-violet-200" : "text-slate-400"}`}>
-                                  <span>{formatTime(item?.createdAt)}</span>
-                                  {isOutgoing && !item.isDeletedForEveryone && (
-                                    item?.seen ? <Eye size={13} className="text-emerald-300" title="Seen" /> : <CheckCheck size={12} />
-                                  )}
-                                </div>
                               </div>
-
-                              {/* Hover action bar */}
-                              {!item.isDeletedForEveryone && (
-                                <div className={`absolute opacity-0 group-hover:opacity-100 flex items-center gap-1 bg-white border border-slate-200 shadow-lg rounded-xl px-2 py-1 transition ${isOutgoing ? "-translate-x-12" : "translate-x-12"}`}>
-                                  {["👍", "❤️", "😂"].map((emoji) => (
-                                    <button key={emoji} onClick={() => handleAddReaction(msgId, emoji)} className="hover:scale-125 transition text-sm p-1">{emoji}</button>
-                                  ))}
-                                  {isOutgoing && (
-                                    <button onClick={() => { setEditingMessageId(msgId); setEditText(getMessageText(item)); }} className="p-1 text-slate-400 hover:text-violet-600" title="Edit">
-                                      <Pencil size={13} />
-                                    </button>
-                                  )}
-                                  <button onClick={() => { setMessageToDelete(item); setDeleteModalOpen(true); }} className="p-1 text-slate-400 hover:text-rose-600" title="Delete">
-                                    <Trash2 size={13} />
-                                  </button>
-                                </div>
-                              )}
                             </div>
                           );
-                        })}
-                        <div ref={messagesEndRef} />
-                      </div>
+                        })
+                      )}
+                      <div ref={messagesEndRef} />
                     </div>
+                  </div>
 
-                    {/* Bottom Type Section */}
-                    <div className="shrink-0 border-t border-slate-100 bg-white p-4 sm:p-5">
-                      <form onSubmit={handleSendMessage} className="flex items-end gap-2.5">
-                        <input type="file" multiple ref={fileInputRef} onChange={(e) => setSelectedFiles(Array.from(e.target.files))} className="hidden" />
-                        <button type="button" onClick={() => fileInputRef.current?.click()} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-500 hover:bg-violet-50">
-                          <Paperclip size={18} />
-                        </button>
-                        <div className="min-w-0 flex-1">
+                  {/* ── TEAMS MESSAGE COMPOSER (REPLY DIRECTLY TO ADMIN) ── */}
+                  <div className="shrink-0 bg-white px-4 pb-4 pt-1 sm:px-6">
+                    <div className="mx-auto max-w-4xl">
+                      {/* Replying Banner */}
+                      {replyingTo && (
+                        <div className="mb-2 flex items-center justify-between rounded-t border-l-2 border-[#5B5FC7] bg-[#EEF1FD] px-3 py-1.5 text-xs">
+                          <div className="min-w-0">
+                            <span className="font-semibold text-[#5B5FC7]">
+                              Replying directly to Admin message
+                            </span>
+                            <p className="truncate text-[11px] text-[#616161]">
+                              {getMessageText(replyingTo) || "Attachment"}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => setReplyingTo(null)}
+                            className="rounded p-1 text-[#616161] hover:text-[#242424]"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Selected Files Chips */}
+                      {selectedFiles.length > 0 && (
+                        <div className="mb-2 flex flex-wrap gap-2">
+                          {selectedFiles.map((file, idx) => (
+                            <div
+                              key={`${file.name}-${idx}`}
+                              className="flex items-center gap-2 rounded border border-[#D8DDF8] bg-[#EEF1FD] px-2.5 py-1 text-xs text-[#242424]"
+                            >
+                              <FileText size={13} className="text-[#5B5FC7]" />
+                              <span className="max-w-[150px] truncate font-medium">
+                                {file.name}
+                              </span>
+                              <span className="text-[10px] text-[#616161]">
+                                {Math.ceil(file.size / 1024)} KB
+                              </span>
+                              <button
+                                onClick={() =>
+                                  setSelectedFiles((prev) =>
+                                    prev.filter((_, i) => i !== idx)
+                                  )
+                                }
+                                className="text-[#616161] hover:text-[#C4314B]"
+                              >
+                                <X size={12} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Input Box */}
+                      <form
+                        onSubmit={handleSendMessage}
+                        className="rounded-lg border border-[#E1DFDD] bg-white shadow-2xs transition focus-within:border-[#5B5FC7] focus-within:ring-1 focus-within:ring-[#5B5FC7]"
+                      >
+                        {formatActive && (
+                          <div className="flex items-center gap-1 border-b border-[#E1DFDD] bg-[#F5F5F5] px-3 py-1 text-[#616161]">
+                            <button
+                              type="button"
+                              onClick={() => setMessage((p) => `**${p}**`)}
+                              className="rounded p-1 hover:bg-[#EDEBE9]"
+                              title="Bold"
+                            >
+                              <Bold size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setMessage((p) => `*${p}*`)}
+                              className="rounded p-1 hover:bg-[#EDEBE9]"
+                              title="Italic"
+                            >
+                              <Italic size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setMessage((p) => `\n- ${p}`)}
+                              className="rounded p-1 hover:bg-[#EDEBE9]"
+                              title="Bullet list"
+                            >
+                              <List size={13} />
+                            </button>
+                          </div>
+                        )}
+
+                        <div className="px-3 pt-2.5">
                           <textarea
+                            ref={messageInputRef}
                             value={message}
-                            onChange={(e) => setMessage(e.target.value)}
+                            onChange={(e) => {
+                              setMessage(e.target.value);
+                              e.target.style.height = "40px";
+                              e.target.style.height = `${Math.min(
+                                e.target.scrollHeight,
+                                120
+                              )}px`;
+                            }}
                             onKeyDown={(e) => {
-                              if (e.key === "Enter" && !e.shiftKey) {
+                              if (
+                                e.key === "Enter" &&
+                                !e.shiftKey &&
+                                !e.nativeEvent.isComposing
+                              ) {
                                 e.preventDefault();
                                 handleSendMessage(e);
                               }
                             }}
-                            placeholder={`Message ${selectedName}...`}
+                            placeholder={`Reply directly to ${selectedName}...`}
                             rows={1}
-                            className="min-h-11 max-h-32 w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-medium text-slate-700 outline-none focus:border-violet-500 focus:bg-white"
+                            className="min-h-[40px] max-h-32 w-full resize-none bg-transparent text-xs leading-relaxed text-[#242424] outline-none placeholder:text-[#616161]"
                           />
                         </div>
-                        <button type="submit" disabled={!message.trim() && !selectedFiles.length} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-violet-600 text-white shadow-md hover:bg-violet-700 disabled:bg-slate-200">
-                          <Send size={17} />
-                        </button>
+
+                        {/* Composer Toolbar */}
+                        <div className="flex items-center justify-between px-2 pb-2 pt-1 text-[#616161]">
+                          <div className="flex items-center gap-0.5">
+                            <button
+                              type="button"
+                              onClick={() => setFormatActive((prev) => !prev)}
+                              className={`rounded p-1.5 transition ${
+                                formatActive
+                                  ? "bg-[#EDEBE9] text-[#5B5FC7]"
+                                  : "hover:bg-[#EDEBE9] hover:text-[#242424]"
+                              }`}
+                              title="Formatting"
+                            >
+                              <Pencil size={15} />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => fileInputRef.current?.click()}
+                              className="rounded p-1.5 transition hover:bg-[#EDEBE9] hover:text-[#242424]"
+                              title="Attach file"
+                            >
+                              <Paperclip size={15} />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => fileInputRef.current?.click()}
+                              className="rounded p-1.5 transition hover:bg-[#EDEBE9] hover:text-[#242424]"
+                              title="Add image"
+                            >
+                              <ImageIcon size={15} />
+                            </button>
+
+                            {/* Emoji Picker */}
+                            <div className="relative">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setShowEmojiPicker((prev) => !prev)
+                                }
+                                className="rounded p-1.5 transition hover:bg-[#EDEBE9] hover:text-[#242424]"
+                                title="Emoji"
+                              >
+                                <Smile size={15} />
+                              </button>
+                              {showEmojiPicker && (
+                                <div className="absolute bottom-9 left-0 z-40 grid grid-cols-6 gap-1 rounded-md border border-[#E1DFDD] bg-white p-2 shadow-lg">
+                                  {[
+                                    "😀",
+                                    "😂",
+                                    "😍",
+                                    "👍",
+                                    "❤️",
+                                    "🎉",
+                                    "🙏",
+                                    "😊",
+                                    "😮",
+                                    "😢",
+                                    "🔥",
+                                    "✅",
+                                    "👏",
+                                    "🤝",
+                                    "💯",
+                                    "👀",
+                                    "🙌",
+                                    "🤔",
+                                  ].map((emoji) => (
+                                    <button
+                                      key={emoji}
+                                      type="button"
+                                      onClick={() => appendEmoji(emoji)}
+                                      className="rounded p-1.5 text-base hover:bg-[#EDEBE9]"
+                                    >
+                                      {emoji}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            <input
+                              ref={fileInputRef}
+                              type="file"
+                              multiple
+                              onChange={(e) => {
+                                const incoming = Array.from(
+                                  e.target.files || []
+                                );
+                                setSelectedFiles((prev) => [
+                                  ...prev,
+                                  ...incoming,
+                                ]);
+                                e.target.value = "";
+                              }}
+                              className="hidden"
+                            />
+                          </div>
+
+                          {/* Send Button */}
+                          <button
+                            type="submit"
+                            disabled={
+                              (!message.trim() &&
+                                selectedFiles.length === 0) ||
+                              sending
+                            }
+                            className="flex h-7 w-7 items-center justify-center rounded text-[#5B5FC7] transition hover:bg-[#EEF1FD] disabled:cursor-not-allowed disabled:text-[#8A8886]"
+                            title="Send reply (Enter)"
+                          >
+                            {sending ? (
+                              <Loader2 size={16} className="animate-spin" />
+                            ) : (
+                              <Send size={16} />
+                            )}
+                          </button>
+                        </div>
                       </form>
                     </div>
-                  </>
-                )}
+                  </div>
+                </>
+              )}
 
-                {headerTab === "files" && (
-                  <div className="flex-1 overflow-y-auto p-6 bg-slate-50/30">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">Shared Files</h3>
-                    {fileMessages.length === 0 ? (
-                      <p className="text-xs text-slate-500">No files shared in this chat.</p>
+              {/* ── TAB 2: FILES ── */}
+              {headerTab === "files" && (
+                <div className="flex-1 overflow-y-auto bg-white p-6">
+                  <div className="mx-auto max-w-4xl">
+                    <h3 className="mb-4 text-sm font-bold text-[#242424]">
+                      Shared Documents with Admin
+                    </h3>
+                    {fileAttachments.length === 0 ? (
+                      <div className="rounded-lg border border-dashed border-[#E1DFDD] p-12 text-center text-xs text-[#616161]">
+                        No files shared in this conversation yet.
+                      </div>
                     ) : (
-                      <div className="space-y-2">
-                        {fileMessages.map((m, i) => (
-                          <div key={i} className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3">
-                            <FileText size={20} className="text-violet-600" />
-                            <span className="text-xs font-bold text-slate-800">{getMessageText(m)}</span>
+                      <div className="overflow-hidden rounded-lg border border-[#E1DFDD]">
+                        <table className="w-full text-left text-xs">
+                          <thead className="border-b border-[#E1DFDD] bg-[#F5F5F5] font-semibold text-[#616161]">
+                            <tr>
+                              <th className="px-4 py-2.5">Name</th>
+                              <th className="px-4 py-2.5">Date</th>
+                              <th className="px-4 py-2.5">Sender</th>
+                              <th className="px-4 py-2.5 text-right">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[#E1DFDD]">
+                            {fileAttachments.map((att, idx) => (
+                              <tr key={idx} className="hover:bg-[#F5F5F5]">
+                                <td className="flex items-center gap-2.5 px-4 py-3 font-medium text-[#242424]">
+                                  <FileText
+                                    size={16}
+                                    className="text-[#5B5FC7]"
+                                  />
+                                  <span className="truncate max-w-[220px]">
+                                    {att.originalName || att.filename || "File"}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-[#616161]">
+                                  {formatConversationDate(
+                                    att.message?.createdAt
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-[#616161]">
+                                  {sameId(
+                                    getUserId(att.message?.sender),
+                                    getUserId(currentUser)
+                                  )
+                                    ? "You"
+                                    : "Admin"}
+                                </td>
+                                <td className="px-4 py-3 text-right">
+                                  <a
+                                    href={getFileUrl(att.url)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="font-semibold text-[#5B5FC7] hover:underline"
+                                  >
+                                    Open
+                                  </a>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ── TAB 3: PHOTOS ── */}
+              {headerTab === "photos" && (
+                <div className="flex-1 overflow-y-auto bg-white p-6">
+                  <div className="mx-auto max-w-4xl">
+                    <h3 className="mb-4 text-sm font-bold text-[#242424]">
+                      Shared Photos
+                    </h3>
+                    {photoAttachments.length === 0 ? (
+                      <div className="rounded-lg border border-dashed border-[#E1DFDD] p-12 text-center text-xs text-[#616161]">
+                        No photos shared in this conversation yet.
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+                        {photoAttachments.map((att, idx) => (
+                          <div
+                            key={idx}
+                            onClick={() =>
+                              setPreviewPhotoUrl(getFileUrl(att.url))
+                            }
+                            className="group relative aspect-square cursor-pointer overflow-hidden rounded-lg border border-[#E1DFDD] bg-[#F5F5F5]"
+                          >
+                            <img
+                              src={getFileUrl(att.url)}
+                              alt="Photo"
+                              loading="lazy"
+                              className="h-full w-full object-cover transition duration-150 group-hover:scale-105"
+                            />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 transition group-hover:opacity-100 flex items-center justify-center text-white">
+                              <Maximize2 size={18} />
+                            </div>
                           </div>
                         ))}
                       </div>
                     )}
                   </div>
-                )}
-
-                {headerTab === "photos" && (
-                  <div className="flex-1 overflow-y-auto p-6 bg-slate-50/30">
-                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">Shared Photos</h3>
-                    {photoMessages.length === 0 ? (
-                      <p className="text-xs text-slate-500">No photos shared in this chat.</p>
-                    ) : (
-                      <div className="grid grid-cols-3 gap-3">
-                        {photoMessages.map((m, i) => (
-                          <div key={i} className="aspect-square overflow-hidden rounded-2xl border border-slate-200 bg-white">
-                            <img src={getFileUrl(m.attachments?.[0]?.url)} alt="" className="h-full w-full object-cover" />
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="flex flex-1 items-center justify-center text-slate-400">
-                <p className="text-xs font-bold">Select a conversation to start chatting</p>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="hidden flex-1 flex-col items-center justify-center bg-white px-6 text-center md:flex">
+              <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-2xl bg-[#EEF1FD] text-[#5B5FC7]">
+                <MessageSquare size={36} strokeWidth={1.7} />
               </div>
-            )}
-          </div>
-        </section>
-      </div>
+              <h2 className="text-base font-bold text-[#242424]">
+                Select an Admin conversation
+              </h2>
+              <p className="mt-1 max-w-sm text-xs text-[#616161]">
+                Pick an official Admin channel from the left panel to review company notices and send direct replies.
+              </p>
+            </div>
+          )}
+        </main>
+      </section>
 
-      {/* Start Group Chat Modal */}
-      {groupModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
-          <form onSubmit={handleCreateGroup} className="w-full max-w-md rounded-[28px] border border-slate-200 bg-white p-6 shadow-2xl">
-            <h3 className="text-base font-bold text-slate-900">Start Group Chat</h3>
-            <p className="mt-1 text-xs text-slate-400">Enter a group name to start chatting with multiple users.</p>
-            <input
-              value={groupNameInput}
-              onChange={(e) => setGroupNameInput(e.target.value)}
-              placeholder="Group name..."
-              className="mt-4 h-11 w-full rounded-xl border border-slate-200 px-3 text-xs outline-none focus:border-violet-500"
-              autoFocus
+      {/* ==========================================================
+          PHOTO LIGHTBOX MODAL
+      ========================================================== */}
+      {previewPhotoUrl && (
+        <div
+          onClick={() => setPreviewPhotoUrl(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative max-h-[90vh] max-w-[90vw] overflow-hidden rounded-lg bg-black"
+          >
+            <button
+              onClick={() => setPreviewPhotoUrl(null)}
+              className="absolute right-3 top-3 z-10 rounded-full bg-black/60 p-1.5 text-white hover:bg-black/90"
+            >
+              <X size={18} />
+            </button>
+            <img
+              src={previewPhotoUrl}
+              alt="Enlarged preview"
+              className="max-h-[85vh] max-w-full object-contain"
             />
-            <div className="mt-6 flex justify-end gap-2">
-              <button type="button" onClick={() => setGroupModalOpen(false)} className="h-10 rounded-xl border px-4 text-xs font-bold text-slate-600">Cancel</button>
-              <button type="submit" className="h-10 rounded-xl bg-violet-600 px-4 text-xs font-bold text-white shadow-sm hover:bg-violet-700">Create Group</button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {/* Delete Modal */}
-      {deleteModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-[28px] border border-slate-200 bg-white p-6 shadow-2xl">
-            <h3 className="text-base font-bold text-slate-900">Delete Message?</h3>
-            <div className="mt-4 flex flex-col gap-2.5">
-              <button onClick={() => { executeDeleteMessage("everyone"); setDeleteModalOpen(false); }} className="h-11 w-full rounded-2xl bg-rose-600 text-xs font-bold text-white">Delete for Everyone</button>
-              <button onClick={() => { executeDeleteMessage("me"); setDeleteModalOpen(false); }} className="h-11 w-full rounded-2xl border border-slate-200 text-xs font-bold text-slate-700">Delete for Me</button>
-              <button onClick={() => setDeleteModalOpen(false)} className="h-9 w-full text-xs font-semibold text-slate-400">Cancel</button>
-            </div>
           </div>
         </div>
       )}
     </div>
   );
-}
-
-function playNotificationSound(audioRef) {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.1);
-  } catch {}
 }
