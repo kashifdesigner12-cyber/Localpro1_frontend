@@ -665,6 +665,11 @@ export default function AdminConversationsPage() {
   const [replyingTo, setReplyingTo] = useState(null);
   const [messageActionBusy, setMessageActionBusy] = useState(false);
 
+  // Real-time Typing Indicators
+  const [typingUsers, setTypingUsers] = useState({});
+  const typingTimerRef = useRef(null);
+  const emitTypingTimerRef = useRef(null);
+
   // Online & Presence tracking
   const [onlineUsers, setOnlineUsers] = useState({});
 
@@ -1407,7 +1412,45 @@ export default function AdminConversationsPage() {
       else scheduleRefresh();
     };
 
-    const handleReadUpdate = () => scheduleRefresh();
+    const handleReadUpdate = (payload) => {
+      const convId = String(payload?.conversationId || payload?.roomId || "");
+      if (convId) {
+        setMessages((prev) =>
+          prev.map((m) =>
+            sameId(getConversationIdFromMessage(m), convId) ||
+            sameId(selectedConversationIdRef.current, convId)
+              ? { ...m, isRead: true, status: "seen", seen: true }
+              : m
+          )
+        );
+        if (messagesCache.current[convId]) {
+          messagesCache.current[convId] = messagesCache.current[convId].map(
+            (m) => ({ ...m, isRead: true, status: "seen", seen: true })
+          );
+        }
+      }
+    };
+
+    const handleTypingStart = (payload) => {
+      const convId = String(payload?.conversationId || payload?.roomId || "");
+      if (!convId) return;
+      const userName = payload?.userName || payload?.senderName || "User";
+      setTypingUsers((prev) => ({
+        ...prev,
+        [convId]: userName,
+      }));
+    };
+
+    const handleTypingStop = (payload) => {
+      const convId = String(payload?.conversationId || payload?.roomId || "");
+      if (!convId) return;
+      setTypingUsers((prev) => {
+        const next = { ...prev };
+        delete next[convId];
+        return next;
+      });
+    };
+
     const handlePresence = (payload) => {
       const userId = getId(payload?.user || payload?.userId || payload);
       if (userId) {
@@ -1447,6 +1490,20 @@ export default function AdminConversationsPage() {
       "messages:read",
     ].forEach((eventName) => {
       socket.on(eventName, handleReadUpdate);
+    });
+    [
+      "typing:start",
+      "user_typing",
+      "typing",
+    ].forEach((eventName) => {
+      socket.on(eventName, handleTypingStart);
+    });
+    [
+      "typing:stop",
+      "user_stopped_typing",
+      "stop_typing",
+    ].forEach((eventName) => {
+      socket.on(eventName, handleTypingStop);
     });
     [
       "user_online",
@@ -3206,9 +3263,29 @@ export default function AdminConversationsPage() {
                         </div>
                       )}
 
+                      {/* Real-time Typing Indicator Banner */}
+                      {typingUsers[String(selectedConversationId)] && (
+                        <div className="mb-1.5 flex items-center gap-1.5 px-2 text-xs font-medium italic text-[#5B5FC7]">
+                          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#5B5FC7]" />
+                          <span>
+                            {typingUsers[String(selectedConversationId)]} is typing...
+                          </span>
+                        </div>
+                      )}
+
                       {/* Teams Single-Line Message Input Box */}
                       <form
-                        onSubmit={handleSendMessage}
+                        onSubmit={(e) => {
+                          const convId = selectedConversationIdRef.current;
+                          if (convId && socketRef.current?.connected) {
+                            socketRef.current.emit("typing:stop", { conversationId: convId });
+                          }
+                          if (emitTypingTimerRef.current) {
+                            clearTimeout(emitTypingTimerRef.current);
+                            emitTypingTimerRef.current = null;
+                          }
+                          handleSendMessage(e);
+                        }}
                         className="flex min-h-[54px] w-full items-center rounded-lg border border-[#C8C6C4] bg-white shadow-sm transition focus-within:border-[#5B5FC7] focus-within:ring-2 focus-within:ring-[#5B5FC7]/20"
                       >
                         {/* Optional Rich Text Format Bar */}
@@ -3256,6 +3333,36 @@ export default function AdminConversationsPage() {
                               input.style.height = `${nextHeight}px`;
                               input.style.overflowY =
                                 input.scrollHeight > 96 ? "auto" : "hidden";
+
+                              // Real-time typing emit
+                              const convId = selectedConversationIdRef.current;
+                              if (convId && socketRef.current?.connected) {
+                                socketRef.current.emit("typing:start", {
+                                  conversationId: convId,
+                                  userName: "Admin",
+                                });
+                                if (emitTypingTimerRef.current) {
+                                  clearTimeout(emitTypingTimerRef.current);
+                                }
+                                emitTypingTimerRef.current = setTimeout(() => {
+                                  socketRef.current?.emit("typing:stop", {
+                                    conversationId: convId,
+                                  });
+                                  emitTypingTimerRef.current = null;
+                                }, 2500);
+                              }
+                            }}
+                            onBlur={() => {
+                              const convId = selectedConversationIdRef.current;
+                              if (convId && socketRef.current?.connected) {
+                                socketRef.current.emit("typing:stop", {
+                                  conversationId: convId,
+                                });
+                              }
+                              if (emitTypingTimerRef.current) {
+                                clearTimeout(emitTypingTimerRef.current);
+                                emitTypingTimerRef.current = null;
+                              }
                             }}
                             onKeyDown={(e) => {
                               if (
@@ -3264,6 +3371,16 @@ export default function AdminConversationsPage() {
                                 !e.nativeEvent.isComposing
                               ) {
                                 e.preventDefault();
+                                const convId = selectedConversationIdRef.current;
+                                if (convId && socketRef.current?.connected) {
+                                  socketRef.current.emit("typing:stop", {
+                                    conversationId: convId,
+                                  });
+                                }
+                                if (emitTypingTimerRef.current) {
+                                  clearTimeout(emitTypingTimerRef.current);
+                                  emitTypingTimerRef.current = null;
+                                }
                                 handleSendMessage(e);
                               }
                             }}
