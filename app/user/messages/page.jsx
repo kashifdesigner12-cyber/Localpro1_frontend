@@ -67,23 +67,53 @@ const DEFAULT_CONVERSATION_ID = "admin-default-chat";
 
 /* -------------------- Helpers -------------------- */
 
+function normalizeTokenValue(value) {
+  if (!value) return "";
+  let raw = String(value).trim().replace(/^Bearer\s+/i, "").trim();
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed === "string") {
+      return parsed.replace(/^Bearer\s+/i, "").trim();
+    }
+    if (parsed && typeof parsed === "object") {
+      const nestedToken =
+        parsed.token ||
+        parsed.accessToken ||
+        parsed.access_token ||
+        parsed.jwt ||
+        parsed.authToken;
+      if (nestedToken) {
+        return String(nestedToken).replace(/^Bearer\s+/i, "").trim();
+      }
+    }
+  } catch {}
+  return raw;
+}
+
 function getStoredToken() {
   if (typeof window === "undefined") return "";
-  try {
-    return (
-      localStorage.getItem("token") ||
-      localStorage.getItem("accessToken") ||
-      localStorage.getItem("authToken") ||
-      localStorage.getItem("userToken") ||
-      localStorage.getItem("localpro_token") ||
-      localStorage.getItem("localProToken") ||
-      sessionStorage.getItem("token") ||
-      sessionStorage.getItem("accessToken") ||
-      ""
-    );
-  } catch {
-    return "";
+  const keys = [
+    "token",
+    "accessToken",
+    "access_token",
+    "authToken",
+    "auth_token",
+    "jwt",
+    "userToken",
+    "localpro_token",
+    "localProToken",
+  ];
+  for (const key of keys) {
+    try {
+      const token = normalizeTokenValue(localStorage.getItem(key));
+      if (token) return token;
+    } catch {}
+    try {
+      const token = normalizeTokenValue(sessionStorage.getItem(key));
+      if (token) return token;
+    } catch {}
   }
+  return "";
 }
 
 function getFileUrl(url) {
@@ -292,7 +322,9 @@ async function apiRequest(endpoint, options = {}) {
     typeof FormData !== "undefined" && options.body instanceof FormData;
   const headers = {
     Accept: "application/json",
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(token
+      ? { Authorization: `Bearer ${token}`, "x-auth-token": token }
+      : {}),
     ...(isForm || !options.body ? {} : { "Content-Type": "application/json" }),
     ...(options.headers || {}),
   };
@@ -309,7 +341,9 @@ async function apiRequest(endpoint, options = {}) {
   } catch {}
   if (!response.ok) {
     const error = new Error(
-      data?.message || data?.error || `Request failed (${response.status})`
+      response.status === 401
+        ? (data?.message || "Your session has expired. Please sign in again.")
+        : data?.message || data?.error || `Request failed (${response.status})`
     );
     error.status = response.status;
     throw error;
@@ -327,9 +361,18 @@ async function safeApiRequest(endpoint) {
 }
 
 async function getConversationMessages(id) {
-  if (!id || id === DEFAULT_CONVERSATION_ID) return { messages: [] };
-  // The backend getMessages controller reads conversationId from the query string.
-  return apiRequest(`/messages?conversationId=${encodeURIComponent(id)}`);
+  const conversationId = String(id ?? "").trim();
+  if (
+    !conversationId ||
+    conversationId === DEFAULT_CONVERSATION_ID ||
+    conversationId.startsWith("demo-")
+  ) {
+    return { messages: [] };
+  }
+
+  // This backend's getMessages controller reads req.params.conversationId.
+  // Keep the id in the route path; a query-only request returns 400 on this API.
+  return apiRequest(`/messages/${encodeURIComponent(conversationId)}?limit=100`);
 }
 
 async function markConversationRead(id) {
@@ -635,8 +678,14 @@ export default function UserConversationsPage() {
         selectedConversationIdRef.current = null;
         setMessages([]);
       }
-    } catch {
-      if (!getStoredToken()) {
+    } catch (loadError) {
+      if (loadError?.status === 401) {
+        conversationsRef.current = [];
+        setConversations([]);
+        setSelectedConversation(null);
+        setMessages([]);
+        setMessagesError("Your session has expired. Please sign in again, then reopen Chat.");
+      } else if (!getStoredToken()) {
         conversationsRef.current = DEMO_ADMIN_CONVERSATIONS;
         setConversations(DEMO_ADMIN_CONVERSATIONS);
         messagesCache.current = {
