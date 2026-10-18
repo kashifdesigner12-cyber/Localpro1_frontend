@@ -567,10 +567,6 @@ export default function UserConversationsPage() {
   const [pinnedChats, setPinnedChats] = useState(["demo-admin-support"]);
   const [mutedChats, setMutedChats] = useState([]);
 
-  // Real-time Typing Indicators
-  const [typingUsers, setTypingUsers] = useState({});
-  const emitTypingTimerRef = useRef(null);
-
   // Photo Lightbox
   const [previewPhotoUrl, setPreviewPhotoUrl] = useState(null);
 
@@ -812,25 +808,19 @@ export default function UserConversationsPage() {
       const time = incoming.createdAt || new Date().toISOString();
 
       setConversations((previous) => {
-        const index = previous.findIndex(
-          (conv) => getConversationId(conv) === String(conversationId)
-        );
-        if (index < 0) return previous;
-        const next = [...previous];
-        const old = next[index];
-        const currentUnread = Number(old.unreadCount || old.unread || 0);
-        const unread = active || isOwn ? 0 : currentUnread + 1;
-        next[index] = {
-          ...old,
-          lastMessage: preview,
-          lastMessageAt: time,
-          updatedAt: time,
-          unreadCount: unread,
-          unread,
-        };
-        const [moved] = next.splice(index, 1);
-        next.unshift(moved);
-        return next;
+        return previous.map((conv) => {
+          if (getConversationId(conv) !== String(conversationId)) return conv;
+          const currentUnread = Number(conv.unreadCount || conv.unread || 0);
+          const unread = active || isOwn ? 0 : currentUnread + 1;
+          return {
+            ...conv,
+            lastMessage: preview,
+            lastMessageAt: time,
+            updatedAt: time,
+            unreadCount: unread,
+            unread,
+          };
+        });
       });
 
       if (!isOwn) {
@@ -876,181 +866,23 @@ export default function UserConversationsPage() {
       const conversationId =
         payload?.conversationId || payload?.roomId || payload?.conversation;
       if (!conversationId) return;
-      const normalizedId =
-        typeof conversationId === "object"
-          ? getConversationId(conversationId)
-          : String(conversationId);
+      const normalizedId = typeof conversationId === "object"
+        ? getConversationId(conversationId)
+        : String(conversationId);
       if (!normalizedId) return;
-      setConversations((previous) =>
-        previous.map((conv) =>
-          getConversationId(conv) === normalizedId
-            ? { ...conv, unreadCount: 0, unread: 0 }
-            : conv
-        )
-      );
-      const latest = messagesCache.current[normalizedId] || [];
-      const updated = latest.map((m) => ({
-        ...m,
-        seen: true,
-        isRead: true,
-        readAt: payload?.readAt || new Date().toISOString(),
-      }));
-      messagesCache.current[normalizedId] = updated;
-      if (sameId(selectedConversationIdRef.current, normalizedId)) {
-        setMessages(updated);
-      }
+      setConversations((previous) => previous.map((conv) =>
+        getConversationId(conv) === normalizedId
+          ? { ...conv, unreadCount: 0, unread: 0 }
+          : conv
+      ));
     };
-
-    const handleMessageUpdate = (payload) => {
-      const incoming =
-        payload?.message && typeof payload.message === "object"
-          ? payload.message
-          : payload?.data?.message && typeof payload.data.message === "object"
-          ? payload.data.message
-          : payload?.data && typeof payload.data === "object"
-          ? payload.data
-          : payload;
-      if (!incoming) return;
-      const msgId = getMessageId(incoming);
-      const convId =
-        getMessageConversationId(incoming) ||
-        selectedConversationIdRef.current;
-      if (!msgId || !convId) return;
-
-      const latest = messagesCache.current[convId] || [];
-      const updated = latest.map((m) =>
-        getMessageId(m) === msgId ? { ...m, ...incoming } : m
-      );
-      messagesCache.current[convId] = updated;
-      if (sameId(selectedConversationIdRef.current, convId)) {
-        setMessages(updated);
-      }
-    };
-
-    const handleMessageDeleted = (payload) => {
-      const msgId = String(payload?.messageId || payload?.id || "");
-      const convId = String(
-        payload?.conversationId || selectedConversationIdRef.current || ""
-      );
-      if (!msgId || !convId) return;
-
-      const latest = messagesCache.current[convId] || [];
-      const updated = latest.map((m) =>
-        getMessageId(m) === msgId
-          ? {
-              ...m,
-              isDeletedForEveryone: true,
-              body: "This message was deleted.",
-            }
-          : m
-      );
-      messagesCache.current[convId] = updated;
-      if (sameId(selectedConversationIdRef.current, convId)) {
-        setMessages(updated);
-      }
-    };
-
-    const handleReactionUpdate = (payload) => {
-      const msgId = String(payload?.messageId || payload?.id || "");
-      const convId = String(
-        payload?.conversationId || selectedConversationIdRef.current || ""
-      );
-      const reactions = payload?.reactions;
-      if (!msgId || !convId || !Array.isArray(reactions)) return;
-
-      const latest = messagesCache.current[convId] || [];
-      const updated = latest.map((m) =>
-        getMessageId(m) === msgId ? { ...m, reactions } : m
-      );
-      messagesCache.current[convId] = updated;
-      if (sameId(selectedConversationIdRef.current, convId)) {
-        setMessages(updated);
-      }
-    };
-
-    const handleTypingStart = (payload) => {
-      const convId = String(
-        payload?.conversationId || payload?.roomId || ""
-      );
-      if (!convId) return;
-      const userName = payload?.userName || payload?.senderName || "Admin";
-      setTypingUsers((prev) => ({
-        ...prev,
-        [convId]: userName,
-      }));
-    };
-
-    const handleTypingStop = (payload) => {
-      const convId = String(
-        payload?.conversationId || payload?.roomId || ""
-      );
-      if (!convId) return;
-      setTypingUsers((prev) => {
-        const next = { ...prev };
-        delete next[convId];
-        return next;
-      });
-    };
-
     ["messages_read", "message:read"].forEach((eventName) => {
       socket.on(eventName, handleMessagesRead);
     });
-    [
-      "message_updated",
-      "message_edited",
-      "message:updated",
-    ].forEach((evt) => socket.on(evt, handleMessageUpdate));
-    [
-      "message_deleted",
-      "message:deleted",
-    ].forEach((evt) => socket.on(evt, handleMessageDeleted));
-    [
-      "message_reaction",
-      "message_reaction_updated",
-      "message:reaction",
-    ].forEach((evt) => socket.on(evt, handleReactionUpdate));
-    [
-      "typing:start",
-      "user_typing",
-      "typing",
-    ].forEach((evt) => socket.on(evt, handleTypingStart));
-    [
-      "typing:stop",
-      "user_stopped_typing",
-      "stop_typing",
-    ].forEach((evt) => socket.on(evt, handleTypingStop));
 
     return () => {
-      incomingEvents.forEach((eventName) =>
-        socket.off(eventName, handleIncomingMessage)
-      );
-      ["messages_read", "message:read"].forEach((eventName) =>
-        socket.off(eventName, handleMessagesRead)
-      );
-      [
-        "message_updated",
-        "message_edited",
-        "message:updated",
-      ].forEach((evt) => socket.off(evt, handleMessageUpdate));
-      [
-        "message_deleted",
-        "message:deleted",
-      ].forEach((evt) => socket.off(evt, handleMessageDeleted));
-      [
-        "message_reaction",
-        "message_reaction_updated",
-        "message:reaction",
-      ].forEach((evt) => socket.off(evt, handleReactionUpdate));
-      [
-        "typing:start",
-        "user_typing",
-        "typing",
-      ].forEach((evt) => socket.off(evt, handleTypingStart));
-      [
-        "typing:stop",
-        "user_stopped_typing",
-        "stop_typing",
-      ].forEach((evt) => socket.off(evt, handleTypingStop));
+      incomingEvents.forEach((eventName) => socket.off(eventName, handleIncomingMessage));
+      ["messages_read", "message:read"].forEach((eventName) => socket.off(eventName, handleMessagesRead));
       socket.disconnect();
     };
   }, [handleIncomingMessage]);
@@ -1131,24 +963,6 @@ export default function UserConversationsPage() {
     messagesCache.current[conversationId] = nextList;
     setMessages(nextList);
 
-    setConversations((previous) => {
-      const index = previous.findIndex(
-        (c) => getConversationId(c) === conversationId
-      );
-      if (index < 0) return previous;
-      const next = [...previous];
-      const old = next[index];
-      next[index] = {
-        ...old,
-        lastMessage: body || (files.length ? "Attachment" : ""),
-        lastMessageAt: optimisticMsg.createdAt,
-        updatedAt: optimisticMsg.createdAt,
-      };
-      const [moved] = next.splice(index, 1);
-      next.unshift(moved);
-      return next;
-    });
-
     setMessage("");
     setSelectedFiles([]);
     setReplyingTo(null);
@@ -1186,42 +1000,18 @@ export default function UserConversationsPage() {
           body: form,
         });
       } else {
-        const payload = {
-          conversationId,
-          recipientId,
-          body,
-          message: body,
-          messageType: "text",
-          clientMessageId: tempId,
-          replyToId: replyTarget ? getMessageId(replyTarget) : undefined,
-        };
-
-        if (socketRef.current?.connected) {
-          try {
-            response = await new Promise((resolve, reject) => {
-              socketRef.current
-                .timeout(10000)
-                .emit("send_message", payload, (err, res) => {
-                  if (err) return reject(new Error("Socket message timed out"));
-                  if (!res || res.success === false)
-                    return reject(
-                      new Error(res?.message || "Failed to send message")
-                    );
-                  resolve(res);
-                });
-            });
-          } catch {
-            response = await apiRequest("/messages", {
-              method: "POST",
-              body: JSON.stringify(payload),
-            });
-          }
-        } else {
-          response = await apiRequest("/messages", {
-            method: "POST",
-            body: JSON.stringify(payload),
-          });
-        }
+        response = await apiRequest("/messages", {
+          method: "POST",
+          body: JSON.stringify({
+            conversationId,
+            recipientId,
+            body,
+            message: body,
+            messageType: "text",
+            clientMessageId: tempId,
+            replyToId: replyTarget ? getMessageId(replyTarget) : undefined,
+          }),
+        });
       }
 
       const sentCandidate =
@@ -1250,6 +1040,17 @@ export default function UserConversationsPage() {
         setMessages(resolved);
       }
     } catch (err) {
+      const latestAfterFailure = messagesCache.current[conversationId] || [];
+      const withoutFailedOptimistic = latestAfterFailure.filter(
+        (item) => getMessageId(item) !== tempId
+      );
+      messagesCache.current[conversationId] = withoutFailedOptimistic;
+      if (sameId(selectedConversationIdRef.current, conversationId)) {
+        setMessages(withoutFailedOptimistic);
+      }
+      setMessage((current) => current || body);
+      setSelectedFiles((current) => current.length ? current : files);
+      setReplyingTo((current) => current || replyTarget);
       setMessagesError(err?.message || "Failed to send reply to Admin.");
     } finally {
       setSending(false);
@@ -1298,7 +1099,7 @@ export default function UserConversationsPage() {
     if (String(conversationId).startsWith("demo-")) return;
 
     try {
-      await apiRequest(`/messages/${encodeURIComponent(messageId)}/react`, {
+      await apiRequest(`/messages/${encodeURIComponent(messageId)}/reactions`, {
         method: "POST",
         body: JSON.stringify({ emoji }),
       });
@@ -2110,31 +1911,9 @@ export default function UserConversationsPage() {
                         </div>
                       )}
 
-                      {/* Real-time Typing Indicator Banner */}
-                      {typingUsers[String(selectedConversationId)] && (
-                        <div className="mb-1.5 flex items-center gap-1.5 px-2 text-xs font-medium italic text-[#5B5FC7]">
-                          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-[#5B5FC7]" />
-                          <span>
-                            {typingUsers[String(selectedConversationId)]} is typing...
-                          </span>
-                        </div>
-                      )}
-
                       {/* Input Box */}
                       <form
-                        onSubmit={(e) => {
-                          const convId = selectedConversationIdRef.current;
-                          if (convId && socketRef.current?.connected) {
-                            socketRef.current.emit("typing:stop", {
-                              conversationId: convId,
-                            });
-                          }
-                          if (emitTypingTimerRef.current) {
-                            clearTimeout(emitTypingTimerRef.current);
-                            emitTypingTimerRef.current = null;
-                          }
-                          handleSendMessage(e);
-                        }}
+                        onSubmit={handleSendMessage}
                         className="rounded-lg border border-[#E1DFDD] bg-white shadow-2xs transition focus-within:border-[#5B5FC7] focus-within:ring-1 focus-within:ring-[#5B5FC7]"
                       >
                         {formatActive && (
@@ -2177,36 +1956,6 @@ export default function UserConversationsPage() {
                                 e.target.scrollHeight,
                                 120
                               )}px`;
-
-                              const convId = selectedConversationIdRef.current;
-                              if (convId && socketRef.current?.connected) {
-                                socketRef.current.emit("typing:start", {
-                                  conversationId: convId,
-                                  userName:
-                                    currentUserRef.current?.name || "User",
-                                });
-                                if (emitTypingTimerRef.current) {
-                                  clearTimeout(emitTypingTimerRef.current);
-                                }
-                                emitTypingTimerRef.current = setTimeout(() => {
-                                  socketRef.current?.emit("typing:stop", {
-                                    conversationId: convId,
-                                  });
-                                  emitTypingTimerRef.current = null;
-                                }, 2500);
-                              }
-                            }}
-                            onBlur={() => {
-                              const convId = selectedConversationIdRef.current;
-                              if (convId && socketRef.current?.connected) {
-                                socketRef.current.emit("typing:stop", {
-                                  conversationId: convId,
-                                });
-                              }
-                              if (emitTypingTimerRef.current) {
-                                clearTimeout(emitTypingTimerRef.current);
-                                emitTypingTimerRef.current = null;
-                              }
                             }}
                             onKeyDown={(e) => {
                               if (
@@ -2215,16 +1964,6 @@ export default function UserConversationsPage() {
                                 !e.nativeEvent.isComposing
                               ) {
                                 e.preventDefault();
-                                const convId = selectedConversationIdRef.current;
-                                if (convId && socketRef.current?.connected) {
-                                  socketRef.current.emit("typing:stop", {
-                                    conversationId: convId,
-                                  });
-                                }
-                                if (emitTypingTimerRef.current) {
-                                  clearTimeout(emitTypingTimerRef.current);
-                                  emitTypingTimerRef.current = null;
-                                }
                                 handleSendMessage(e);
                               }
                             }}

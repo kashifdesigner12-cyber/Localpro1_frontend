@@ -216,8 +216,10 @@ const formatDayLabel = (value) => {
 const normalizeUsers = (data) => {
   if (Array.isArray(data)) return data;
   if (Array.isArray(data?.users)) return data.users;
-  if (Array.isArray(data?.data)) return data.data;
   if (Array.isArray(data?.data?.users)) return data.data.users;
+  if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(data?.results)) return data.results;
+  if (Array.isArray(data?.data?.results)) return data.data.results;
   return [];
 };
 
@@ -399,12 +401,6 @@ const showDesktopNotification = (title, body) => {
 
 const sameId = (a, b) => String(a ?? "") === String(b ?? "");
 
-/* Demo/fallback fixtures intentionally removed.
-   This page must display authenticated backend data only. */
-const DEMO_USERS = [];
-const DEMO_CONVERSATIONS = [];
-const DEMO_MESSAGES = {};
-
 /* ============================================================
     TEAMS PRESENCE BADGE COMPONENT
 ============================================================ */
@@ -463,7 +459,6 @@ export default function AdminConversationsPage() {
   const [message, setMessage] = useState("");
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(true);
-  const [demoMode, setDemoMode] = useState(false);
   const [startingConversation, setStartingConversation] = useState(false);
   const [sendingMessage, setSendingMessage] = useState(false);
   const [messagesError, setMessagesError] = useState("");
@@ -560,7 +555,22 @@ export default function AdminConversationsPage() {
         localStorage.getItem("localpro_admin_chat_prefs") || "{}"
       );
       if (cachedMsgs && typeof cachedMsgs === "object") {
-        messagesCache.current = cachedMsgs;
+        // Remove stale demo/temp entries from older builds; only real persisted
+        // conversation IDs and server-created message IDs are kept.
+        messagesCache.current = Object.fromEntries(
+          Object.entries(cachedMsgs)
+            .filter(([conversationId, list]) =>
+              !String(conversationId).startsWith("demo-") && Array.isArray(list)
+            )
+            .map(([conversationId, list]) => [
+              conversationId,
+              list.filter((item) => {
+                const id = String(getMessageId(item) || "");
+                return id && !id.startsWith("demo-") && !id.startsWith("temp-");
+              }),
+            ])
+        );
+        localStorage.setItem("localpro_admin_msgs", JSON.stringify(messagesCache.current));
       }
       if (Array.isArray(prefs.favorites)) setFavorites(prefs.favorites);
       if (Array.isArray(prefs.mutedChats)) setMutedChats(prefs.mutedChats);
@@ -654,11 +664,11 @@ export default function AdminConversationsPage() {
     async (force = false) => {
       try {
         const [usersRes, conversationsRes] = await Promise.all([
-          fetch(getApiUrl("/users"), {
+          fetch(getApiUrl("/users?limit=1000&page=1"), {
             method: "GET",
             credentials: "include",
             headers: getAuthHeaders(),
-            cache: force ? "no-store" : "default",
+            cache: "no-store",
           }),
           fetch(getApiUrl("/conversations"), {
             method: "GET",
@@ -679,10 +689,38 @@ export default function AdminConversationsPage() {
           return;
         }
 
-        const [usersData, conversationsData] = await Promise.all([
+        const [initialUsersData, conversationsData] = await Promise.all([
           parseResponse(usersRes),
           parseResponse(conversationsRes),
         ]);
+        let usersData = initialUsersData;
+        // Some deployments paginate /users. Follow the server-reported page count
+        // so the chat contact list includes every account the API makes available.
+        const totalPages = Math.max(1, Number(
+          initialUsersData?.pagination?.pages ??
+          initialUsersData?.pagination?.totalPages ??
+          initialUsersData?.meta?.totalPages ??
+          initialUsersData?.data?.pagination?.pages ??
+          initialUsersData?.data?.pagination?.totalPages ?? 1
+        ) || 1);
+        if (totalPages > 1 && totalPages <= 100) {
+          const pageResults = await Promise.all(
+            Array.from({ length: totalPages - 1 }, (_, index) => index + 2).map(async (page) => {
+              const pageResponse = await fetch(getApiUrl(`/users?limit=1000&page=${page}`), {
+                method: "GET",
+                credentials: "include",
+                headers: getAuthHeaders(),
+                cache: "no-store",
+              });
+              const pageData = await parseResponse(pageResponse);
+              if (!pageResponse.ok || pageData?.success === false) {
+                throw new Error(pageData?.message || `Could not load users page ${page}.`);
+              }
+              return normalizeUsers(pageData);
+            })
+          );
+          usersData = { ...initialUsersData, users: [...normalizeUsers(initialUsersData), ...pageResults.flat()] };
+        }
 
         if (!usersRes.ok) {
           throw new Error(usersData?.message || "Could not load users from the server.");
@@ -709,7 +747,6 @@ export default function AdminConversationsPage() {
         );
 
         if (!mountedRef.current) return;
-        setDemoMode(false);
         setUsers(receivedUsers);
         usersRef.current = receivedUsers;
         saveCache(receivedUsers, conversationsRef.current, messagesCache.current);
@@ -750,8 +787,7 @@ export default function AdminConversationsPage() {
         // Never replace a failed/empty API response with fabricated users.
         // If this is the first load, show an empty list and let the user retry.
         if (mountedRef.current) {
-          setDemoMode(false);
-          if (usersRef.current.length === 0) setUsers([]);
+            if (usersRef.current.length === 0) setUsers([]);
           if (conversationsRef.current.length === 0) setConversations([]);
           console.error("Admin conversations data load failed:", error);
         }
@@ -802,13 +838,7 @@ export default function AdminConversationsPage() {
     async (conversationId, silent = false) => {
       if (!conversationId) return [];
       const cId = String(conversationId);
-      if (cId.startsWith("demo-") || demoMode) {
-        const demoList =
-          messagesCache.current[cId] || DEMO_MESSAGES[cId] || [];
-        messagesCache.current[cId] = demoList;
-        setMessages(demoList);
-        return demoList;
-      }
+      if (cId.startsWith("demo-")) return [];
       if (fetchingMessagesRef.current.has(cId))
         return messagesCache.current[cId] || [];
       fetchingMessagesRef.current.add(cId);
@@ -875,7 +905,7 @@ export default function AdminConversationsPage() {
         void requestId;
       }
     },
-    [demoMode, saveCache]
+    [saveCache]
   );
 
   const markConversationRead = useCallback(
@@ -944,10 +974,19 @@ export default function AdminConversationsPage() {
         const participants = Array.isArray(conversation?.participants)
           ? conversation.participants
           : [];
-        const other = participants.find((participant) => {
-          const id = getId(participant);
-          return id && !sameId(id, conversation?.adminId);
-        });
+        // Admin conversation records normally include the admin as the first
+        // participant. When auto-opening a conversation, select the actual
+        // non-admin contact instead of accidentally addressing the admin itself.
+        const other =
+          participants.find(
+            (participant) => String(participant?.role || "").toLowerCase() !== "admin"
+          ) ||
+          participants.find((participant) => {
+            const id = getId(participant);
+            const adminId = getId(conversation?.groupAdmin) || getId(conversation?.adminId);
+            return id && adminId && !sameId(id, adminId);
+          }) ||
+          participants[0];
         if (other) setSelectedUser(other);
       }
 
@@ -1010,39 +1049,13 @@ export default function AdminConversationsPage() {
           return updated;
         });
         await openConversation(newConversation, user);
-      } catch {
-        if (demoMode) {
-          const localConversation = {
-            _id: `demo-conv-${String(userId)}`,
-            id: `demo-conv-${String(userId)}`,
-            participants: [user],
-            isGroup: false,
-            lastMessage: "",
-            lastMessageAt: new Date().toISOString(),
-            unreadCount: 0,
-          };
-          setConversations((previous) => {
-            const updated = [
-              localConversation,
-              ...previous.filter(
-                (item) =>
-                  !sameId(getConversationId(item), localConversation._id)
-              ),
-            ];
-            conversationsRef.current = updated;
-            saveCache(usersRef.current, updated, messagesCache.current);
-            return updated;
-          });
-          messagesCache.current[localConversation._id] = [];
-          await openConversation(localConversation, user);
-        } else {
-          setMessagesError("Failed to start conversation.");
-        }
+      } catch (error) {
+        setMessagesError(error?.message || "Failed to start conversation. Please check the server and try again.");
       } finally {
         setStartingConversation(false);
       }
     },
-    [demoMode, findConversationForUser, openConversation, saveCache]
+    [findConversationForUser, openConversation, saveCache]
   );
 
   /* ------------------------------------------------------------
@@ -1446,100 +1459,50 @@ export default function AdminConversationsPage() {
     scrollToBottom(true);
 
     try {
-      if (demoMode || String(conversationId).startsWith("demo-")) {
-        const sentAt = new Date().toISOString();
-        const localMessage = {
-          ...optimistic,
-          status: "delivered",
-          createdAt: sentAt,
-        };
-        setMessages((previous) => {
-          const next = previous.map((item) =>
-            sameId(getMessageId(item), tempId) ? localMessage : item
-          );
-          messagesCache.current[String(conversationId)] = next;
-          saveCache(
-            usersRef.current,
-            conversationsRef.current,
-            messagesCache.current
-          );
-          return next;
-        });
-        scrollToBottom(true);
-        return;
+      if (String(conversationId).startsWith("demo-")) {
+        throw new Error("This chat is not connected to a real conversation. Refresh the page and select a real user.");
       }
 
-      let data;
-
+      // Persist every message through the authenticated backend controller.
+      // The controller is responsible for saving it and broadcasting real-time
+      // socket events; using the same endpoint for text and files avoids relying
+      // on a socket event that may not be implemented/acknowledged by the server.
+      let response;
       if (filesToSend.length) {
-        // Keep file uploads on the existing authenticated REST endpoint;
-        // Socket.IO is used for text messages to avoid an extra HTTP round trip.
         const form = new FormData();
         form.append("conversationId", String(conversationId));
         form.append("body", cleanBody);
+        form.append("message", cleanBody);
+        form.append("messageType", "text");
         form.append("clientMessageId", tempId);
         if (recipientId) form.append("recipientId", String(recipientId));
-        if (replyContext)
-          form.append("replyToId", String(getMessageId(replyContext)));
+        if (replyContext) form.append("replyToId", String(getMessageId(replyContext)));
         filesToSend.forEach((file) => form.append("files", file));
-
-        const response = await fetch(getApiUrl("/messages"), {
+        response = await fetch(getApiUrl("/messages"), {
           method: "POST",
           credentials: "include",
           headers: getAuthHeaders(false),
           body: form,
         });
-        data = await parseResponse(response);
-        if (!response.ok || data?.success === false) {
-          throw new Error(data?.message || "Failed to send message.");
-        }
       } else {
-        const socket = socketRef.current;
-        const payload = {
-          conversationId: String(conversationId),
-          recipientId: recipientId ? String(recipientId) : null,
-          body: cleanBody,
-          message: cleanBody,
-          messageType: "text",
-          clientMessageId: tempId,
-          replyToId: replyContext ? getMessageId(replyContext) : null,
-        };
-
-        if (socket?.connected) {
-          // The backend must acknowledge only after the message is persisted.
-          // Never fall back to REST after an acknowledgement timeout: the
-          // socket may already have saved it and a REST retry could duplicate it.
-          data = await new Promise((resolve, reject) => {
-            socket.timeout(10000).emit("send_message", payload, (error, result) => {
-              if (error) {
-                reject(
-                  new Error(
-                    "Socket message timed out. Please check the connection and retry."
-                  )
-                );
-                return;
-              }
-              if (!result || result.success === false) {
-                reject(new Error(result?.message || "Failed to send message."));
-                return;
-              }
-              resolve(result);
-            });
-          });
-        } else {
-          // Preserve text-message delivery during temporary socket disconnects.
-          // This REST fallback runs only when no socket send was attempted.
-          const response = await fetch(getApiUrl("/messages"), {
-            method: "POST",
-            credentials: "include",
-            headers: getAuthHeaders(),
-            body: JSON.stringify(payload),
-          });
-          data = await parseResponse(response);
-          if (!response.ok || data?.success === false) {
-            throw new Error(data?.message || "Failed to send message.");
-          }
-        }
+        response = await fetch(getApiUrl("/messages"), {
+          method: "POST",
+          credentials: "include",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({
+            conversationId: String(conversationId),
+            recipientId: recipientId ? String(recipientId) : null,
+            body: cleanBody,
+            message: cleanBody,
+            messageType: "text",
+            clientMessageId: tempId,
+            replyToId: replyContext ? getMessageId(replyContext) : null,
+          }),
+        });
+      }
+      const data = await parseResponse(response);
+      if (!response.ok || data?.success === false) {
+        throw new Error(data?.message || "Failed to send message.");
       }
 
       const sentMessage =
@@ -1616,7 +1579,7 @@ export default function AdminConversationsPage() {
     const clean = editDraft.trim();
     if (!id || !clean || messageActionBusy) return;
 
-    if (String(id).startsWith("temp-") || demoMode) {
+    if (String(id).startsWith("temp-")) {
       updateMessageInState({
         ...item,
         body: clean,
@@ -1687,7 +1650,7 @@ export default function AdminConversationsPage() {
 
     updateMessageInState({ ...item, reactions: updatedReactions });
 
-    if (String(id).startsWith("temp-") || demoMode) return;
+    if (String(id).startsWith("temp-")) return;
 
     try {
       const response = await fetch(getApiUrl(`/messages/${id}/reactions`), {
@@ -1715,7 +1678,7 @@ export default function AdminConversationsPage() {
     )
       return;
 
-    if (String(id).startsWith("temp-") || demoMode) {
+    if (String(id).startsWith("temp-")) {
       if (scope === "everyone") {
         updateMessageInState({
           ...item,
@@ -1787,7 +1750,7 @@ export default function AdminConversationsPage() {
     setMessages([]);
     setChatMenuOpen(false);
 
-    if (String(cId).startsWith("demo-") || demoMode) return;
+    if (String(cId).startsWith("demo-")) return;
     try {
       await fetch(getApiUrl(`/conversations/${cId}`), {
         method: "DELETE",
@@ -1819,31 +1782,11 @@ export default function AdminConversationsPage() {
 
   const handleCreateGroup = async (event) => {
     event.preventDefault();
-    if (!groupName.trim() || selectedGroupMembers.length === 0 || creatingGroup)
+    // The backend requires at least two other participants in a group.
+    if (!groupName.trim() || selectedGroupMembers.length < 2 || creatingGroup)
       return;
     try {
       setCreatingGroup(true);
-      if (demoMode) {
-        const newGroup = {
-          _id: `demo-group-${Date.now()}`,
-          id: `demo-group-${Date.now()}`,
-          isGroup: true,
-          groupName: groupName.trim(),
-          participants: users.filter((u) =>
-            selectedGroupMembers.includes(getId(u))
-          ),
-          lastMessage: "Group chat created.",
-          lastMessageAt: new Date().toISOString(),
-          unreadCount: 0,
-        };
-        setConversations((prev) => [newGroup, ...prev]);
-        setShowGroupModal(false);
-        setGroupName("");
-        setSelectedGroupMembers([]);
-        await openConversation(newGroup);
-        return;
-      }
-
       const response = await fetch(getApiUrl("/conversations"), {
         method: "POST",
         credentials: "include",
@@ -1933,6 +1876,21 @@ export default function AdminConversationsPage() {
       );
     });
   }, [conversations, search, chatFilter, pinnedChats]);
+
+  const peopleForList = useMemo(() => {
+    if (chatFilter === "unread") return [];
+    const query = search.trim().toLowerCase();
+    return [...users]
+      .filter((user) => {
+        const id = getId(user);
+        if (!id || String(id).startsWith("demo-")) return false;
+        if (!query) return true;
+        return `${getUserName(user)} ${user.email || ""} ${user.role || ""}`
+          .toLowerCase()
+          .includes(query);
+      })
+      .sort((a, b) => getUserName(a).localeCompare(getUserName(b)));
+  }, [users, search, chatFilter]);
 
   const pinnedConversations = useMemo(
     () =>
@@ -2028,11 +1986,6 @@ export default function AdminConversationsPage() {
               <h1 className="text-xl font-bold tracking-tight text-[#242424]">
                 Chat
               </h1>
-              {demoMode && (
-                <span className="rounded bg-[#E8EBFA] px-1.5 py-0.5 text-[10px] font-semibold text-[#5B5FC7]">
-                  Preview
-                </span>
-              )}
               <span
                 className={`flex h-5 w-5 items-center justify-center rounded-full text-xs ${
                   socketConnected
@@ -2169,7 +2122,7 @@ export default function AdminConversationsPage() {
               <div className="flex items-center justify-center py-12">
                 <Loader2 size={22} className="animate-spin text-[#5B5FC7]" />
               </div>
-            ) : sortedConversations.length === 0 ? (
+            ) : sortedConversations.length === 0 && peopleForList.length === 0 ? (
               <div className="px-6 py-12 text-center text-[#616161]">
                 <MessageSquare size={28} className="mx-auto mb-2 text-[#8A8886]" />
                 <p className="text-xs font-semibold">No chats found</p>
@@ -2421,6 +2374,51 @@ export default function AdminConversationsPage() {
                     );
                   })}
                 </div>
+
+                {/* ── ALL REAL USERS FROM THE BACKEND ── */}
+                {peopleForList.length > 0 && (
+                  <div className="mt-2 border-t border-[#E1DFDD] pt-2">
+                    <div className="flex items-center justify-between px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-[#616161]">
+                      <span>All users</span>
+                      <span className="font-medium normal-case">{peopleForList.length}</span>
+                    </div>
+                    {peopleForList.map((person) => {
+                      const personId = getId(person);
+                      const isOnline = Boolean(
+                        onlineUsers[String(personId)] ?? person?.isOnline ?? person?.online
+                      );
+                      const active = sameId(getId(selectedUser), personId) && !selectedConversation?.isGroup;
+                      return (
+                        <button
+                          key={String(personId)}
+                          type="button"
+                          onClick={() => void handleSelectUser(person)}
+                          disabled={startingConversation}
+                          className={`flex w-full items-center gap-3 px-3 py-2 text-left transition-colors disabled:opacity-60 ${
+                            active ? "bg-white shadow-xs" : "hover:bg-[#EDEBE9]"
+                          }`}
+                        >
+                          <div className="relative h-9 w-9 shrink-0">
+                            <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-[#5B5FC7] text-xs font-bold text-white">
+                              {getUserAvatar(person) ? (
+                                <img src={getFileUrl(getUserAvatar(person))} alt="" className="h-full w-full object-cover" />
+                              ) : getInitials(getUserName(person))}
+                            </div>
+                            <TeamsPresenceBadge
+                              status={isOnline ? "available" : "offline"}
+                              className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5"
+                            />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-xs font-semibold text-[#242424]">{getUserName(person)}</p>
+                            <p className="truncate text-[11px] text-[#616161]">{person.role || person.email || "User"}</p>
+                          </div>
+                          <MessageSquare size={14} className="shrink-0 text-[#8A8886]" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -3576,7 +3574,7 @@ export default function AdminConversationsPage() {
               </div>
               <div>
                 <label className="mb-1 block text-xs font-semibold text-[#242424]">
-                  Add members ({selectedGroupMembers.length} selected)
+                  Add members ({selectedGroupMembers.length} selected; choose at least 2)
                 </label>
                 <div className="max-h-56 space-y-1 overflow-y-auto rounded border border-[#E1DFDD] p-2">
                   {users.map((user) => {
@@ -3635,7 +3633,7 @@ export default function AdminConversationsPage() {
                 disabled={
                   creatingGroup ||
                   !groupName.trim() ||
-                  selectedGroupMembers.length === 0
+                  selectedGroupMembers.length < 2
                 }
                 className="flex items-center gap-1.5 rounded bg-[#5B5FC7] px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-[#4F52B2] disabled:opacity-50"
               >
