@@ -399,197 +399,11 @@ const showDesktopNotification = (title, body) => {
 
 const sameId = (a, b) => String(a ?? "") === String(b ?? "");
 
-/* ============================================================
-    DEMO / FALLBACK DATA FOR PREVIEW MODE
-============================================================ */
-const DEMO_USERS = [
-  {
-    _id: "demo-nadeem",
-    id: "demo-nadeem",
-    name: "Nadeem Nawaz",
-    role: "Support Lead",
-    title: "Senior Support Engineer",
-    department: "Customer Experience",
-    email: "nadeem@localpro1.net",
-    phone: "+1 (555) 234-8901",
-    isOnline: true,
-    status: "available",
-  },
-  {
-    _id: "demo-ayesha",
-    id: "demo-ayesha",
-    name: "Ayesha Khan",
-    role: "Project Manager",
-    title: "Operations & Delivery Lead",
-    department: "Management",
-    email: "ayesha@localpro1.net",
-    phone: "+1 (555) 876-5432",
-    isOnline: true,
-    status: "busy",
-  },
-  {
-    _id: "demo-usman",
-    id: "demo-usman",
-    name: "Usman Ali",
-    role: "Technical Support",
-    title: "Field Operations Specialist",
-    department: "Operations",
-    email: "usman@localpro1.net",
-    phone: "+1 (555) 345-6789",
-    isOnline: false,
-    status: "offline",
-  },
-  {
-    _id: "demo-sarah",
-    id: "demo-sarah",
-    name: "Sarah Jenkins",
-    role: "Dispatch Coordinator",
-    title: "Service Dispatcher",
-    department: "Dispatch",
-    email: "sarah@localpro1.net",
-    phone: "+1 (555) 456-7890",
-    isOnline: true,
-    status: "away",
-  },
-];
-
-const DEMO_CONVERSATIONS = [
-  {
-    _id: "demo-conv-nadeem",
-    id: "demo-conv-nadeem",
-    participants: [DEMO_USERS[0]],
-    isGroup: false,
-    lastMessage: "I have shared the updated project scope and schedules.",
-    lastMessageAt: new Date().toISOString(),
-    unreadCount: 1,
-  },
-  {
-    _id: "demo-conv-group",
-    id: "demo-conv-group",
-    participants: DEMO_USERS,
-    isGroup: true,
-    groupName: "Operations & Dispatch",
-    lastMessage: "Nadeem: All field technicians are assigned for today.",
-    lastMessageAt: new Date(Date.now() - 3600000).toISOString(),
-    unreadCount: 0,
-  },
-  {
-    _id: "demo-conv-ayesha",
-    id: "demo-conv-ayesha",
-    participants: [DEMO_USERS[1]],
-    isGroup: false,
-    lastMessage: "Thanks, reviewed and approved the contract proposal.",
-    lastMessageAt: new Date(Date.now() - 86400000).toISOString(),
-    unreadCount: 0,
-  },
-];
-
-const DEMO_MESSAGES = {
-  "demo-conv-nadeem": [
-    {
-      _id: "demo-msg-1",
-      id: "demo-msg-1",
-      conversationId: "demo-conv-nadeem",
-      sender: DEMO_USERS[0],
-      body: "Hi! Are you available to review the dispatch timeline?",
-      createdAt: new Date(Date.now() - 86400000).toISOString(),
-      attachments: [],
-      reactions: [{ emoji: "👍", count: 1 }],
-      status: "sent",
-    },
-    {
-      _id: "demo-msg-2",
-      id: "demo-msg-2",
-      conversationId: "demo-conv-nadeem",
-      sender: {
-        _id: "demo-current-admin",
-        id: "demo-current-admin",
-        name: "You",
-        role: "admin",
-      },
-      body: "Yes, send it over and I'll take a look right now.",
-      createdAt: new Date(Date.now() - 85000000).toISOString(),
-      attachments: [],
-      reactions: [],
-      status: "seen",
-    },
-    {
-      _id: "demo-msg-3",
-      id: "demo-msg-3",
-      conversationId: "demo-conv-nadeem",
-      sender: DEMO_USERS[0],
-      body: "I have shared the updated project scope and schedules.",
-      createdAt: new Date(Date.now() - 1800000).toISOString(),
-      attachments: [],
-      reactions: [],
-      status: "delivered",
-    },
-  ],
-  "demo-conv-group": [
-    {
-      _id: "demo-group-msg-1",
-      id: "demo-group-msg-1",
-      conversationId: "demo-conv-group",
-      sender: DEMO_USERS[0],
-      body: "Welcome to the Operations & Dispatch channel! Keep all field updates posted here.",
-      createdAt: new Date(Date.now() - 86400000).toISOString(),
-      attachments: [],
-      reactions: [{ emoji: "🎉", count: 2 }],
-      status: "sent",
-    },
-    {
-      _id: "demo-group-msg-2",
-      id: "demo-group-msg-2",
-      conversationId: "demo-conv-group",
-      sender: DEMO_USERS[1],
-      body: "Thanks everyone. Schedule is locked in.",
-      createdAt: new Date(Date.now() - 85000000).toISOString(),
-      attachments: [],
-      reactions: [{ emoji: "👍", count: 1 }],
-      status: "sent",
-    },
-    {
-      _id: "demo-group-msg-3",
-      id: "demo-group-msg-3",
-      conversationId: "demo-conv-group",
-      sender: DEMO_USERS[0],
-      body: "All field technicians are assigned for today.",
-      createdAt: new Date(Date.now() - 3600000).toISOString(),
-      attachments: [],
-      reactions: [],
-      status: "sent",
-    },
-  ],
-  "demo-conv-ayesha": [
-    {
-      _id: "demo-ayesha-msg-1",
-      id: "demo-ayesha-msg-1",
-      conversationId: "demo-conv-ayesha",
-      sender: DEMO_USERS[1],
-      body: "I reviewed the latest customer agreement draft.",
-      createdAt: new Date(Date.now() - 7200000).toISOString(),
-      attachments: [],
-      reactions: [],
-      status: "sent",
-    },
-    {
-      _id: "demo-ayesha-msg-2",
-      id: "demo-ayesha-msg-2",
-      conversationId: "demo-conv-ayesha",
-      sender: {
-        _id: "demo-current-admin",
-        id: "demo-current-admin",
-        name: "You",
-        role: "admin",
-      },
-      body: "Thanks, reviewed and approved the contract proposal.",
-      createdAt: new Date(Date.now() - 3600000).toISOString(),
-      attachments: [],
-      reactions: [{ emoji: "❤️", count: 1 }],
-      status: "seen",
-    },
-  ],
-};
+/* Demo/fallback fixtures intentionally removed.
+   This page must display authenticated backend data only. */
+const DEMO_USERS = [];
+const DEMO_CONVERSATIONS = [];
+const DEMO_MESSAGES = {};
 
 /* ============================================================
     TEAMS PRESENCE BADGE COMPONENT
@@ -599,7 +413,7 @@ function TeamsPresenceBadge({ status = "offline", className = "" }) {
     return (
       <span
         title="Available"
-        className={`flex items-center justify-center rounded-full border-2 border-white bg-[#237B4B] text-white shadow-xs ${className}`}
+        className={`flex items-center justify-center rounded-full border-2 border-white bg-[#2585F4] text-white shadow-xs ${className}`}
       >
         <Check size={8} strokeWidth={3} />
       </span>
@@ -687,7 +501,7 @@ export default function AdminConversationsPage() {
   // Preferences & State
   const [favorites, setFavorites] = useState([]);
   const [mutedChats, setMutedChats] = useState([]);
-  const [pinnedChats, setPinnedChats] = useState(["demo-conv-group"]);
+  const [pinnedChats, setPinnedChats] = useState([]);
 
   // Teams New Chat & Compose Drawer
   const [showNewChatDrawer, setShowNewChatDrawer] = useState(false);
@@ -735,33 +549,24 @@ export default function AdminConversationsPage() {
     setIsClient(true);
     mountedRef.current = true;
     try {
-      const cachedUsers = JSON.parse(
-        localStorage.getItem("localpro_admin_users") || "[]"
-      );
-      const cachedConvs = JSON.parse(
-        localStorage.getItem("localpro_admin_convs") || "[]"
-      );
+      // Clear old user/conversation caches. They may contain demo records or
+      // stale accounts, so the visible lists always come from the live API.
+      localStorage.removeItem("localpro_admin_users");
+      localStorage.removeItem("localpro_admin_convs");
       const cachedMsgs = JSON.parse(
         localStorage.getItem("localpro_admin_msgs") || "{}"
       );
       const prefs = JSON.parse(
         localStorage.getItem("localpro_admin_chat_prefs") || "{}"
       );
-      if (Array.isArray(cachedUsers) && cachedUsers.length) {
-        setUsers(cachedUsers);
-        usersRef.current = cachedUsers;
-      }
-      if (Array.isArray(cachedConvs) && cachedConvs.length) {
-        setConversations(cachedConvs);
-        conversationsRef.current = cachedConvs;
-        setLoadingUsers(false);
-      }
       if (cachedMsgs && typeof cachedMsgs === "object") {
         messagesCache.current = cachedMsgs;
       }
       if (Array.isArray(prefs.favorites)) setFavorites(prefs.favorites);
       if (Array.isArray(prefs.mutedChats)) setMutedChats(prefs.mutedChats);
-      if (Array.isArray(prefs.pinnedChats)) setPinnedChats(prefs.pinnedChats);
+      if (Array.isArray(prefs.pinnedChats)) {
+        setPinnedChats(prefs.pinnedChats.filter((id) => !String(id).startsWith("demo-")));
+      }
     } catch {}
 
     return () => {
@@ -864,6 +669,12 @@ export default function AdminConversationsPage() {
         ]);
 
         if (usersRes.status === 401 || conversationsRes.status === 401) {
+          if (mountedRef.current) {
+            setUsers([]);
+            usersRef.current = [];
+            setConversations([]);
+            conversationsRef.current = [];
+          }
           router.replace("/login");
           return;
         }
@@ -873,116 +684,76 @@ export default function AdminConversationsPage() {
           parseResponse(conversationsRes),
         ]);
 
-        const receivedUsers = normalizeUsers(usersData);
-        const receivedConversations = normalizeConversations(conversationsData);
-
-        // Only use preview/demo data when the backend is unavailable and no
-        // authenticated session exists. An authenticated empty response means
-        // the real account has no records; never replace it with fake chats.
-        if (
-          receivedUsers.length === 0 &&
-          receivedConversations.length === 0 &&
-          (!usersRes.ok || !conversationsRes.ok) &&
-          !getStoredToken()
-        ) {
-          if (mountedRef.current) {
-            setDemoMode(true);
-            setUsers(DEMO_USERS);
-            usersRef.current = DEMO_USERS;
-            setConversations(DEMO_CONVERSATIONS);
-            conversationsRef.current = DEMO_CONVERSATIONS;
-            messagesCache.current = {
-              ...messagesCache.current,
-              ...DEMO_MESSAGES,
-            };
-            saveCache(DEMO_USERS, DEMO_CONVERSATIONS, messagesCache.current);
-            // Default select first conversation for seamless preview
-            if (!selectedConversationIdRef.current) {
-              const firstConv = DEMO_CONVERSATIONS[0];
-              setSelectedConversationId(firstConv._id);
-              selectedConversationIdRef.current = firstConv._id;
-              setSelectedConversation(firstConv);
-              setSelectedUser(DEMO_USERS[0]);
-              setMessages(DEMO_MESSAGES[firstConv._id] || []);
-            }
-          }
-          return;
+        if (!usersRes.ok) {
+          throw new Error(usersData?.message || "Could not load users from the server.");
+        }
+        if (!conversationsRes.ok) {
+          throw new Error(conversationsData?.message || "Could not load conversations from the server.");
+        }
+        if (usersData?.success === false) {
+          throw new Error(usersData?.message || "The server could not load users.");
+        }
+        if (conversationsData?.success === false) {
+          throw new Error(conversationsData?.message || "The server could not load conversations.");
         }
 
-        if (mountedRef.current) setDemoMode(false);
+        const receivedUsers = normalizeUsers(usersData).filter((user) => {
+          const id = getId(user);
+          return Boolean(id) && !String(id).startsWith("demo-");
+        });
+        const receivedConversations = normalizeConversations(conversationsData).filter(
+          (conversation) => {
+            const id = getConversationId(conversation);
+            return Boolean(id) && !String(id).startsWith("demo-");
+          }
+        );
 
-        if (usersRes.ok) {
-          if (mountedRef.current) {
-            setUsers(receivedUsers);
-            usersRef.current = receivedUsers;
-            saveCache(
-              receivedUsers,
-              conversationsRef.current,
-              messagesCache.current
+        if (!mountedRef.current) return;
+        setDemoMode(false);
+        setUsers(receivedUsers);
+        usersRef.current = receivedUsers;
+        saveCache(receivedUsers, conversationsRef.current, messagesCache.current);
+
+        setConversations((previous) => {
+          const merged = receivedConversations.map((incoming) => {
+            const old = previous.find((item) =>
+              sameId(getConversationId(item), getConversationId(incoming))
             );
-          }
-        }
+            if (!old) return incoming;
+            return {
+              ...old,
+              ...incoming,
+              lastMessage: incoming.lastMessage ?? old.lastMessage,
+              lastMessageAt: incoming.lastMessageAt ?? old.lastMessageAt,
+            };
+          });
+          conversationsRef.current = merged;
+          saveCache(receivedUsers, merged, messagesCache.current);
+          return merged;
+        });
 
-        if (conversationsRes.ok) {
-          if (mountedRef.current) {
-            setConversations((previous) => {
-              const merged = receivedConversations.map((incoming) => {
-                const old = previous.find((item) =>
-                  sameId(getConversationId(item), getConversationId(incoming))
-                );
-                if (!old) return incoming;
-                return {
-                  ...old,
-                  ...incoming,
-                  lastMessage: incoming.lastMessage ?? old.lastMessage,
-                  lastMessageAt: incoming.lastMessageAt ?? old.lastMessageAt,
-                };
-              });
-              conversationsRef.current = merged;
-              saveCache(usersRef.current, merged, messagesCache.current);
-              return merged;
-            });
-
-            if (receivedConversations.length === 0) {
-              selectedConversationIdRef.current = null;
-              setSelectedConversationId(null);
-              setSelectedConversation(null);
-              setSelectedUser(null);
-              setMessages([]);
-            }
-
-            // If nothing selected yet, select the first conversation
-            if (!selectedConversationIdRef.current && receivedConversations[0]) {
-              const first = receivedConversations[0];
-              openConversation(first);
-            }
-          }
-        }
-      } catch {
-        if (
-          mountedRef.current &&
-          !getStoredToken() &&
-          usersRef.current.length === 0 &&
-          conversationsRef.current.length === 0
+        if (receivedConversations.length === 0) {
+          selectedConversationIdRef.current = null;
+          setSelectedConversationId(null);
+          setSelectedConversation(null);
+          setSelectedUser(null);
+          setMessages([]);
+        } else if (
+          !selectedConversationIdRef.current ||
+          !receivedConversations.some((conversation) =>
+            sameId(getConversationId(conversation), selectedConversationIdRef.current)
+          )
         ) {
-          setDemoMode(true);
-          setUsers(DEMO_USERS);
-          usersRef.current = DEMO_USERS;
-          setConversations(DEMO_CONVERSATIONS);
-          conversationsRef.current = DEMO_CONVERSATIONS;
-          messagesCache.current = {
-            ...messagesCache.current,
-            ...DEMO_MESSAGES,
-          };
-          saveCache(DEMO_USERS, DEMO_CONVERSATIONS, messagesCache.current);
-          if (!selectedConversationIdRef.current) {
-            const firstConv = DEMO_CONVERSATIONS[0];
-            setSelectedConversationId(firstConv._id);
-            selectedConversationIdRef.current = firstConv._id;
-            setSelectedConversation(firstConv);
-            setSelectedUser(DEMO_USERS[0]);
-            setMessages(DEMO_MESSAGES[firstConv._id] || []);
-          }
+          openConversation(receivedConversations[0]);
+        }
+      } catch (error) {
+        // Never replace a failed/empty API response with fabricated users.
+        // If this is the first load, show an empty list and let the user retry.
+        if (mountedRef.current) {
+          setDemoMode(false);
+          if (usersRef.current.length === 0) setUsers([]);
+          if (conversationsRef.current.length === 0) setConversations([]);
+          console.error("Admin conversations data load failed:", error);
         }
       } finally {
         if (mountedRef.current) setLoadingUsers(false);
@@ -1299,6 +1070,9 @@ export default function AdminConversationsPage() {
     socket.on("connect", () => {
       setSocketConnected(true);
       joinActiveRoom();
+      // Ask the backend for the current online-user snapshot. Live online/offline
+      // events alone are not enough when this page connects after other users.
+      socket.emit("get_online_users");
       scheduleRefresh();
       const activeId = selectedConversationIdRef.current;
       if (activeId) void fetchMessages(activeId, true);
@@ -1451,16 +1225,47 @@ export default function AdminConversationsPage() {
       });
     };
 
-    const handlePresence = (payload) => {
+    const handlePresence = (payload, forcedOnline = null) => {
       const userId = getId(payload?.user || payload?.userId || payload);
-      if (userId) {
-        setOnlineUsers((previous) => ({
-          ...previous,
-          [String(userId)]: Boolean(
-            payload?.online ?? payload?.isOnline ?? true
-          ),
-        }));
+      if (!userId) return;
+      const value = forcedOnline === null
+        ? (payload?.online ?? payload?.isOnline ?? payload?.status === "online")
+        : forcedOnline;
+      setOnlineUsers((previous) => ({
+        ...previous,
+        [String(userId)]: Boolean(value),
+      }));
+    };
+
+    // Backend versions may send online users as an array of user objects/IDs,
+    // or as an object keyed by user ID. Normalize both shapes for the blue badge.
+    const handleOnlineUsers = (payload) => {
+      const source =
+        payload?.users ??
+        payload?.onlineUsers ??
+        payload?.online_users ??
+        payload?.data?.users ??
+        payload?.data ??
+        payload;
+      const next = {};
+
+      if (Array.isArray(source)) {
+        source.forEach((entry) => {
+          const id = getId(entry) ?? (typeof entry === "string" || typeof entry === "number" ? entry : null);
+          if (id !== null && id !== undefined && String(id)) next[String(id)] = true;
+        });
+      } else if (source && typeof source === "object") {
+        Object.entries(source).forEach(([key, value]) => {
+          if (value === true || value === 1 || value === "online") {
+            next[String(key)] = true;
+          } else if (value && typeof value === "object") {
+            const id = getId(value) ?? key;
+            const isOnline = value.online ?? value.isOnline ?? (value.status ? value.status === "online" : true);
+            if (isOnline) next[String(id)] = true;
+          }
+        });
       }
+      setOnlineUsers(next);
     };
 
     [
@@ -1505,17 +1310,19 @@ export default function AdminConversationsPage() {
     ].forEach((eventName) => {
       socket.on(eventName, handleTypingStop);
     });
-    [
-      "user_online",
-      "user_offline",
-      "presence_update",
-      "update_user_status",
-      "user_status_update",
-      "user:online",
-      "user:offline",
-    ].forEach((eventName) => {
-      socket.on(eventName, handlePresence);
+    ["online_users", "online-users", "onlineUsers"].forEach((eventName) => {
+      socket.on(eventName, handleOnlineUsers);
     });
+    ["user_online", "user:online"].forEach((eventName) => {
+      socket.on(eventName, (payload) => handlePresence(payload, true));
+    });
+    ["user_offline", "user:offline"].forEach((eventName) => {
+      socket.on(eventName, (payload) => handlePresence(payload, false));
+    });
+    ["presence_update", "update_user_status", "user_status_update"].forEach(
+      (eventName) => socket.on(eventName, (payload) => handlePresence(payload))
+    );
+    if (socket.connected) socket.emit("get_online_users");
 
     return () => {
       socket.removeAllListeners();
@@ -2191,7 +1998,7 @@ export default function AdminConversationsPage() {
       selectedUser?.isOnline ??
       selectedUser?.online
   );
-  const selectedStatus = selectedUser?.status || (selectedOnline ? "available" : "offline");
+  const selectedStatus = selectedOnline ? "available" : "offline";
   const selectedKey = String(selectedConversationId || "");
 
   const appendEmoji = (emoji) => {
@@ -2314,7 +2121,15 @@ export default function AdminConversationsPage() {
                 </div>
               </div>
               <div className="max-h-48 overflow-y-auto space-y-1 pr-1">
-                {users.map((user) => (
+                {loadingUsers ? (
+                  <div className="flex items-center justify-center py-4 text-[#616161]">
+                    <Loader2 size={16} className="animate-spin" />
+                  </div>
+                ) : users.length === 0 ? (
+                  <p className="px-2 py-4 text-center text-[11px] text-[#616161]">
+                    No real users returned by the server. Check the users API and login session.
+                  </p>
+                ) : users.map((user) => (
                   <button
                     key={getId(user)}
                     onClick={() => {
@@ -2388,7 +2203,7 @@ export default function AdminConversationsPage() {
                           other?.isOnline ??
                           other?.online
                       );
-                      const presence = other?.status || (isOnline ? "available" : "offline");
+                      const presence = isOnline ? "available" : "offline";
 
                       return (
                         <div
@@ -2508,7 +2323,7 @@ export default function AdminConversationsPage() {
                         other?.isOnline ??
                         other?.online
                     );
-                    const presence = other?.status || (isOnline ? "available" : "offline");
+                    const presence = isOnline ? "available" : "offline";
                     const isMuted = mutedChats.includes(String(id));
 
                     return (
