@@ -22,7 +22,7 @@ import {
 
 const RAW_API_URL =
   process.env.NEXT_PUBLIC_API_URL ||
-  "https://api.localpro1.net/api";
+  "http://localhost:5000/api";
 
 const CLEAN_API_URL = RAW_API_URL.replace(/\/+$/, "");
 

@@ -2,7 +2,7 @@ import { authService } from "./authService";
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ||
-  "https://api.localpro1.net/api";
+  "http://localhost:5000/api";
 
 // ==========================================
 // Parse Backend Response

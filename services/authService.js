@@ -1,39 +1,15 @@
 "use client";
 
 // ==========================================
-// API URL
+// API URL — LOCAL DEVELOPMENT
 // ==========================================
 
 const ENV_API_URL = process.env.NEXT_PUBLIC_API_URL?.trim();
-
-const PRODUCTION_API = "https://api.localpro1.net/api";
 const LOCAL_API = "http://localhost:5000/api";
 
 const getApiUrl = () => {
-  if (typeof window === "undefined") {
-    return ENV_API_URL || PRODUCTION_API;
-  }
-
-  const hostname = window.location.hostname;
-
-  const isLocalFrontend =
-    hostname === "localhost" ||
-    hostname === "127.0.0.1";
-
-  // Never use localhost API from deployed frontend.
-  if (!isLocalFrontend) {
-    if (
-      !ENV_API_URL ||
-      ENV_API_URL.includes("localhost") ||
-      ENV_API_URL.includes("127.0.0.1")
-    ) {
-      return PRODUCTION_API;
-    }
-
-    return ENV_API_URL.replace(/\/+$/, "");
-  }
-
-  return (ENV_API_URL || LOCAL_API).replace(/\/+$/, "");
+  const apiUrl = ENV_API_URL || LOCAL_API;
+  return apiUrl.replace(/\/+$/, "");
 };
 
 // ==========================================
@@ -44,12 +20,10 @@ let cachedUser = null;
 let cachedUserAt = 0;
 let cachedUserPromise = null;
 
-// Keep the authenticated user briefly in memory
-// for better performance across layout/navbar/dashboard mounts.
 const USER_CACHE_TTL = 10000;
 
 // ==========================================
-// Helper: Clear Current User Cache
+// CLEAR CURRENT USER CACHE
 // ==========================================
 
 const clearUserCache = () => {
@@ -59,7 +33,7 @@ const clearUserCache = () => {
 };
 
 // ==========================================
-// Helper: Normalize Token
+// NORMALIZE TOKEN
 // ==========================================
 
 const normalizeToken = (value) => {
@@ -95,7 +69,7 @@ const normalizeToken = (value) => {
 };
 
 // ==========================================
-// Helper: Get Stored Token
+// GET STORED TOKEN
 // ==========================================
 
 const getStoredToken = () => {
@@ -115,7 +89,7 @@ const getStoredToken = () => {
 };
 
 // ==========================================
-// Helper: Get Auth Headers
+// AUTH HEADERS
 // ==========================================
 
 const getAuthHeaders = (
@@ -134,14 +108,14 @@ const getAuthHeaders = (
   const token = getStoredToken();
 
   if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
+    headers.Authorization = `Bearer ${token}`;
   }
 
   return headers;
 };
 
 // ==========================================
-// Parse Response
+// PARSE RESPONSE
 // ==========================================
 
 const parseResponse = async (response) => {
@@ -166,7 +140,7 @@ const parseResponse = async (response) => {
 };
 
 // ==========================================
-// Build Error Message
+// ERROR MESSAGE
 // ==========================================
 
 const getErrorMessage = (
@@ -182,7 +156,7 @@ const getErrorMessage = (
 };
 
 // ==========================================
-// Safe Fetch
+// SAFE FETCH
 // ==========================================
 
 const safeFetch = async (url, options = {}) => {
@@ -193,7 +167,7 @@ const safeFetch = async (url, options = {}) => {
     });
   } catch (error) {
     const networkError = new Error(
-      "Unable to connect to the server. Please check your internet connection or try again."
+      "Unable to connect to the local server. Please check that the backend is running on port 5000."
     );
 
     networkError.code = "NETWORK_ERROR";
@@ -204,7 +178,7 @@ const safeFetch = async (url, options = {}) => {
 };
 
 // ==========================================
-// Fetch Current User
+// FETCH CURRENT USER
 // ==========================================
 
 const fetchCurrentUser = async () => {
@@ -222,13 +196,11 @@ const fetchCurrentUser = async () => {
 
   const data = await parseResponse(response);
 
-  // Session/token expired
   if (response.status === 401) {
     clearUserCache();
     return null;
   }
 
-  // User authenticated but not allowed
   if (response.status === 403) {
     const error = new Error(
       getErrorMessage(
@@ -243,7 +215,6 @@ const fetchCurrentUser = async () => {
     throw error;
   }
 
-  // Other API/server errors
   if (!response.ok || data?.success === false) {
     const error = new Error(
       getErrorMessage(
@@ -266,7 +237,7 @@ const fetchCurrentUser = async () => {
 };
 
 // ==========================================
-// Auth Service
+// AUTH SERVICE
 // ==========================================
 
 export const authService = {
@@ -299,14 +270,10 @@ export const authService = {
 
     if (!response.ok || data?.success === false) {
       throw new Error(
-        getErrorMessage(
-          data,
-          "Invalid email or password."
-        )
+        getErrorMessage(data, "Invalid email or password.")
       );
     }
 
-    // Store JWT token if backend returns one
     if (
       typeof window !== "undefined" &&
       (data?.token || data?.data?.token)
@@ -338,7 +305,6 @@ export const authService = {
   async me() {
     const now = Date.now();
 
-    // Return cached user if still valid
     if (
       cachedUser &&
       now - cachedUserAt < USER_CACHE_TTL
@@ -346,7 +312,6 @@ export const authService = {
       return cachedUser;
     }
 
-    // Prevent duplicate simultaneous requests
     if (cachedUserPromise) {
       return cachedUserPromise;
     }
@@ -423,7 +388,6 @@ export const authService = {
 
     let data = await parseResponse(response);
 
-    // Fallback endpoint
     if (response.status === 404) {
       response = await safeFetch(
         `${apiUrl}/users/profile`,
@@ -438,7 +402,6 @@ export const authService = {
       data = await parseResponse(response);
     }
 
-    // Session expired
     if (response.status === 401) {
       clearUserCache();
 
@@ -452,7 +415,6 @@ export const authService = {
       throw error;
     }
 
-    // Forbidden
     if (response.status === 403) {
       throw new Error(
         getErrorMessage(
@@ -462,19 +424,14 @@ export const authService = {
       );
     }
 
-    // Other errors
     if (!response.ok || data?.success === false) {
       throw new Error(
-        getErrorMessage(
-          data,
-          "Unable to update profile."
-        )
+        getErrorMessage(data, "Unable to update profile.")
       );
     }
 
     clearUserCache();
 
-    // Immediately prime cache with updated profile
     if (data) {
       cachedUser = data;
       cachedUserAt = Date.now();
@@ -487,10 +444,7 @@ export const authService = {
   // CHANGE PASSWORD
   // ========================================
 
-  async changePassword(
-    currentPassword,
-    newPassword
-  ) {
+  async changePassword(currentPassword, newPassword) {
     const apiUrl = getApiUrl();
 
     const response = await safeFetch(
@@ -523,10 +477,7 @@ export const authService = {
 
     if (!response.ok || data?.success === false) {
       throw new Error(
-        getErrorMessage(
-          data,
-          "Unable to change password."
-        )
+        getErrorMessage(data, "Unable to change password.")
       );
     }
 
@@ -572,15 +523,9 @@ export const authService = {
 
       const data = await parseResponse(response);
 
-      if (
-        !response.ok &&
-        response.status !== 401
-      ) {
+      if (!response.ok && response.status !== 401) {
         throw new Error(
-          getErrorMessage(
-            data,
-            "Unable to logout."
-          )
+          getErrorMessage(data, "Unable to logout.")
         );
       }
 

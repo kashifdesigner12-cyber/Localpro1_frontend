@@ -31,7 +31,7 @@ import {
 import { authService } from "@/services/authService";
 
 const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "https://api.localpro1.net/api";
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
 
 function getToken() {
   try {
