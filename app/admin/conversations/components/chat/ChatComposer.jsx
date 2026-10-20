@@ -33,7 +33,7 @@ export function ChatComposer({
   };
 
   return (
-    <div className="relative z-20 mt-auto w-full shrink-0 border-t border-[#E1DFDD] bg-white px-4 pb-3 pt-3 sm:px-6 shadow-md">
+    <div className="sticky bottom-0 left-0 right-0 z-20 w-full shrink-0 border-t border-[#E1DFDD] bg-white px-4 pb-3 pt-3 sm:px-6 shadow-md">
       <div className="mx-auto max-w-4xl">
         {replyingTo && (
           <div className="mb-2 flex items-center justify-between rounded-t border-l-2 border-[#5B5FC7] bg-[#EEF1FD] px-3 py-1.5 text-xs">

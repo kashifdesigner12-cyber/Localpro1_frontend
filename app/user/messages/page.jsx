@@ -129,7 +129,22 @@ export default function UserConversationsPage() {
   const selectedConversationIdRef = useRef(null);
   const currentUserRef = useRef(null);
   const messagesCache = useRef({});
+  const fetchingMessagesRef = useRef(new Set());
   const sendingRef = useRef(false);
+
+  useEffect(() => {
+    try {
+      const cachedMsgs = JSON.parse(localStorage.getItem("localpro_user_msgs") || "{}");
+      if (cachedMsgs) messagesCache.current = cachedMsgs;
+    } catch {}
+  }, []);
+
+  const saveMessagesToCache = (cId, list) => {
+    messagesCache.current[cId] = list;
+    try {
+      localStorage.setItem("localpro_user_msgs", JSON.stringify(messagesCache.current));
+    } catch {}
+  };
 
   const selectedConversationId = getConversationId(selectedConversation);
 
@@ -139,8 +154,6 @@ export default function UserConversationsPage() {
   const scrollToBottom = useCallback((instant = false) => {
     messagesEndRef.current?.scrollIntoView({ behavior: instant ? "auto" : "smooth", block: "end" });
   }, []);
-
-  useEffect(() => { if (messages.length) scrollToBottom(false); }, [messages, scrollToBottom]);
 
   const loadConversations = useCallback(async () => {
     try {
@@ -156,8 +169,10 @@ export default function UserConversationsPage() {
       
       setConversations(list);
       if (list.length > 0 && !selectedConversation) {
+        const firstId = getConversationId(list[0]);
         setSelectedConversation(list[0]);
-        selectedConversationIdRef.current = getConversationId(list[0]);
+        selectedConversationIdRef.current = firstId;
+        setMessages(messagesCache.current[firstId] || []);
       }
     } finally {
       setLoading(false);
@@ -172,14 +187,20 @@ export default function UserConversationsPage() {
       setMessages(DEMO_ADMIN_MESSAGES[id] || []);
       return;
     }
+    if (fetchingMessagesRef.current.has(id)) return;
+    fetchingMessagesRef.current.add(id);
+
     try {
       setMessagesLoading(true);
       const res = await apiRequest(`/messages/${encodeURIComponent(id)}?limit=100`);
       const list = normalizeMessages(res);
-      messagesCache.current[id] = list;
+      saveMessagesToCache(id, list);
       if (sameId(selectedConversationIdRef.current, id)) setMessages(list);
+    } catch {
+      setMessages(messagesCache.current[id] || []);
     } finally {
       setMessagesLoading(false);
+      fetchingMessagesRef.current.delete(id);
     }
   }, []);
 
@@ -199,7 +220,9 @@ export default function UserConversationsPage() {
       if (sameId(selectedConversationIdRef.current, cId)) {
         setMessages((prev) => {
           if (prev.some((m) => sameId(getMessageId(m), getMessageId(msg)))) return prev;
-          return [...prev, msg];
+          const updated = [...prev, msg];
+          saveMessagesToCache(cId, updated);
+          return updated;
         });
         scrollToBottom();
       }
@@ -208,10 +231,16 @@ export default function UserConversationsPage() {
   }, [scrollToBottom]);
 
   const handleSelectConversation = async (conv) => {
+    const cId = getConversationId(conv);
     setSelectedConversation(conv);
-    selectedConversationIdRef.current = getConversationId(conv);
+    selectedConversationIdRef.current = cId;
     setHeaderTab("chat");
-    await loadMessages(getConversationId(conv));
+    
+    // Instant load from cache first if available
+    setMessages(messagesCache.current[cId] || []);
+    
+    // Background sync
+    await loadMessages(cId);
   };
 
   // --- OPTIMIZED OPTIMISTIC UI SEND MESSAGE FOR USER ---
@@ -239,7 +268,11 @@ export default function UserConversationsPage() {
     setMessage("");
 
     // 1. Instant UI Update
-    setMessages((prev) => [...prev, optimisticMessage]);
+    setMessages((prev) => {
+      const updated = [...prev, optimisticMessage];
+      saveMessagesToCache(cId, updated);
+      return updated;
+    });
     scrollToBottom(true);
 
     try {
@@ -250,11 +283,19 @@ export default function UserConversationsPage() {
       const sent = res?.data || res?.message;
       if (sent) {
         // 2. Replace temporary message with confirmed database record
-        setMessages((prev) => prev.map((m) => (sameId(getMessageId(m), tempId) ? sent : m)));
+        setMessages((prev) => {
+          const updated = prev.map((m) => (sameId(getMessageId(m), tempId) ? sent : m));
+          saveMessagesToCache(cId, updated);
+          return updated;
+        });
       }
     } catch (err) {
       // Revert on failure
-      setMessages((prev) => prev.filter((m) => !sameId(getMessageId(m), tempId)));
+      setMessages((prev) => {
+        const updated = prev.filter((m) => !sameId(getMessageId(m), tempId));
+        saveMessagesToCache(cId, updated);
+        return updated;
+      });
       setMessage(body);
     } finally {
       sendingRef.current = false;

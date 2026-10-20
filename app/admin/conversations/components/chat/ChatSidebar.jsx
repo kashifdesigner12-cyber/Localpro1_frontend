@@ -37,7 +37,7 @@ export function ChatSidebar({
   TeamsPresenceBadge
 }) {
   return (
-    <aside className="flex h-full min-h-0 w-full min-w-0 shrink-0 flex-col overflow-hidden border-r border-[#E1DFDD] bg-[#F5F5F5] transition-[width] duration-200 md:w-[300px] lg:w-[340px] xl:w-[360px]">
+    <aside className="flex h-full w-full min-w-0 shrink-0 flex-col overflow-hidden border-r border-[#E1DFDD] bg-[#F5F5F5] transition-[width] duration-200 md:w-[300px] lg:w-[340px] xl:w-[360px]">
       {/* Header */}
       <div className="flex shrink-0 items-center justify-between border-b border-[#E1DFDD] bg-[#F5F5F5] px-4 py-3">
         <div className="flex items-center gap-2">
@@ -80,7 +80,7 @@ export function ChatSidebar({
 
       {/* New Chat Drawer */}
       {showNewChatDrawer && (
-        <div className="border-b border-[#E1DFDD] bg-white p-3 shadow-xs">
+        <div className="border-b border-[#E1DFDD] bg-white p-3 shadow-xs shrink-0">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-xs font-bold text-[#5B5FC7]">New chat</span>
             <div className="flex items-center gap-2">
@@ -104,7 +104,7 @@ export function ChatSidebar({
                 onClick={() => { handleSelectUser(user); setShowNewChatDrawer(false); }}
                 className="flex w-full items-center gap-2.5 rounded p-1.5 text-left text-xs hover:bg-[#F5F5F5]"
               >
-                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#5B5FC7] text-[11px] font-bold text-white">
+                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#5B5FC7] text-[11px] font-bold text-white shrink-0">
                   {getUserAvatar(user) ? <img src={getFileUrl(getUserAvatar(user))} alt="" className="h-full w-full rounded-full object-cover" /> : getInitials(getUserName(user))}
                 </div>
                 <div className="min-w-0 flex-1">
@@ -117,8 +117,8 @@ export function ChatSidebar({
         </div>
       )}
 
-      {/* List */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      {/* List - Scrollable container with hidden/clean scrollbar */}
+      <div className="flex-1 overflow-y-auto min-h-0">
         {pinnedConversations.length > 0 && (
           <div className="mb-2">
             <div className="px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-[#616161]">Pinned</div>

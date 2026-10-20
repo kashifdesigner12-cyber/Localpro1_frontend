@@ -158,6 +158,13 @@ export default function AdminConversationsPage() {
     } catch {}
   }, []);
 
+  const saveMessagesToCache = (cId, list) => {
+    messagesCache.current[cId] = list;
+    try {
+      localStorage.setItem("localpro_admin_msgs", JSON.stringify(messagesCache.current));
+    } catch {}
+  };
+
   const scrollToBottom = useCallback((instant = false) => {
     messagesEndRef.current?.scrollIntoView({ behavior: instant ? "auto" : "smooth", block: "end" });
   }, []);
@@ -191,9 +198,11 @@ export default function AdminConversationsPage() {
       setConversations(rConvs);
       conversationsRef.current = rConvs;
       if (rConvs.length > 0 && !selectedConversationIdRef.current) {
-        setSelectedConversationId(getConversationId(rConvs[0]));
-        selectedConversationIdRef.current = getConversationId(rConvs[0]);
+        const firstId = getConversationId(rConvs[0]);
+        setSelectedConversationId(firstId);
+        selectedConversationIdRef.current = firstId;
         setSelectedConversation(rConvs[0]);
+        setMessages(messagesCache.current[firstId] || []);
       }
     } catch (err) {
       console.error("[Chat Data Fetch Error]:", err);
@@ -213,7 +222,7 @@ export default function AdminConversationsPage() {
       const res = await fetch(getApiUrl(`/messages?conversationId=${encodeURIComponent(cId)}`), { headers: getAuthHeaders() });
       const data = await parseResponse(res);
       const list = extractMessages(data);
-      messagesCache.current[cId] = list;
+      saveMessagesToCache(cId, list);
       if (sameId(selectedConversationIdRef.current, cId)) setMessages(list);
     } catch (e) {
       setMessages(messagesCache.current[cId] || []);
@@ -229,7 +238,11 @@ export default function AdminConversationsPage() {
     setSelectedConversationId(String(cId));
     setSelectedConversation(conv);
     if (user) setSelectedUser(user);
+    
+    // Instant load from cache first if available
     setMessages(messagesCache.current[String(cId)] || []);
+    
+    // Background sync
     await fetchMessages(cId);
     socketRef.current?.emit("join_room", String(cId));
   }, [fetchMessages]);
@@ -262,11 +275,16 @@ export default function AdminConversationsPage() {
     }
   }, [openConversation]);
 
-  // Socket setup
+  // Socket setup with optimized websocket transport
   useEffect(() => {
     if (!isClient) return;
     const token = getStoredToken();
-    const socket = io(BACKEND_BASE_URL, { auth: token ? { token } : {} });
+    const socket = io(BACKEND_BASE_URL, { 
+      auth: token ? { token } : {},
+      transports: ["websocket", "polling"],
+      reconnectionAttempts: 5,
+      timeout: 10000
+    });
     socketRef.current = socket;
 
     socket.on("connect", () => setSocketConnected(true));
@@ -277,7 +295,9 @@ export default function AdminConversationsPage() {
       if (sameId(selectedConversationIdRef.current, cId)) {
         setMessages((prev) => {
           if (prev.some((m) => sameId(getMessageId(m), getMessageId(msg)))) return prev;
-          return [...prev, msg];
+          const updated = [...prev, msg];
+          saveMessagesToCache(cId, updated);
+          return updated;
         });
         scrollToBottom();
       }
@@ -286,7 +306,7 @@ export default function AdminConversationsPage() {
     return () => socket.disconnect();
   }, [isClient, scrollToBottom]);
 
-  // Optimized Real-Time Send Message with Optimistic UI
+  // Instant Optimistic Send Message
   const handleSendMessage = async (e) => {
     e?.preventDefault();
     const text = message.trim();
@@ -310,7 +330,11 @@ export default function AdminConversationsPage() {
     setSendingMessage(true);
     setMessage("");
 
-    setMessages((prev) => [...prev, optimisticMessage]);
+    setMessages((prev) => {
+      const updated = [...prev, optimisticMessage];
+      saveMessagesToCache(cId, updated);
+      return updated;
+    });
     scrollToBottom(true);
 
     try {
@@ -322,12 +346,20 @@ export default function AdminConversationsPage() {
       const data = await parseResponse(res);
       if (res.ok && data?.success) {
         const sent = data.data || data.message;
-        setMessages((prev) => prev.map((m) => (sameId(getMessageId(m), tempId) ? sent : m)));
+        setMessages((prev) => {
+          const updated = prev.map((m) => (sameId(getMessageId(m), tempId) ? sent : m));
+          saveMessagesToCache(cId, updated);
+          return updated;
+        });
       } else {
         throw new Error("Failed to send");
       }
     } catch (err) {
-      setMessages((prev) => prev.filter((m) => !sameId(getMessageId(m), tempId)));
+      setMessages((prev) => {
+        const updated = prev.filter((m) => !sameId(getMessageId(m), tempId));
+        saveMessagesToCache(cId, updated);
+        return updated;
+      });
       setMessage(text);
     } finally {
       sendingRef.current = false;
