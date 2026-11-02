@@ -22,7 +22,6 @@ import UserAttendance from "./pages/user/UserAttendance";
 import UserLeaves from "./pages/user/UserLeaves";
 import UserProfile from "./pages/user/UserProfile";
 import UserSettings from "./pages/user/UserSettings";
-import ChatPage from "./pages/chat/ChatPage"; // <-- ChatPage imported
 
 function getDashboardPath(user) {
   return user?.role === "user"
@@ -74,7 +73,6 @@ function RoleRoutes({ user, loading, onLogout, setUser }) {
                 <UserDashboard user={user} onLogout={onLogout} />
               }
             />
-            <Route path="chat" element={<ChatPage user={user} />} />
             <Route path="tasks" element={<UserTasks />} />
             <Route path="attendance" element={<UserAttendance />} />
             <Route path="leaves" element={<UserLeaves />} />
@@ -110,7 +108,6 @@ function RoleRoutes({ user, loading, onLogout, setUser }) {
                 <AdminDashboard user={user} onLogout={onLogout} />
               }
             />
-            <Route path="chat" element={<ChatPage user={user} />} />
             <Route path="tasks" element={<AdminTasks />} />
             <Route path="users" element={<AdminUsers />} />
             <Route path="attendance" element={<AdminAttendance />} />
