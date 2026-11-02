@@ -1,4 +1,3 @@
-
 import { useCallback, useEffect, useState } from "react";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { io } from "socket.io-client";
@@ -26,9 +25,7 @@ import UserProfile from "./pages/user/UserProfile";
 import UserSettings from "./pages/user/UserSettings";
 
 function getDashboardPath(user) {
-  return user?.role === "user"
-    ? "/user/dashboard"
-    : "/admin/dashboard";
+  return user?.role === "user" ? "/user/dashboard" : "/admin/dashboard";
 }
 
 function RoleRoutes({ user, loading, onLogout, setUser }) {
@@ -57,35 +54,20 @@ function RoleRoutes({ user, loading, onLogout, setUser }) {
         {isUser ? (
           <Route
             path="/user"
-            element={
-              <MainLayout
-                user={user}
-                role="user"
-                onLogout={onLogout}
-              />
-            }
+            element={<MainLayout user={user} role="user" onLogout={onLogout} />}
           >
-            <Route
-              index
-              element={<Navigate to="/user/dashboard" replace />}
-            />
+            <Route index element={<Navigate to="/user/dashboard" replace />} />
             <Route
               path="dashboard"
-              element={
-                <UserDashboard user={user} onLogout={onLogout} />
-              }
+              element={<UserDashboard user={user} onLogout={onLogout} />}
             />
             <Route path="tasks" element={<UserTasks />} />
+            <Route path="chat" element={<ChatPage user={user} />} />
             <Route path="attendance" element={<UserAttendance />} />
             <Route path="leaves" element={<UserLeaves />} />
             <Route
               path="profile"
-              element={
-                <UserProfile
-                  user={user}
-                  onUserUpdate={setUser}
-                />
-              }
+              element={<UserProfile user={user} onUserUpdate={setUser} />}
             />
             <Route path="settings" element={<UserSettings />} />
           </Route>
@@ -93,45 +75,25 @@ function RoleRoutes({ user, loading, onLogout, setUser }) {
           <Route
             path="/admin"
             element={
-              <MainLayout
-                user={user}
-                role={user.role}
-                onLogout={onLogout}
-              />
+              <MainLayout user={user} role={user.role} onLogout={onLogout} />
             }
           >
-            <Route
-              index
-              element={<Navigate to="/admin/dashboard" replace />}
-            />
+            <Route index element={<Navigate to="/admin/dashboard" replace />} />
             <Route
               path="dashboard"
-              element={
-                <AdminDashboard user={user} onLogout={onLogout} />
-              }
+              element={<AdminDashboard user={user} onLogout={onLogout} />}
             />
             <Route path="tasks" element={<AdminTasks />} />
             <Route path="users" element={<AdminUsers />} />
             <Route path="attendance" element={<AdminAttendance />} />
-            <Route
-              path="attendance-reports"
-              element={<AttendanceReports />}
-            />
+            <Route path="attendance-reports" element={<AttendanceReports />} />
             <Route path="leaves" element={<AdminLeaves />} />
 
-            <Route
-              path="chat"
-              element={<ChatPage user={user} />}
-            />
+            <Route path="chat" element={<ChatPage user={user} />} />
 
             <Route
               path="profile"
-              element={
-                <AdminProfile
-                  user={user}
-                  onUserUpdate={setUser}
-                />
-              }
+              element={<AdminProfile user={user} onUserUpdate={setUser} />}
             />
             <Route path="settings" element={<AdminSettings />} />
           </Route>
@@ -221,7 +183,7 @@ export default function App() {
         setUser(authenticatedUser);
         localStorage.setItem(
           "localpro_user",
-          JSON.stringify(authenticatedUser)
+          JSON.stringify(authenticatedUser),
         );
       } else {
         setUser(null);
@@ -250,16 +212,13 @@ export default function App() {
       }
 
       setUser(authenticatedUser);
-      localStorage.setItem(
-        "localpro_user",
-        JSON.stringify(authenticatedUser)
-      );
+      localStorage.setItem("localpro_user", JSON.stringify(authenticatedUser));
 
       navigate(getDashboardPath(authenticatedUser), {
         replace: true,
       });
     },
-    [navigate]
+    [navigate],
   );
 
   const handleLogout = useCallback(async () => {
@@ -300,7 +259,7 @@ export default function App() {
               if (updatedUser) {
                 localStorage.setItem(
                   "localpro_user",
-                  JSON.stringify(updatedUser)
+                  JSON.stringify(updatedUser),
                 );
               } else {
                 localStorage.removeItem("localpro_user");
