@@ -1,3 +1,4 @@
+
 import { useCallback, useEffect, useState } from "react";
 import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { io } from "socket.io-client";
@@ -15,6 +16,7 @@ import AttendanceReports from "./pages/admin/AttendanceReports";
 import AdminLeaves from "./pages/admin/AdminLeaves";
 import AdminProfile from "./pages/admin/Profile";
 import AdminSettings from "./pages/admin/Settings";
+import ChatPage from "./pages/chat/ChatPage";
 
 import UserDashboard from "./pages/user/UserDashboard";
 import UserTasks from "./pages/user/UserTasks";
@@ -116,6 +118,12 @@ function RoleRoutes({ user, loading, onLogout, setUser }) {
               element={<AttendanceReports />}
             />
             <Route path="leaves" element={<AdminLeaves />} />
+
+            <Route
+              path="chat"
+              element={<ChatPage user={user} />}
+            />
+
             <Route
               path="profile"
               element={
@@ -147,7 +155,7 @@ export default function App() {
       return null;
     }
   });
-  
+
   const [loading, setLoading] = useState(!user);
   const navigate = useNavigate();
 
@@ -174,7 +182,7 @@ export default function App() {
         try {
           const notifTitle = notification.title || "LocalPro Notification";
           const notifBody = notification.message || "You have a new update.";
-          
+
           const browserNotification = new Notification(notifTitle, {
             body: notifBody,
             icon: "/favicon.ico",
@@ -183,9 +191,11 @@ export default function App() {
 
           browserNotification.onclick = () => {
             window.focus();
+
             if (notification.link) {
               navigate(notification.link);
             }
+
             browserNotification.close();
           };
         } catch (err) {
@@ -209,13 +219,16 @@ export default function App() {
         ["admin", "manager", "user"].includes(authenticatedUser.role)
       ) {
         setUser(authenticatedUser);
-        localStorage.setItem("localpro_user", JSON.stringify(authenticatedUser));
+        localStorage.setItem(
+          "localpro_user",
+          JSON.stringify(authenticatedUser)
+        );
       } else {
         setUser(null);
         localStorage.removeItem("localpro_user");
       }
     } catch {
-      // Keep cached user temporarily on network failure
+      // Keep cached user temporarily on network failure.
     } finally {
       setLoading(false);
     }
@@ -237,12 +250,16 @@ export default function App() {
       }
 
       setUser(authenticatedUser);
-      localStorage.setItem("localpro_user", JSON.stringify(authenticatedUser));
+      localStorage.setItem(
+        "localpro_user",
+        JSON.stringify(authenticatedUser)
+      );
+
       navigate(getDashboardPath(authenticatedUser), {
         replace: true,
       });
     },
-    [navigate],
+    [navigate]
   );
 
   const handleLogout = useCallback(async () => {
@@ -279,8 +296,12 @@ export default function App() {
             onLogout={handleLogout}
             setUser={(updatedUser) => {
               setUser(updatedUser);
+
               if (updatedUser) {
-                localStorage.setItem("localpro_user", JSON.stringify(updatedUser));
+                localStorage.setItem(
+                  "localpro_user",
+                  JSON.stringify(updatedUser)
+                );
               } else {
                 localStorage.removeItem("localpro_user");
               }
